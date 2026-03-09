@@ -1,5 +1,5 @@
 /** Biome for spawn logic – aligned with world types. */
-export type Biome = "plains" | "desert" | "forest" | "jungle" | "mountain" | "snow";
+export type Biome = "plains" | "desert" | "forest" | "jungle" | "mountain" | "snow" | "meadow" | "grove" | "snowy_slopes";
 
 /** Animal kinds: sheep, pig, wolf (staged). */
 export type AnimalKind = "sheep" | "pig" | "wolf";

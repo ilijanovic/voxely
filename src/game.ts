@@ -11,6 +11,7 @@ import {
   WORLD_HEIGHT,
   SPAWN_X,
   SPAWN_Z,
+  BLOCK_TEXTURE_PATH,
 } from "./constants";
 import {
   getRenderDistance,
@@ -34,6 +35,13 @@ import { updateMovement } from "./entities/movement";
 import { updateAI } from "./entities/ai";
 import { updateAnimation } from "./entities/animation";
 import type { ChunkDataPayload, BlockModEntry } from "./terrain-core";
+import {
+  getAllBlockIds,
+  getBlockDefinition,
+  getBlockTextureNames,
+  isSolidBlock as isBlockTypeSolid,
+  isUnbreakableBlock,
+} from "./block-registry";
 // ================= TERRAIN – Shared resources (reused for all chunks) =================
 
 /** Seeded RNG for deterministic noise (same seed = same world) */
@@ -98,6 +106,7 @@ sharedWaterPlaneGeometry.rotateX(-Math.PI / 2);
 
 const textureLoader = new THREE.TextureLoader();
 
+
 function setPixelFilter(tex: THREE.Texture) {
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
@@ -106,18 +115,19 @@ function setPixelFilter(tex: THREE.Texture) {
   tex.wrapT = THREE.RepeatWrapping;
 }
 
-/** Shared materials – set after textures load (see init()). Grass = 6 materials for BoxGeometry faces: right, left, top, bottom, front, back. */
-let sharedMaterials: {
-  grass: THREE.MeshStandardMaterial[];
-  dirt: THREE.MeshStandardMaterial;
-  stone: THREE.MeshStandardMaterial;
-  sand: THREE.MeshStandardMaterial;
-  snow: THREE.MeshStandardMaterial;
-  water: THREE.MeshStandardMaterial;
-  wood: THREE.MeshStandardMaterial[];
-  leaves: THREE.MeshStandardMaterial;
-  bedrock: THREE.MeshStandardMaterial;
-};
+/** Block materials by registry id – set after textures load (see init()). */
+let blockMaterialCache: Map<
+  string,
+  THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[]
+> = new Map();
+
+function getMaterialForBlockType(
+  blockType: BlockType
+): THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] {
+  const m = blockMaterialCache.get(blockType);
+  if (!m) throw new Error(`Missing material for block: ${blockType}`);
+  return m;
+}
 
 // ================= HOTBAR (Minecraft-Style Block-Auswahl) =================
 
@@ -183,8 +193,21 @@ function addBlockToInventory(blockType: BlockType): void {
 import type { Biome } from "./types";
 export type { Biome };
 
-/** Wenn gesetzt, wird beim Start eine Spawn-Position in diesem Biom gesucht (ignoriert SPAWN_X/SPAWN_Z). Sonst: null = normale Koordinaten nutzen. */
-const SPAWN_BIOME: Biome | null = "forest";
+/** Biomes that can be chosen for spawn; each has equal probability (deterministic per WORLD_SEED). */
+const SPAWNABLE_BIOMES: Biome[] = [
+  "desert",
+  "plains",
+  "forest",
+  "jungle",
+  "mountain",
+  "snow",
+];
+/** Spawn biome for this world: one of SPAWNABLE_BIOMES chosen by seeded RNG so chance is equal per world. */
+const SPAWN_BIOME: Biome = (() => {
+  const rng = makeSeededRandom(WORLD_SEED + 5050);
+  const idx = Math.floor(rng() * SPAWNABLE_BIOMES.length);
+  return SPAWNABLE_BIOMES[idx];
+})();
 
 /** Biome noise scale: small = large regions. ~0.002–0.004 gives very large, coherent biomes. */
 const BIOME_NOISE_SCALE = 0.0008;
@@ -229,6 +252,23 @@ function getBiome(x: number, z: number): Biome {
   if (v < 3.8) return "jungle";
   if (v < 4.6) return "mountain";
   return "snow";
+}
+
+/** Height bands for highland sub-biomes (only when base biome is mountain or snow). */
+const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10; // meadow: lower slopes
+const HIGHLAND_GROVE_MAX = WATER_LEVEL + 22; // grove: mid; snowy_slopes: >= this
+
+/**
+ * Resolved biome for terrain surface, blocks, and trees. In mountain/snow regions
+ * this returns meadow (low), grove (mid), or snowy_slopes (high) by height; otherwise base biome.
+ */
+function getResolvedBiome(x: number, z: number): Biome {
+  const base = getBiome(x, z);
+  if (base !== "mountain" && base !== "snow") return base;
+  const h = getHeight(x, z);
+  if (h < HIGHLAND_MEADOW_MAX) return "meadow";
+  if (h < HIGHLAND_GROVE_MAX) return "grove";
+  return "snowy_slopes";
 }
 
 /** Reused return object for getBiomeBlend (do not store reference; read and discard). */
@@ -283,6 +323,9 @@ const BIOME_LAYERS: Record<
   jungle: { surface: "grass", subsurface: "dirt", subsurfaceDepth: 3 },
   mountain: { surface: "grass", subsurface: "dirt", subsurfaceDepth: 2 },
   snow: { surface: "snow", subsurface: "dirt", subsurfaceDepth: 2 },
+  meadow: { surface: "grass", subsurface: "dirt", subsurfaceDepth: 2 },
+  grove: { surface: "snow", subsurface: "dirt", subsurfaceDepth: 2 },
+  snowy_slopes: { surface: "snow", subsurface: "dirt", subsurfaceDepth: 2 },
 };
 
 // ================= TERRAIN HEIGHT (multi-layer) =================
@@ -349,6 +392,27 @@ const BIOME_TERRAIN: Record<
     mountainAllowed: true,
   },
   snow: {
+    baseOffset: 6,
+    detailAmp: 11,
+    detailFreq: 0.022,
+    flatness: 0.35,
+    mountainAllowed: true,
+  },
+  meadow: {
+    baseOffset: 0,
+    detailAmp: 1.3,
+    detailFreq: 0.015,
+    flatness: 0.97,
+    mountainAllowed: false,
+  },
+  grove: {
+    baseOffset: 6,
+    detailAmp: 11,
+    detailFreq: 0.022,
+    flatness: 0.35,
+    mountainAllowed: true,
+  },
+  snowy_slopes: {
     baseOffset: 6,
     detailAmp: 11,
     detailFreq: 0.022,
@@ -514,7 +578,7 @@ function getSurfaceYVoxel(px: number, pz: number, searchMaxY: number): number {
           break;
         }
         // Nur echten Boden zählen (kein Wood), damit wir nicht auf Baumspitzen spawnen
-        if (type !== "wood" && SOLID_BLOCK_TYPES.has(type as BlockType)) {
+        if (type !== "wood" && isBlockTypeSolid(type as BlockType)) {
           columnTop = by + 0.5;
           break;
         }
@@ -540,7 +604,7 @@ function getColumnSurfaceY(wx: number, wz: number): number {
   for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
     const type = getBlockAt(bx, by, bz);
     if (type === null) return getHeight(bx, bz) + 0.5;
-    if (type !== "wood" && type !== "leaves" && SOLID_BLOCK_TYPES.has(type as BlockType)) {
+    if (type !== "wood" && type !== "leaves" && isBlockTypeSolid(type as BlockType)) {
       return by + 0.5;
     }
   }
@@ -558,23 +622,24 @@ const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26;
 /** In Mountains: ab dieser Höhe ist die Oberfläche schon Stein. */
 const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16;
 
-/** Check that all 4 cardinal points 1 chunk away are also in the target biome (spawn im Biom; lockere Prüfung = mehr Treffer). */
+/** Check that all 4 cardinal points 1 chunk away are also in the target biome (spawn im Biom; lockere Prüfung = mehr Treffer). Uses resolved biome. */
 function isBiomeSolid(wx: number, wz: number, biome: Biome): boolean {
   const r = CHUNK_SIZE * 1;
   return (
-    getBiome(wx + r, wz) === biome &&
-    getBiome(wx - r, wz) === biome &&
-    getBiome(wx, wz + r) === biome &&
-    getBiome(wx, wz - r) === biome
+    getResolvedBiome(wx + r, wz) === biome &&
+    getResolvedBiome(wx - r, wz) === biome &&
+    getResolvedBiome(wx, wz + r) === biome &&
+    getResolvedBiome(wx, wz - r) === biome
   );
 }
 
-/** Max-Höhe für Spawn, damit die Oberfläche Gras ist (nicht Stein). Forest/Plains/Jungle: unter SURFACE_STONE_HEIGHT; Mountain: unter MOUNTAIN_STONE_SURFACE_HEIGHT. */
+/** Max-Höhe für Spawn, damit die Oberfläche Gras ist (nicht Stein). Forest/Plains/Jungle: unter SURFACE_STONE_HEIGHT; Mountain/Meadow: unter MOUNTAIN_STONE_SURFACE_HEIGHT. */
 function getSpawnMaxHeightForGrass(biome: Biome): number {
-  if (biome === "mountain") return MOUNTAIN_STONE_SURFACE_HEIGHT - 1;
+  if (biome === "mountain" || biome === "meadow")
+    return MOUNTAIN_STONE_SURFACE_HEIGHT - 1;
   if (biome === "forest" || biome === "plains" || biome === "jungle")
     return SURFACE_STONE_HEIGHT - 1;
-  return SPAWN_MAX_HEIGHT; // desert, snow: Sand/Schnee-Oberfläche, Höhe egal
+  return SPAWN_MAX_HEIGHT; // desert, snow, grove, snowy_slopes: sand/snow surface
 }
 
 /** Sucht die nächste Spawn-Position im angegebenen Biom (spiralig von (0,0) nach außen). Bevorzugt Land über Wasser und Höhen mit Gras-Oberfläche (kein Stein). */
@@ -593,7 +658,7 @@ function findSpawnInBiome(biome: Biome): { x: number; z: number } {
       for (let x = -half; x <= half; x += step) {
         const h1 = getHeight(x, -half);
         if (
-          getBiome(x, -half) === biome &&
+          getResolvedBiome(x, -half) === biome &&
           isBiomeSolid(x, -half, biome) &&
           h1 >= WATER_LEVEL - 1 &&
           h1 <= maxHeight
@@ -602,7 +667,7 @@ function findSpawnInBiome(biome: Biome): { x: number; z: number } {
         if (half > 0) {
           const h2 = getHeight(x, half);
           if (
-            getBiome(x, half) === biome &&
+            getResolvedBiome(x, half) === biome &&
             isBiomeSolid(x, half, biome) &&
             h2 >= WATER_LEVEL - 1 &&
             h2 <= maxHeight
@@ -613,7 +678,7 @@ function findSpawnInBiome(biome: Biome): { x: number; z: number } {
       for (let z = -half + step; z < half; z += step) {
         const h1 = getHeight(-half, z);
         if (
-          getBiome(-half, z) === biome &&
+          getResolvedBiome(-half, z) === biome &&
           isBiomeSolid(-half, z, biome) &&
           h1 >= WATER_LEVEL - 1 &&
           h1 <= maxHeight
@@ -621,7 +686,7 @@ function findSpawnInBiome(biome: Biome): { x: number; z: number } {
           return { x: -half, z };
         const h2 = getHeight(half, z);
         if (
-          getBiome(half, z) === biome &&
+          getResolvedBiome(half, z) === biome &&
           isBiomeSolid(half, z, biome) &&
           h2 >= WATER_LEVEL - 1 &&
           h2 <= maxHeight
@@ -662,8 +727,10 @@ function getBlockTypeAt(biome: Biome, y: number, topY: number): BlockType {
     const surface = layers.surface;
     if (surface === "snow" && topY <= WATER_LEVEL + 2) return "sand";
     if (biome === "mountain" && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return "stone";
+    if (biome === "meadow" && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return "stone";
     if (topY >= SURFACE_STONE_HEIGHT) return "stone";
-    if (topY >= WATER_LEVEL + 20 && biome !== "desert" && biome !== "mountain" && biome !== "jungle") return "snow";
+    if (topY >= WATER_LEVEL + 20 && biome !== "desert" && biome !== "mountain" && biome !== "jungle") return "grass_snow";
+    if (surface === "snow") return "grass_snow";
     return surface;
   }
   if (y >= topY - layers.subsurfaceDepth) return layers.subsurface;
@@ -776,8 +843,10 @@ function getTreePlacementPass(
   }
   if (biome === "mountain")
     return placement > TREE_PLACEMENT_MOUNTAIN_THRESHOLD;
-  if (biome === "plains") return placement > TREE_PLACEMENT_PLAINS_THRESHOLD;
-  if (biome === "snow") return placement > TREE_PLACEMENT_SNOW_THRESHOLD;
+  if (biome === "plains" || biome === "meadow")
+    return placement > TREE_PLACEMENT_PLAINS_THRESHOLD;
+  if (biome === "snow" || biome === "grove")
+    return placement > TREE_PLACEMENT_SNOW_THRESHOLD;
   return false;
 }
 
@@ -821,13 +890,14 @@ function shouldPlaceTree(
   wz: number,
   caches?: TreeNoiseCaches
 ): boolean {
-  const biome = getBiome(wx, wz);
+  const biome = getResolvedBiome(wx, wz);
   if (biome === "desert") return false;
   const topY = getHeight(wx, wz);
   if (topY < WATER_LEVEL) return false;
   if (biome === "mountain" && topY >= WATER_LEVEL + 18) return false;
+  if (biome === "snowy_slopes") return false;
   const surfaceType = getBlockTypeAt(biome, topY, topY);
-  if (surfaceType !== "grass") return false;
+  if (surfaceType !== "grass" && surfaceType !== "grass_snow") return false;
   if (!isTerrainFlatEnough(wx, wz)) return false;
   if (!getTreePlacementPass(wx, wz, biome, caches)) return false;
   if (!isLocalTreeMax(wx, wz, caches?.treePlacement)) return false;
@@ -867,7 +937,7 @@ function getTreeBlocks(
   const leaves: Array<{ x: number; y: number; z: number }> = [];
   const t = treeSeedValue(wx, wz);
   const trunkHeight =
-    biome === "snow"
+    biome === "snow" || biome === "grove"
       ? TRUNK_HEIGHT_SNOW + Math.floor(t * 2)
       : biome === "forest"
       ? TRUNK_HEIGHT_FOREST + Math.floor(t * 2)
@@ -877,7 +947,7 @@ function getTreeBlocks(
       ? TRUNK_HEIGHT_MOUNTAIN + Math.floor(t * 1)
       : TRUNK_HEIGHT_PLAINS + Math.floor(t * 1);
   const leafRadius =
-    biome === "snow"
+    biome === "snow" || biome === "grove"
       ? LEAF_RADIUS_SNOW
       : biome === "forest"
       ? LEAF_RADIUS_FOREST
@@ -887,7 +957,7 @@ function getTreeBlocks(
       ? LEAF_RADIUS_MOUNTAIN
       : LEAF_RADIUS_PLAINS;
   const leafHeight =
-    biome === "snow"
+    biome === "snow" || biome === "grove"
       ? LEAF_HEIGHT_SNOW
       : biome === "forest"
       ? LEAF_HEIGHT_FOREST
@@ -936,7 +1006,7 @@ function generateTree(
   wood: Array<{ x: number; y: number; z: number }>;
   leaves: Array<{ x: number; y: number; z: number }>;
 } {
-  const biome = getBiome(worldX, worldZ);
+  const biome = getResolvedBiome(worldX, worldZ);
   return getTreeBlocks(worldX, worldY, worldZ, biome);
 }
 
@@ -966,6 +1036,17 @@ function blockKeyNumeric(bx: number, by: number, bz: number): number {
 /** Local block key within chunk (lx in [0,15], ly in [0,WORLD_HEIGHT), lz in [0,15]). */
 function localKey(lx: number, ly: number, lz: number): number {
   return lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * WORLD_HEIGHT;
+}
+
+const LOCAL_KEY_STRIDE_Z = CHUNK_SIZE * WORLD_HEIGHT;
+
+/** Decode localKey to local (lx, ly, lz). */
+function decodeLocalKey(key: number): { lx: number; ly: number; lz: number } {
+  const lz = Math.floor(key / LOCAL_KEY_STRIDE_Z);
+  const rem = key - lz * LOCAL_KEY_STRIDE_Z;
+  const ly = Math.floor(rem / CHUNK_SIZE);
+  const lx = rem % CHUNK_SIZE;
+  return { lx, ly, lz };
 }
 
 /** Decode numeric block key to coordinates (for save iteration). */
@@ -1134,17 +1215,6 @@ let pendingSpawn: { spawnX: number; spawnZ: number; chunkKeys: Set<number> } | n
 
 // ================= VOXEL BLOCK LOOKUP (for AABB collision) =================
 
-/** Block types that are solid for player collision. Leaves and water are not solid. */
-const SOLID_BLOCK_TYPES = new Set<BlockType>([
-  "grass",
-  "dirt",
-  "stone",
-  "sand",
-  "snow",
-  "wood",
-  "bedrock",
-]);
-
 /**
  * Get block type at world block coordinates (bx, by, bz). Uses blockModifications first, then chunk voxelMap.
  * Returns null if chunk is not loaded. Uses numeric keys only (no per-call allocation).
@@ -1173,13 +1243,21 @@ function getBlockAt(
 function isSolidBlock(bx: number, by: number, bz: number): boolean {
   const type = getBlockAt(bx, by, bz);
   if (type === null) return true;
-  return SOLID_BLOCK_TYPES.has(type as BlockType);
+  return isBlockTypeSolid(type as BlockType);
+}
+
+/** Solid only if chunk is loaded; unloaded chunks count as non-solid. Use for horizontal (X/Z) collision so the player can move into unloaded areas and trigger chunk loading instead of hitting an invisible wall. */
+function isSolidBlockLoadedOnly(bx: number, by: number, bz: number): boolean {
+  const type = getBlockAt(bx, by, bz);
+  if (type === null) return false;
+  return isBlockTypeSolid(type as BlockType);
 }
 
 /**
  * Fill _aabbBlockBuffer with solid block coordinates overlapping the given AABB; returns count.
  * Blocks are center-based: block at (bx, by, bz) has bounds [bx±0.5], [by±0.5], [bz±0.5].
  * AABB: center (px, py, pz), halfX/halfZ in XZ, height in Y (bottom py, top py+height).
+ * treatUnloadedAsSolid: true = Y-pass (prevent falling through unloaded floor), false = X/Z-pass (no invisible wall).
  */
 function fillBlocksInAABB(
   px: number,
@@ -1187,8 +1265,10 @@ function fillBlocksInAABB(
   pz: number,
   halfX: number,
   halfZ: number,
-  height: number
+  height: number,
+  treatUnloadedAsSolid: boolean = true
 ): number {
+  const solid = treatUnloadedAsSolid ? isSolidBlock : isSolidBlockLoadedOnly;
   _aabbBlockCount = 0;
   const minBx = Math.ceil(px - halfX - 0.5);
   const maxBx = Math.floor(px + halfX + 0.5);
@@ -1199,7 +1279,7 @@ function fillBlocksInAABB(
   for (let bx = minBx; bx <= maxBx; bx++) {
     for (let by = minBy; by <= maxBy; by++) {
       for (let bz = minBz; bz <= maxBz; bz++) {
-        if (isSolidBlock(bx, by, bz)) {
+        if (solid(bx, by, bz)) {
           const slot = _aabbBlockBuffer[_aabbBlockCount];
           slot.bx = bx;
           slot.by = by;
@@ -1279,7 +1359,7 @@ export function resolveVoxelCollisions(
     grounded: false,
   };
 
-  // --- X --- only resolve true side (wall) collisions; floor is handled by Y pass only
+  // --- X --- only resolve true side (wall) collisions; floor is handled by Y pass only. Use loaded-only solid so we don't hit an invisible wall at chunk boundaries.
   position.x += velocity.x * dt;
   for (let iter = 0; iter < 4; iter++) {
     fillBlocksInAABB(
@@ -1288,7 +1368,8 @@ export function resolveVoxelCollisions(
       position.z,
       halfX,
       halfZ,
-      height
+      height,
+      false
     );
     let resolved = false;
     for (let i = 0; i < _aabbBlockCount; i++) {
@@ -1327,7 +1408,7 @@ export function resolveVoxelCollisions(
     if (!resolved) break;
   }
 
-  // --- Z --- only resolve true side (wall) collisions; floor is handled by Y pass only
+  // --- Z --- only resolve true side (wall) collisions; floor is handled by Y pass only. Use loaded-only solid so we don't hit an invisible wall at chunk boundaries.
   position.z += velocity.z * dt;
   for (let iter = 0; iter < 4; iter++) {
     fillBlocksInAABB(
@@ -1336,7 +1417,8 @@ export function resolveVoxelCollisions(
       position.z,
       halfX,
       halfZ,
-      height
+      height,
+      false
     );
     let resolved = false;
     for (let i = 0; i < _aabbBlockCount; i++) {
@@ -1651,14 +1733,6 @@ function generateChunk(
     }
   }
 
-  const grassPos: Array<{ x: number; y: number; z: number }> = [];
-  const dirtPos: Array<{ x: number; y: number; z: number }> = [];
-  const stonePos: Array<{ x: number; y: number; z: number }> = [];
-  const sandPos: Array<{ x: number; y: number; z: number }> = [];
-  const snowPos: Array<{ x: number; y: number; z: number }> = [];
-  const woodPos: Array<{ x: number; y: number; z: number }> = [];
-  const leavesPos: Array<{ x: number; y: number; z: number }> = [];
-  const bedrockPos: Array<{ x: number; y: number; z: number }> = [];
   const voxelMap = new Map<number, BlockType>();
 
   for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -1666,35 +1740,15 @@ function generateChunk(
       const wx = worldX + x;
       const wz = worldZ + z;
       const topY = heightmap[x][z];
-      const biome = getBiome(wx, wz);
+      const biome = getResolvedBiome(wx, wz);
 
       for (let y = 0; y <= topY; y++) {
         let type = getBlockTypeAt(biome, y, topY);
         const mod = blockModifications.get(blockKeyNumeric(wx, y, wz));
         if (mod === "air") continue;
         if (mod !== undefined) type = mod;
-        const pos = { x: wx, y, z: wz };
-        if (type === "grass") {
-          grassPos.push(pos);
-          voxelMap.set(localKey(x, y, z), "grass");
-        } else if (type === "dirt") {
-          dirtPos.push(pos);
-          voxelMap.set(localKey(x, y, z), "dirt");
-        } else if (type === "stone") {
-          stonePos.push(pos);
-          voxelMap.set(localKey(x, y, z), "stone");
-        } else if (type === "sand") {
-          sandPos.push(pos);
-          voxelMap.set(localKey(x, y, z), "sand");
-        } else if (type === "bedrock") {
-          bedrockPos.push(pos);
-          voxelMap.set(localKey(x, y, z), "bedrock");
-        } else if (type === "water") {
-          // no solid water block; surface handled by merged water mesh below
-        } else {
-          snowPos.push(pos);
-          voxelMap.set(localKey(x, y, z), "snow");
-        }
+        if (type === "water") continue;
+        voxelMap.set(localKey(x, y, z), type);
       }
     }
   }
@@ -1729,7 +1783,6 @@ function generateChunk(
           b.z < worldZ + CHUNK_SIZE &&
           blockModifications.get(blockKeyNumeric(b.x, b.y, b.z)) !== "air"
         ) {
-          woodPos.push(b);
           voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), "wood");
         }
       }
@@ -1742,60 +1795,28 @@ function generateChunk(
           blockModifications.get(blockKeyNumeric(b.x, b.y, b.z)) !== "air" &&
           b.y > getHeight(b.x, b.z)
         ) {
-          leavesPos.push(b);
           voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), "leaves");
         }
       }
     }
   }
 
-  // Face-culling: only render blocks with at least one visible face (reduces overdraw)
-  const grassVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, grassPos);
-  const dirtVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, dirtPos);
-  const stoneVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, stonePos);
-  const sandVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, sandPos);
-  const snowVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, snowPos);
-  const woodVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, woodPos);
-  const leavesVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, leavesPos);
-  const bedrockVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, bedrockPos);
-
+  const voxelMapEntries = Array.from(voxelMap.entries()) as Array<[number, BlockType]>;
+  const positionsByType = buildPositionsByType(worldX, worldZ, voxelMapEntries);
+  const blockPositionsByType = new Map<BlockType, BlockPos[]>();
   group.userData = { chunkKeyNum: keyNum, cx: chunkX, cz: chunkZ };
-  addInstancedLayer(group, grassVisible, sharedMaterials.grass, {
-    chunkKeyNum: keyNum,
-    blockType: "grass",
-  });
-  addInstancedLayer(group, dirtVisible, sharedMaterials.dirt, {
-    chunkKeyNum: keyNum,
-    blockType: "dirt",
-  });
-  addInstancedLayer(group, stoneVisible, sharedMaterials.stone, {
-    chunkKeyNum: keyNum,
-    blockType: "stone",
-  });
-  addInstancedLayer(group, sandVisible, sharedMaterials.sand, {
-    chunkKeyNum: keyNum,
-    blockType: "sand",
-  });
-  addInstancedLayer(group, snowVisible, sharedMaterials.snow, {
-    chunkKeyNum: keyNum,
-    blockType: "snow",
-  });
-  addInstancedLayer(group, woodVisible, sharedMaterials.wood, {
-    chunkKeyNum: keyNum,
-    blockType: "wood",
-  });
-  addInstancedLayer(group, leavesVisible, sharedMaterials.leaves, {
-    chunkKeyNum: keyNum,
-    blockType: "leaves",
-  });
-  addInstancedLayer(group, bedrockVisible, sharedMaterials.bedrock, {
-    chunkKeyNum: keyNum,
-    blockType: "bedrock",
-  });
+  for (const [blockType, positions] of positionsByType) {
+    const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions);
+    blockPositionsByType.set(blockType, visible);
+    addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
+      chunkKeyNum: keyNum,
+      blockType,
+    });
+  }
 
   const waterGeo = buildChunkWaterGeometry(worldX, worldZ, heightmap);
   if (waterGeo) {
-    const waterMesh = new THREE.Mesh(waterGeo, sharedMaterials.water);
+    const waterMesh = new THREE.Mesh(waterGeo, getMaterialForBlockType("water"));
     waterMesh.castShadow = false;
     waterMesh.receiveShadow = true;
     waterMesh.renderOrder = 2;
@@ -1809,19 +1830,29 @@ function generateChunk(
     cx: chunkX,
     cz: chunkZ,
     voxelMap,
-    grassPos: grassVisible,
-    dirtPos: dirtVisible,
-    stonePos: stoneVisible,
-    sandPos: sandVisible,
-    snowPos: snowVisible,
-    woodPos: woodVisible,
-    leavesPos: leavesVisible,
-    bedrockPos: bedrockVisible,
+    blockPositionsByType,
   };
   chunks.set(keyNum, data);
   _raycastMeshDirty = true;
   _frustumDirty = true;
   return data;
+}
+
+/** Build positions-by-type map from voxelMapEntries (world positions). */
+function buildPositionsByType(
+  worldX: number,
+  worldZ: number,
+  voxelMapEntries: Array<[number, BlockType]>
+): Map<BlockType, BlockPos[]> {
+  const byType = new Map<BlockType, BlockPos[]>();
+  for (const [key, blockType] of voxelMapEntries) {
+    const { lx, ly, lz } = decodeLocalKey(key);
+    const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz };
+    const arr = byType.get(blockType) ?? [];
+    arr.push(pos);
+    byType.set(blockType, arr);
+  }
+  return byType;
 }
 
 /**
@@ -1839,28 +1870,20 @@ function applyChunkPayload(scene: THREE.Scene, payload: ChunkDataPayload): void 
   const voxelMap = new Map<number, BlockType>();
   for (const [k, t] of payload.voxelMapEntries) voxelMap.set(k, t);
 
-  // Face-culling: only render blocks with at least one visible face
-  const grassVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, payload.grassPos);
-  const dirtVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, payload.dirtPos);
-  const stoneVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, payload.stonePos);
-  const sandVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, payload.sandPos);
-  const snowVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, payload.snowPos);
-  const woodVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, payload.woodPos);
-  const leavesVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, payload.leavesPos);
-  const bedrockVisible = filterVisibleBlocks(worldX, worldZ, voxelMap, payload.bedrockPos);
-
-  addInstancedLayer(group, grassVisible, sharedMaterials.grass, { chunkKeyNum: keyNum, blockType: "grass" });
-  addInstancedLayer(group, dirtVisible, sharedMaterials.dirt, { chunkKeyNum: keyNum, blockType: "dirt" });
-  addInstancedLayer(group, stoneVisible, sharedMaterials.stone, { chunkKeyNum: keyNum, blockType: "stone" });
-  addInstancedLayer(group, sandVisible, sharedMaterials.sand, { chunkKeyNum: keyNum, blockType: "sand" });
-  addInstancedLayer(group, snowVisible, sharedMaterials.snow, { chunkKeyNum: keyNum, blockType: "snow" });
-  addInstancedLayer(group, woodVisible, sharedMaterials.wood, { chunkKeyNum: keyNum, blockType: "wood" });
-  addInstancedLayer(group, leavesVisible, sharedMaterials.leaves, { chunkKeyNum: keyNum, blockType: "leaves" });
-  addInstancedLayer(group, bedrockVisible, sharedMaterials.bedrock, { chunkKeyNum: keyNum, blockType: "bedrock" });
+  const positionsByType = buildPositionsByType(worldX, worldZ, payload.voxelMapEntries);
+  const blockPositionsByType = new Map<BlockType, BlockPos[]>();
+  for (const [blockType, positions] of positionsByType) {
+    const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions);
+    blockPositionsByType.set(blockType, visible);
+    addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
+      chunkKeyNum: keyNum,
+      blockType,
+    });
+  }
 
   const waterGeo = buildChunkWaterGeometry(worldX, worldZ, payload.heightmap);
   if (waterGeo) {
-    const waterMesh = new THREE.Mesh(waterGeo, sharedMaterials.water);
+    const waterMesh = new THREE.Mesh(waterGeo, getMaterialForBlockType("water"));
     waterMesh.castShadow = false;
     waterMesh.receiveShadow = true;
     waterMesh.renderOrder = 2;
@@ -1873,14 +1896,7 @@ function applyChunkPayload(scene: THREE.Scene, payload: ChunkDataPayload): void 
     cx: payload.chunkX,
     cz: payload.chunkZ,
     voxelMap,
-    grassPos: grassVisible,
-    dirtPos: dirtVisible,
-    stonePos: stoneVisible,
-    sandPos: sandVisible,
-    snowPos: snowVisible,
-    woodPos: woodVisible,
-    leavesPos: leavesVisible,
-    bedrockPos: bedrockVisible,
+    blockPositionsByType,
   };
   chunks.set(keyNum, data);
   scene.add(group);
@@ -1953,7 +1969,7 @@ function filterVisibleBlocks(
         break;
       }
       const neighborType = voxelMap.get(localKey(nx, ny, nz));
-      if (!neighborType || !SOLID_BLOCK_TYPES.has(neighborType)) {
+      if (!neighborType || !isBlockTypeSolid(neighborType)) {
         visible = true;
         break;
       }
@@ -1968,26 +1984,7 @@ function getLayerPositions(
   data: ChunkData,
   blockType: BlockType
 ): BlockPos[] | null {
-  switch (blockType) {
-    case "grass":
-      return data.grassPos;
-    case "dirt":
-      return data.dirtPos;
-    case "stone":
-      return data.stonePos;
-    case "sand":
-      return data.sandPos;
-    case "snow":
-      return data.snowPos;
-    case "wood":
-      return data.woodPos;
-    case "leaves":
-      return data.leavesPos;
-    case "bedrock":
-      return data.bedrockPos;
-    default:
-      return null;
-  }
+  return data.blockPositionsByType.get(blockType) ?? null;
 }
 
 /** World block position for an instance (used so mining tracks by position, not index, after swap-with-last). */
@@ -2004,25 +2001,19 @@ function getBlockWorldPosition(
   return positions[instanceId];
 }
 
-/** Get material for a block type */
-function getMaterialForBlockType(
-  blockType: BlockType
-): THREE.Material | THREE.Material[] {
-  return sharedMaterials[blockType as Exclude<BlockType, "torch">];
-}
-
-/** Bedrock cannot be destroyed or modified. */
-const UNBREAKABLE_BLOCK_TYPES = new Set<BlockType>(["bedrock"]);
 
 /** Einzelnes Material für Drop-Mesh (bei Arrays z. B. Top-Face). Fackel hat kein Voxel-Material → Fallback. */
 function getMaterialForDrop(blockType: BlockType): THREE.Material {
   if (blockType === "torch") {
-    const w = sharedMaterials.wood;
+    const w = getMaterialForBlockType("wood");
     return Array.isArray(w) ? w[2] : w;
   }
-  if (blockType === "bedrock") return sharedMaterials.bedrock;
-  const m = sharedMaterials[blockType as Exclude<BlockType, "torch" | "bedrock">];
-  return Array.isArray(m) ? m[2] : m;
+  if (blockType === "bedrock") {
+    const b = getMaterialForBlockType("bedrock");
+    return Array.isArray(b) ? b[0] : b;
+  }
+  const m = getMaterialForBlockType(blockType);
+  return Array.isArray(m) ? (m as THREE.MeshStandardMaterial[])[2] : (m as THREE.MeshStandardMaterial);
 }
 
 /** Erzeugt ein schwebendes Drop-Item an der Weltposition (Block-Mitte). */
@@ -2159,7 +2150,7 @@ function breakBlock(
   worldY: number,
   worldZ: number
 ): void {
-  if (UNBREAKABLE_BLOCK_TYPES.has(blockType)) return;
+  if (isUnbreakableBlock(blockType)) return;
   const data = chunks.get(chunkKeyNum);
   if (!data) return;
   const positions = getLayerPositions(data, blockType);
@@ -2167,10 +2158,10 @@ function breakBlock(
   const instanceIndex = positions.findIndex(
     (p) => p.x === worldX && p.y === worldY && p.z === worldZ
   );
-  if (instanceIndex === -1) return;
-  const pos = positions[instanceIndex];
+  const pos = instanceIndex >= 0 ? positions[instanceIndex] : { x: worldX, y: worldY, z: worldZ };
   blockModifications.set(blockKeyNumeric(pos.x, pos.y, pos.z), "air");
   invalidateColumnHeight(pos.x, pos.z);
+  if (instanceIndex === -1) return;
 
   const cx = pos.x + 0.5;
   const cz = pos.z + 0.5;
@@ -2179,7 +2170,7 @@ function breakBlock(
   let groundY = pos.y - 1 + 0.5;
   for (let by = pos.y - 1; by >= 0; by--) {
     const t = getBlockAt(pos.x, by, pos.z);
-    if (t !== null && t !== "air" && SOLID_BLOCK_TYPES.has(t as BlockType)) {
+    if (t !== null && t !== "air" && isBlockTypeSolid(t as BlockType)) {
       groundY = by + 0.5;
       break;
     }
@@ -2237,9 +2228,13 @@ let lastPlayerChunkZ: number | null = null;
 /**
  * Ensure chunks around the player exist and unload chunks beyond render distance.
  * Uses circular distance (dx² + dz² <= R²) to load ~20% fewer chunks than a square.
- * Uses ChunkData.cx/cz to avoid key parsing; collects keys to unload before mutating.
+ * When using the chunk worker and lookDirection is provided, requests chunks in front of the player first so the "void" fills in faster.
  */
-function updateChunks(scene: THREE.Scene, player: THREE.Group): void {
+function updateChunks(
+  scene: THREE.Scene,
+  player: THREE.Group,
+  lookDirection?: { x: number; z: number }
+): void {
   const chunkX = Math.floor(player.position.x / CHUNK_SIZE);
   const chunkZ = Math.floor(player.position.z / CHUNK_SIZE);
 
@@ -2247,6 +2242,8 @@ function updateChunks(scene: THREE.Scene, player: THREE.Group): void {
 
   const rd = getRenderDistance();
   const rdSq = getRenderDistanceSq();
+
+  const toLoad: Array<{ cx: number; cz: number }> = [];
   for (let dx = -rd; dx <= rd; dx++) {
     for (let dz = -rd; dz <= rd; dz++) {
       if (dx * dx + dz * dz > rdSq) continue;
@@ -2257,15 +2254,37 @@ function updateChunks(scene: THREE.Scene, player: THREE.Group): void {
       if (chunkWorker) {
         if (pendingChunkKeys.has(keyNum)) continue;
         pendingChunkKeys.add(keyNum);
-        chunkWorker.postMessage({
-          type: "generate",
-          chunkX: cx,
-          chunkZ: cz,
-          blockMods: getBlockModsForChunk(cx, cz),
-        });
+        toLoad.push({ cx, cz });
       } else {
         generateChunk(scene, cx, cz);
       }
+    }
+  }
+
+  if (chunkWorker && toLoad.length > 0) {
+    const lx = lookDirection?.x ?? 0;
+    const lz = lookDirection?.z ?? 0;
+    const hasLook = lx * lx + lz * lz > 0.01;
+    const px = player.position.x;
+    const pz = player.position.z;
+    if (hasLook) {
+      toLoad.sort((a, b) => {
+        const ax = a.cx * CHUNK_SIZE + CHUNK_SIZE / 2 - 0.5 - px;
+        const az = a.cz * CHUNK_SIZE + CHUNK_SIZE / 2 - 0.5 - pz;
+        const bx = b.cx * CHUNK_SIZE + CHUNK_SIZE / 2 - 0.5 - px;
+        const bz = b.cz * CHUNK_SIZE + CHUNK_SIZE / 2 - 0.5 - pz;
+        const dotA = ax * lx + az * lz;
+        const dotB = bx * lx + bz * lz;
+        return dotB - dotA;
+      });
+    }
+    for (const { cx, cz } of toLoad) {
+      chunkWorker.postMessage({
+        type: "generate",
+        chunkX: cx,
+        chunkZ: cz,
+        blockMods: getBlockModsForChunk(cx, cz),
+      });
     }
   }
 
@@ -2379,20 +2398,22 @@ function createPlayer(scene: THREE.Scene) {
 
   let spawnX: number;
   let spawnZ: number;
-  if (SPAWN_BIOME !== null) {
-    const first = findSpawnInBiome(SPAWN_BIOME);
-    spawnX = first.x;
-    spawnZ = first.z;
-    // Fallback: wenn nur (0,0) gefunden und Zentrum ist nicht das gewünschte Biom → Jungle/Forest probieren
-    if (spawnX === 0 && spawnZ === 0 && getBiome(0, 0) !== SPAWN_BIOME) {
-      const fallbackBiome: Biome = SPAWN_BIOME === "forest" ? "jungle" : "forest";
+  const first = findSpawnInBiome(SPAWN_BIOME);
+  spawnX = first.x;
+  spawnZ = first.z;
+  // Fallback: if only (0,0) found and center is not the chosen biome, try another spawnable biome
+  if (spawnX === 0 && spawnZ === 0 && getResolvedBiome(0, 0) !== SPAWN_BIOME) {
+    const fallbackBiome = SPAWNABLE_BIOMES.find((b) => b !== SPAWN_BIOME);
+    if (fallbackBiome) {
       const fallback = findSpawnInBiome(fallbackBiome);
       if (fallback.x !== 0 || fallback.z !== 0) {
         spawnX = fallback.x;
         spawnZ = fallback.z;
       }
     }
-  } else {
+  }
+  // Ultimate fallback: use fixed spawn coordinates from config if still at origin
+  if (spawnX === 0 && spawnZ === 0) {
     spawnX = SPAWN_X;
     spawnZ = SPAWN_Z;
   }
@@ -2608,96 +2629,52 @@ export async function initGame(
 }
 
 async function init(container?: HTMLElement) {
-  const [
-    grassTopTex,
-    grassSideTex,
-    dirtTex,
-    stoneTex,
-    sandTex,
-    snowTex,
-    woodTex,
-    woodTopTex,
-    leavesTex,
-  ] = await Promise.all([
-    textureLoader.loadAsync("/textures/grass_top.png"),
-    textureLoader.loadAsync("/textures/grass_side.png"),
-    textureLoader.loadAsync("/textures/dirt.png"),
-    textureLoader.loadAsync("/textures/stone.png"),
-    textureLoader.loadAsync("/textures/sand.png"),
-    textureLoader.loadAsync("/textures/snow.png"),
-    textureLoader.loadAsync("/textures/wood.png"),
-    textureLoader.loadAsync("/textures/wood_top.png"),
-    textureLoader.loadAsync("/textures/leaves.png"),
-  ]);
-  [
-    grassTopTex,
-    grassSideTex,
-    dirtTex,
-    stoneTex,
-    sandTex,
-    snowTex,
-    woodTex,
-    woodTopTex,
-    leavesTex,
-  ].forEach(setPixelFilter);
-
-  sharedMaterials = {
-    grass: [
-      new THREE.MeshStandardMaterial({ map: grassSideTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: grassSideTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: grassTopTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: dirtTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: grassSideTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: grassSideTex, roughness: 1 }),
-    ],
-    dirt: new THREE.MeshStandardMaterial({
-      map: dirtTex,
-      roughness: 1,
-    }),
-    stone: new THREE.MeshStandardMaterial({
-      map: stoneTex,
-      roughness: 1,
-    }),
-    sand: new THREE.MeshStandardMaterial({
-      map: sandTex,
-      roughness: 1,
-    }),
-    snow: new THREE.MeshStandardMaterial({
-      map: snowTex,
-      roughness: 1,
-    }),
-    water: new THREE.MeshStandardMaterial({
-      color: 0x3366aa,
-      roughness: 0.2,
-      metalness: 0.1,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: true,
-      depthTest: true,
-      side: THREE.DoubleSide,
-      polygonOffset: true,
-      polygonOffsetUnits: 1,
-      polygonOffsetFactor: 1,
-    }),
-    wood: [
-      new THREE.MeshStandardMaterial({ map: woodTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: woodTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: woodTopTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: woodTopTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: woodTex, roughness: 1 }),
-      new THREE.MeshStandardMaterial({ map: woodTex, roughness: 1 }),
-    ],
-    leaves: new THREE.MeshStandardMaterial({
-      map: leavesTex,
-      roughness: 1,
-      transparent: true,
-      alphaTest: 0.1,
-    }),
-    bedrock: new THREE.MeshStandardMaterial({
-      color: 0x2a2a2a,
-      roughness: 1,
-    }),
-  };
+  // Load materials for all blocks from registry
+  await Promise.all(
+    getAllBlockIds().map(async (blockId) => {
+      if (blockId === "water") {
+        blockMaterialCache.set(
+          blockId,
+          new THREE.MeshStandardMaterial({
+            color: 0x3366aa,
+            roughness: 0.2,
+            metalness: 0.1,
+            transparent: true,
+            opacity: 0.85,
+            depthWrite: true,
+            depthTest: true,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetUnits: 1,
+            polygonOffsetFactor: 1,
+          })
+        );
+        return;
+      }
+      const def = getBlockDefinition(blockId)!;
+      const names = getBlockTextureNames(blockId);
+      const texUrls = names.map((n) => `${BLOCK_TEXTURE_PATH}/${n}.png`);
+      const texs = await Promise.all(
+        texUrls.map((url) => textureLoader.loadAsync(url))
+      );
+      texs.forEach(setPixelFilter);
+      if (texs.length === 1) {
+        const mat = new THREE.MeshStandardMaterial({
+          map: texs[0],
+          roughness: 1,
+          transparent: def.transparent === true,
+          alphaTest: def.transparent ? 0.1 : undefined,
+        });
+        blockMaterialCache.set(blockId, mat);
+      } else {
+        const mats = texs.map(
+          (tex) =>
+            new THREE.MeshStandardMaterial({ map: tex, roughness: 1 })
+        ) as THREE.MeshStandardMaterial[];
+        blockMaterialCache.set(blockId, mats);
+      }
+    })
+  );
 
   scene = new THREE.Scene();
   torchContainer = new THREE.Group();
@@ -2905,7 +2882,7 @@ async function init(container?: HTMLElement) {
   arm1 = created.arm1;
   arm2 = created.arm2;
 
-  setWorldApi({ getBlockAt, getSurfaceY, getColumnSurfaceY, getBiome });
+  setWorldApi({ getBlockAt, getSurfaceY, getColumnSurfaceY, getBiome: getResolvedBiome });
 
   loadGame();
 
@@ -3304,16 +3281,16 @@ function animate() {
   const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
   const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
 
-  if (lastPlayerChunkX !== playerChunkX || lastPlayerChunkZ !== playerChunkZ) {
-    updateChunks(scene, player);
-    lastPlayerChunkX = playerChunkX;
-    lastPlayerChunkZ = playerChunkZ;
-  }
-
   _direction.set(0, 0, 0);
   controls.getDirection(_direction);
   _direction.y = 0;
   if (_direction.lengthSq() > 0) _direction.normalize();
+
+  if (lastPlayerChunkX !== playerChunkX || lastPlayerChunkZ !== playerChunkZ) {
+    updateChunks(scene, player, { x: _direction.x, z: _direction.z });
+    lastPlayerChunkX = playerChunkX;
+    lastPlayerChunkZ = playerChunkZ;
+  }
 
   _right.crossVectors(_direction, camera.up).normalize();
 
@@ -3646,7 +3623,7 @@ function animate() {
             HOTBAR_COUNTS[selectedHotbarIndex]--;
             onHotbarChange?.(HOTBAR_BLOCKS.slice(), HOTBAR_COUNTS.slice());
           }
-        } else if (sel !== "torch" && count > 0 && SOLID_BLOCK_TYPES.has(sel)) {
+        } else if (sel !== "torch" && count > 0 && isBlockTypeSolid(sel)) {
           const adjX = Math.floor(placeHit.point.x + _direction.x * 0.01);
           const adjY = Math.floor(placeHit.point.y + _direction.y * 0.01);
           const adjZ = Math.floor(placeHit.point.z + _direction.z * 0.01);
@@ -3716,7 +3693,7 @@ function animate() {
           if (crackEl) crackEl.style.visibility = "hidden";
         }
       } else {
-        if (!UNBREAKABLE_BLOCK_TYPES.has(blockType)) {
+        if (!isUnbreakableBlock(blockType)) {
           breakTarget = { chunkKeyNum, blockType, x: pos.x, y: pos.y, z: pos.z };
           breakProgress = dt;
         } else {

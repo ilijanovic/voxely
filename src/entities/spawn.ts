@@ -23,7 +23,7 @@ export const ANIMAL_DEFS: AnimalDef[] = [
     aabb: { halfX: 0.3, halfZ: 0.2, height: 0.5 },
     walkSpeed: 1.2,
     runSpeed: 2.8,
-    spawnBiomes: ["plains", "forest", "jungle"],
+    spawnBiomes: ["plains", "forest", "jungle", "meadow"],
     maxPerChunk: 1,
   },
   {
@@ -31,7 +31,7 @@ export const ANIMAL_DEFS: AnimalDef[] = [
     aabb: { halfX: 0.3, halfZ: 0.2, height: 0.5 },
     walkSpeed: 1.4,
     runSpeed: 2.6,
-    spawnBiomes: ["plains", "forest", "jungle"],
+    spawnBiomes: ["plains", "forest", "jungle", "meadow"],
     maxPerChunk: 1,
   },
   {
@@ -39,7 +39,7 @@ export const ANIMAL_DEFS: AnimalDef[] = [
     aabb: { halfX: 0.35, halfZ: 0.25, height: 0.55 },
     walkSpeed: 1.6,
     runSpeed: 3.2,
-    spawnBiomes: ["forest", "jungle", "mountain", "snow"],
+    spawnBiomes: ["forest", "jungle", "mountain", "snow", "grove"],
     maxPerChunk: 1,
   },
 ];

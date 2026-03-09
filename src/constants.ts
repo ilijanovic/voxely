@@ -1,6 +1,9 @@
 /** World and chunk constants (shared by terrain, chunk, rendering). */
 export const BLOCK_SIZE = 1;
 export const CHUNK_SIZE = 16;
+
+/** Base path for block textures (Minecraft-style). */
+export const BLOCK_TEXTURE_PATH = "/assets/minecraft/textures/block";
 export const RENDER_DISTANCE = 4;
 export const RENDER_DISTANCE_SQ = RENDER_DISTANCE * RENDER_DISTANCE;
 

@@ -1,29 +1,33 @@
 import type { BlockType } from "./types";
+import { BLOCK_TEXTURE_PATH } from "./constants";
+import {
+  getAllBlockIds,
+  getBlockDisplayName,
+  getBlockTextureNames,
+} from "./block-registry";
 
-/** Block type → icon texture for the hotbar. */
-export const BLOCK_ICON: Record<BlockType, string> = {
-  grass: "/textures/grass_top.png",
-  dirt: "/textures/dirt.png",
-  stone: "/textures/stone.png",
-  sand: "/textures/sand.png",
-  snow: "/textures/snow.png",
-  wood: "/textures/wood_top.png",
-  leaves: "/textures/leaves.png",
-  water: "/textures/stone.png",
-  torch: "/textures/wood_top.png",
-  bedrock: "/textures/stone.png",
-};
+/** Block type → icon texture URL for the hotbar. Built from registry. */
+export const BLOCK_ICON: Record<string, string> = {};
+/** Block type → display name (tooltip). Built from registry. */
+export const BLOCK_LABEL: Record<string, string> = {};
 
-/** Block type → display name (tooltip). */
-export const BLOCK_LABEL: Record<BlockType, string> = {
-  grass: "Grass",
-  dirt: "Dirt",
-  stone: "Stone",
-  sand: "Sand",
-  snow: "Snow",
-  wood: "Wood",
-  leaves: "Leaves",
-  water: "Water",
-  torch: "Torch",
-  bedrock: "Bedrock",
-};
+const defaultIcon = `${BLOCK_TEXTURE_PATH}/stone.png`;
+const defaultLabel = "Block";
+
+for (const id of getAllBlockIds()) {
+  const names = getBlockTextureNames(id);
+  BLOCK_ICON[id] = names.length > 0
+    ? `${BLOCK_TEXTURE_PATH}/${names[0]}.png`
+    : defaultIcon;
+  BLOCK_LABEL[id] = getBlockDisplayName(id);
+}
+
+/** Get icon URL for a block type (with fallback for unknown ids). */
+export function getBlockIcon(blockType: BlockType): string {
+  return BLOCK_ICON[blockType] ?? defaultIcon;
+}
+
+/** Get display name for a block type (with fallback for unknown ids). */
+export function getBlockLabel(blockType: BlockType): string {
+  return BLOCK_LABEL[blockType] ?? defaultLabel;
+}
