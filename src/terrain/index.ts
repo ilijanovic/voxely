@@ -5,7 +5,7 @@
 import { createNoise2D, createNoise3D } from "simplex-noise";
 import type { Biome, BlockType } from "../types";
 import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from "../constants";
-import { BIOME_REGISTRY, BIOME_TERRAIN, getBiomeByClimate } from "./biomes";
+import { BIOME_REGISTRY, BIOME_TERRAIN, getLandBiomeByClimate } from "./biomes";
 import { makeSeededRandom, clamp } from "./utils";
 import { runPipeline, createChunkContext } from "./pipeline";
 import { createStage1 } from "./stages/heightmap-biome";
@@ -46,6 +46,7 @@ export function createChunkGenerator(seed: number) {
   const BASE_HEIGHT = 64;
   const CONTINENTAL_SCALE = 0.0012;
   const CONTINENTAL_AMPLITUDE = 20;
+  const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44;
   const EROSION_SCALE = 0.018;
   const EROSION_AMPLITUDE = 7;
   const MOUNTAIN_MASK_SCALE = 0.003;
@@ -57,7 +58,10 @@ export function createChunkGenerator(seed: number) {
   const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10;
   const HIGHLAND_GROVE_MAX = WATER_LEVEL + 20;
   const HIGHLAND_SNOWY_SLOPES_MAX = WATER_LEVEL + 30;
-  const PEAK_VARIANT_SCALE = 0.01;
+  const COLD_HIGHLAND_TEMP_MAX = 0.42;
+  const COLD_UPLAND_TEMP_MAX = 0.5;
+  const PEAK_VARIANT_SCALE = 0.004;
+  const HIGHLAND_VARIANT_SCALE = 0.004;
   const FOREST_DENSITY_SCALE = 0.028;
   const TREE_PLACEMENT_SCALE = 0.12;
   const FOREST_DENSITY_THRESHOLD = 0.0;
@@ -67,21 +71,97 @@ export function createChunkGenerator(seed: number) {
   const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97;
   const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55;
   const TREE_MAX_SLOPE = 2;
-  const TRUNK_HEIGHT_PLAINS = 4;
-  const TRUNK_HEIGHT_FOREST = 5;
-  const TRUNK_HEIGHT_JUNGLE = 7;
-  const TRUNK_HEIGHT_MOUNTAIN = 4;
-  const TRUNK_HEIGHT_SNOW = 9;
-  const LEAF_RADIUS_PLAINS = 2;
-  const LEAF_RADIUS_FOREST = 2;
-  const LEAF_RADIUS_JUNGLE = 3;
-  const LEAF_RADIUS_MOUNTAIN = 1;
-  const LEAF_RADIUS_SNOW = 1;
-  const LEAF_HEIGHT_PLAINS = 3;
-  const LEAF_HEIGHT_FOREST = 4;
-  const LEAF_HEIGHT_JUNGLE = 5;
-  const LEAF_HEIGHT_MOUNTAIN = 2;
-  const LEAF_HEIGHT_SNOW = 6;
+  type TreeShapeConfig = {
+    trunkMin: number;
+    trunkMax: number;
+    leafRadiusMin: number;
+    leafRadiusMax: number;
+    leafHeightMin: number;
+    leafHeightMax: number;
+    leafDensityMin: number;
+    leafDensityMax: number;
+    giantChance: number;
+    giantTrunkBonusMax: number;
+    giantLeafRadiusBonusMax: number;
+    giantLeafHeightBonusMax: number;
+    giantDensityBonusMax: number;
+  };
+
+  const TREE_SHAPE_DEFAULT: TreeShapeConfig = {
+    trunkMin: 4,
+    trunkMax: 8,
+    leafRadiusMin: 1,
+    leafRadiusMax: 3,
+    leafHeightMin: 3,
+    leafHeightMax: 6,
+    leafDensityMin: 0.58,
+    leafDensityMax: 0.92,
+    giantChance: 0.03,
+    giantTrunkBonusMax: 5,
+    giantLeafRadiusBonusMax: 2,
+    giantLeafHeightBonusMax: 3,
+    giantDensityBonusMax: 0.05,
+  };
+  const TREE_SHAPE_FOREST: TreeShapeConfig = {
+    trunkMin: 5,
+    trunkMax: 10,
+    leafRadiusMin: 2,
+    leafRadiusMax: 4,
+    leafHeightMin: 4,
+    leafHeightMax: 7,
+    leafDensityMin: 0.62,
+    leafDensityMax: 0.96,
+    giantChance: 0.06,
+    giantTrunkBonusMax: 6,
+    giantLeafRadiusBonusMax: 2,
+    giantLeafHeightBonusMax: 3,
+    giantDensityBonusMax: 0.04,
+  };
+  const TREE_SHAPE_JUNGLE: TreeShapeConfig = {
+    trunkMin: 8,
+    trunkMax: 14,
+    leafRadiusMin: 3,
+    leafRadiusMax: 5,
+    leafHeightMin: 6,
+    leafHeightMax: 10,
+    leafDensityMin: 0.72,
+    leafDensityMax: 0.98,
+    giantChance: 0.1,
+    giantTrunkBonusMax: 8,
+    giantLeafRadiusBonusMax: 2,
+    giantLeafHeightBonusMax: 4,
+    giantDensityBonusMax: 0.03,
+  };
+  const TREE_SHAPE_MOUNTAIN: TreeShapeConfig = {
+    trunkMin: 4,
+    trunkMax: 7,
+    leafRadiusMin: 1,
+    leafRadiusMax: 3,
+    leafHeightMin: 2,
+    leafHeightMax: 5,
+    leafDensityMin: 0.45,
+    leafDensityMax: 0.82,
+    giantChance: 0.02,
+    giantTrunkBonusMax: 4,
+    giantLeafRadiusBonusMax: 1,
+    giantLeafHeightBonusMax: 2,
+    giantDensityBonusMax: 0.06,
+  };
+  const TREE_SHAPE_SNOW: TreeShapeConfig = {
+    trunkMin: 8,
+    trunkMax: 14,
+    leafRadiusMin: 1,
+    leafRadiusMax: 3,
+    leafHeightMin: 5,
+    leafHeightMax: 9,
+    leafDensityMin: 0.55,
+    leafDensityMax: 0.90,
+    giantChance: 0.05,
+    giantTrunkBonusMax: 7,
+    giantLeafRadiusBonusMax: 2,
+    giantLeafHeightBonusMax: 3,
+    giantDensityBonusMax: 0.05,
+  };
   const CAVE_THRESHOLD = 0.4;
 
   function getTemperature(x: number, z: number): number {
@@ -97,6 +177,16 @@ export function createChunkGenerator(seed: number) {
   function getMacroTerrain(x: number, z: number): number {
     const n = continentalNoise2D(x * CONTINENTAL_SCALE, z * CONTINENTAL_SCALE);
     return (n + 1) * 0.5 * CONTINENTAL_AMPLITUDE;
+  }
+
+  function getContinentalness(x: number, z: number): number {
+    const n = continentalNoise2D(x * CONTINENTAL_SCALE, z * CONTINENTAL_SCALE);
+    return (n + 1) * 0.5;
+  }
+
+  function getBaseBiomeAt(x: number, z: number): Biome {
+    if (getContinentalness(x, z) < OCEAN_CONTINENTALNESS_THRESHOLD) return "ocean";
+    return getLandBiomeByClimate(getTemperature(x, z), getHumidity(x, z));
   }
 
   function getLocalTerrain(x: number, z: number, biome: Biome): number {
@@ -133,16 +223,25 @@ export function createChunkGenerator(seed: number) {
   }
 
   function getResolvedBiomeFromHeight(base: Biome, height: number, x: number, z: number): Biome {
-    if (base !== "mountain" && base !== "snow") return base;
+    if (base !== "mountain" && base !== "snow") {
+      const temp = getTemperature(x, z);
+      if (temp <= COLD_HIGHLAND_TEMP_MAX) {
+        if (height >= HIGHLAND_SNOWY_SLOPES_MAX + 6) return "frozen_peaks";
+        if (height >= HIGHLAND_SNOWY_SLOPES_MAX) return "snowy_slopes";
+        if (height >= HIGHLAND_GROVE_MAX) return "grove";
+      }
+      if (temp <= COLD_UPLAND_TEMP_MAX && height >= HIGHLAND_MEADOW_MAX + 4) return "windswept_hills";
+      return base;
+    }
     if (height < HIGHLAND_MEADOW_MAX) {
-      const v = (highlandVariantNoise2D(x * 0.012, z * 0.012) + 1) * 0.5;
+      const v = (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5;
       if (v < 0.25) return "windswept_hills";
       if (v < 0.5) return "windswept_gravelly_hills";
       if (v < 0.75) return "cherry_grove";
       return "meadow";
     }
     if (height < HIGHLAND_GROVE_MAX) {
-      const v = (highlandVariantNoise2D(x * 0.012, z * 0.012) + 1) * 0.5;
+      const v = (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5;
       if (v > 0.82) return "windswept_forest";
       return "grove";
     }
@@ -154,22 +253,18 @@ export function createChunkGenerator(seed: number) {
   }
 
   function getHeightUncached(x: number, z: number): number {
-    const temp = getTemperature(x, z);
-    const humidity = getHumidity(x, z);
-    const base = getBiomeByClimate(temp, humidity);
+    const base = getBaseBiomeAt(x, z);
     const rawH = getHeightForBase(base, x, z);
-    const n = getHeightForBase(getBiomeByClimate(getTemperature(x, z + 1), getHumidity(x, z + 1)), x, z + 1);
-    const s = getHeightForBase(getBiomeByClimate(getTemperature(x, z - 1), getHumidity(x, z - 1)), x, z - 1);
-    const e = getHeightForBase(getBiomeByClimate(getTemperature(x + 1, z), getHumidity(x + 1, z)), x + 1, z);
-    const w = getHeightForBase(getBiomeByClimate(getTemperature(x - 1, z), getHumidity(x - 1, z)), x - 1, z);
+    const n = getHeightForBase(getBaseBiomeAt(x, z + 1), x, z + 1);
+    const s = getHeightForBase(getBaseBiomeAt(x, z - 1), x, z - 1);
+    const e = getHeightForBase(getBaseBiomeAt(x + 1, z), x + 1, z);
+    const w = getHeightForBase(getBaseBiomeAt(x - 1, z), x - 1, z);
     const smoothedH = rawH * 0.5 + (n + s + e + w) * 0.125;
     return Math.floor(clamp(smoothedH, 0, WORLD_HEIGHT));
   }
 
   function getResolvedBiome(x: number, z: number): Biome {
-    const temp = getTemperature(x, z);
-    const humidity = getHumidity(x, z);
-    const base = getBiomeByClimate(temp, humidity);
+    const base = getBaseBiomeAt(x, z);
     const h = getHeightUncached(x, z);
     return getResolvedBiomeFromHeight(base, h, x, z);
   }
@@ -272,25 +367,78 @@ export function createChunkGenerator(seed: number) {
     return treeSeedValue(wx + lx, wz + lz) >= 0.5;
   }
 
+  function getTreeShapeConfig(biome: Biome): TreeShapeConfig {
+    if (biome === "snow" || biome === "grove") return TREE_SHAPE_SNOW;
+    if (biome === "forest" || biome === "windswept_forest") return TREE_SHAPE_FOREST;
+    if (biome === "jungle") return TREE_SHAPE_JUNGLE;
+    if (biome === "mountain") return TREE_SHAPE_MOUNTAIN;
+    return TREE_SHAPE_DEFAULT;
+  }
+
+  function getIntInRange(min: number, max: number, sample: number): number {
+    const rangeMin = Math.min(min, max);
+    const rangeMax = Math.max(min, max);
+    return rangeMin + Math.floor(sample * (rangeMax - rangeMin + 1));
+  }
+
+  function getFloatInRange(min: number, max: number, sample: number): number {
+    const rangeMin = Math.min(min, max);
+    const rangeMax = Math.max(min, max);
+    return rangeMin + sample * (rangeMax - rangeMin);
+  }
+
+  function clampValue(value: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function leafNoiseValue(wx: number, wz: number, dx: number, dy: number, dz: number): number {
+    const sampleX = wx + dx * 17 + dy * 31;
+    const sampleZ = wz + dz * 17 - dy * 19;
+    return treeSeedValue(sampleX, sampleZ);
+  }
+
   function getTreeBlocks(wx: number, baseY: number, wz: number, biome: Biome): { wood: Array<{ x: number; y: number; z: number }>; leaves: Array<{ x: number; y: number; z: number }> } {
     const wood: Array<{ x: number; y: number; z: number }> = [];
     const leaves: Array<{ x: number; y: number; z: number }> = [];
-    const t = treeSeedValue(wx, wz);
-    const trunkHeight = (biome === "snow" || biome === "grove") ? TRUNK_HEIGHT_SNOW + Math.floor(t * 2) : biome === "forest" ? TRUNK_HEIGHT_FOREST + Math.floor(t * 2) : biome === "jungle" ? TRUNK_HEIGHT_JUNGLE + Math.floor(t * 3) : biome === "mountain" ? TRUNK_HEIGHT_MOUNTAIN + Math.floor(t * 1) : TRUNK_HEIGHT_PLAINS + Math.floor(t * 1);
-    const leafRadius = (biome === "snow" || biome === "grove") ? LEAF_RADIUS_SNOW : biome === "forest" ? LEAF_RADIUS_FOREST : biome === "jungle" ? LEAF_RADIUS_JUNGLE : biome === "mountain" ? LEAF_RADIUS_MOUNTAIN : LEAF_RADIUS_PLAINS;
-    const leafHeight = (biome === "snow" || biome === "grove") ? LEAF_HEIGHT_SNOW : biome === "forest" ? LEAF_HEIGHT_FOREST : biome === "jungle" ? LEAF_HEIGHT_JUNGLE : biome === "mountain" ? LEAF_HEIGHT_MOUNTAIN : LEAF_HEIGHT_PLAINS;
+    const shape = getTreeShapeConfig(biome);
+    const giantRoll = treeSeedValue(wx + 83, wz - 79);
+    const isGiant = giantRoll < shape.giantChance;
+    const trunkHeight = getIntInRange(shape.trunkMin, shape.trunkMax, treeSeedValue(wx + 19, wz - 23))
+      + (isGiant ? getIntInRange(1, shape.giantTrunkBonusMax, treeSeedValue(wx - 97, wz + 101)) : 0);
+    const leafRadius = getIntInRange(shape.leafRadiusMin, shape.leafRadiusMax, treeSeedValue(wx - 31, wz + 13))
+      + (isGiant ? getIntInRange(1, shape.giantLeafRadiusBonusMax, treeSeedValue(wx + 61, wz + 67)) : 0);
+    const leafHeight = getIntInRange(shape.leafHeightMin, shape.leafHeightMax, treeSeedValue(wx + 7, wz + 37))
+      + (isGiant ? getIntInRange(1, shape.giantLeafHeightBonusMax, treeSeedValue(wx - 73, wz - 89)) : 0);
+    const leafDensity = getFloatInRange(shape.leafDensityMin, shape.leafDensityMax, treeSeedValue(wx - 41, wz - 29))
+      + (isGiant ? getFloatInRange(0, shape.giantDensityBonusMax, treeSeedValue(wx + 109, wz - 113)) : 0);
+    const canopyStyleSample = treeSeedValue(wx + 59, wz - 47);
     const topY = baseY + trunkHeight;
     const canopyCenterY = topY + Math.floor(leafHeight * 0.5);
     const maxLeafDistSq = (leafRadius + 0.5) * (leafRadius + 0.5);
     for (let h = 1; h <= trunkHeight; h++) wood.push({ x: wx, y: baseY + h, z: wz });
     for (let dy = 0; dy < leafHeight; dy++) {
       const y = topY + dy;
-      const r = dy === leafHeight - 1 ? Math.max(0, leafRadius - 1) : leafRadius;
+      const layerT = leafHeight <= 1 ? 1 : dy / (leafHeight - 1);
+      const isCone = canopyStyleSample < 0.33;
+      const isWide = canopyStyleSample >= 0.66;
+      let r = leafRadius;
+      if (isCone) {
+        r = Math.max(0, leafRadius - Math.floor(layerT * (leafRadius + 1)));
+      } else if (isWide) {
+        const extra = dy < Math.ceil(leafHeight * 0.5) ? 1 : 0;
+        r = leafRadius + extra - (dy === leafHeight - 1 ? 1 : 0);
+      } else {
+        r = leafRadius - (layerT > 0.8 ? 1 : 0);
+      }
+      r = Math.max(0, r);
+      const densityBias = isCone ? -0.12 * layerT : isWide ? 0.08 * (1 - layerT) : 0;
+      const effectiveLeafDensity = clampValue(leafDensity + densityBias, 0.35, 0.98);
       for (let dx = -r; dx <= r; dx++)
         for (let dz = -r; dz <= r; dz++) {
           if (dx === 0 && dz === 0 && dy === 0) continue;
           if (r > 0 && Math.abs(dx) === r && Math.abs(dz) === r && !shouldPlaceLeafAtCorner(wx, wz, dx, dz)) continue;
           if ((biome === "forest" || biome === "jungle") && (dx * dx + (y - canopyCenterY) ** 2 + dz * dz) > maxLeafDistSq) continue;
+          if (!(dx === 0 && dz === 0) && leafNoiseValue(wx, wz, dx, dy, dz) > effectiveLeafDensity) continue;
           leaves.push({ x: wx + dx, y, z: wz + dz });
         }
     }
@@ -298,9 +446,7 @@ export function createChunkGenerator(seed: number) {
   }
 
   const stage1 = createStage1({
-    getTemperature,
-    getHumidity,
-    getBiomeByClimate,
+    getBaseBiomeAt,
     getHeightForBase,
     getResolvedBiomeFromHeight,
   });

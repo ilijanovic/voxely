@@ -6,13 +6,14 @@
 import { createNoise2D } from "simplex-noise";
 import type { Biome, BlockType } from "./types";
 import { WATER_LEVEL } from "./constants";
-import { getBiomeByClimate } from "./terrain/biomes";
+import { getLandBiomeByClimate } from "./terrain/biomes";
 import { BIOME_LAYERS, BIOME_TERRAIN } from "./terrain/biomes";
 import { makeSeededRandom } from "./terrain/utils";
 
 const BASE_HEIGHT = 64;
 const CONTINENTAL_SCALE = 0.0012;
 const CONTINENTAL_AMPLITUDE = 20;
+const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44;
 const EROSION_SCALE = 0.018;
 const EROSION_AMPLITUDE = 7;
 const MOUNTAIN_MASK_SCALE = 0.003;
@@ -26,7 +27,10 @@ const HUMIDITY_SCALE = 0.0012;
 const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10;
 const HIGHLAND_GROVE_MAX = WATER_LEVEL + 20;
 const HIGHLAND_SNOWY_SLOPES_MAX = WATER_LEVEL + 30;
-const PEAK_VARIANT_SCALE = 0.01;
+const COLD_HIGHLAND_TEMP_MAX = 0.42;
+const COLD_UPLAND_TEMP_MAX = 0.5;
+const PEAK_VARIANT_SCALE = 0.004;
+const HIGHLAND_VARIANT_SCALE = 0.004;
 const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26;
 const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16;
 
@@ -70,8 +74,14 @@ export function createTerrainSampling(seed: number) {
     return 6;
   }
 
+  function getContinentalness(x: number, z: number): number {
+    const n = continentalNoise2D(x * CONTINENTAL_SCALE, z * CONTINENTAL_SCALE);
+    return (n + 1) * 0.5;
+  }
+
   function getBiome(x: number, z: number): Biome {
-    return getBiomeByClimate(getTemperature(x, z), getHumidity(x, z));
+    if (getContinentalness(x, z) < OCEAN_CONTINENTALNESS_THRESHOLD) return "ocean";
+    return getLandBiomeByClimate(getTemperature(x, z), getHumidity(x, z));
   }
 
   const _blendOut: { primary: Biome; secondary: Biome; t: number } = {
@@ -146,17 +156,26 @@ export function createTerrainSampling(seed: number) {
 
   function getResolvedBiome(x: number, z: number, getHeight: GetHeightFn): Biome {
     const base = getBiome(x, z);
-    if (base !== "mountain" && base !== "snow") return base;
     const h = getHeight(x, z);
+    if (base !== "mountain" && base !== "snow") {
+      const temp = getTemperature(x, z);
+      if (temp <= COLD_HIGHLAND_TEMP_MAX) {
+        if (h >= HIGHLAND_SNOWY_SLOPES_MAX + 6) return "frozen_peaks";
+        if (h >= HIGHLAND_SNOWY_SLOPES_MAX) return "snowy_slopes";
+        if (h >= HIGHLAND_GROVE_MAX) return "grove";
+      }
+      if (temp <= COLD_UPLAND_TEMP_MAX && h >= HIGHLAND_MEADOW_MAX + 4) return "windswept_hills";
+      return base;
+    }
     if (h < HIGHLAND_MEADOW_MAX) {
-      const v = (highlandVariantNoise2D(x * 0.012, z * 0.012) + 1) * 0.5;
+      const v = (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5;
       if (v < 0.25) return "windswept_hills";
       if (v < 0.5) return "windswept_gravelly_hills";
       if (v < 0.75) return "cherry_grove";
       return "meadow";
     }
     if (h < HIGHLAND_GROVE_MAX) {
-      const v = (highlandVariantNoise2D(x * 0.012, z * 0.012) + 1) * 0.5;
+      const v = (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5;
       if (v > 0.82) return "windswept_forest";
       return "grove";
     }

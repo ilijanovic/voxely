@@ -6,7 +6,7 @@ import type { Biome } from "../../types";
 import type { TerrainParams, LayerConfig } from "./types";
 import { BIOME_REGISTRY } from "./registry";
 
-export { BIOME_REGISTRY, getBiomeByClimate } from "./registry";
+export { BIOME_REGISTRY, getBiomeByClimate, getLandBiomeByClimate } from "./registry";
 
 /** Derived from BIOME_REGISTRY for backward compatibility. */
 export const BIOME_TERRAIN: Record<Biome, TerrainParams> = Object.fromEntries(

@@ -1,6 +1,6 @@
 /**
- * Biome registry: single source of truth for biome definitions and climate-based selection.
- * Exports BIOME_REGISTRY and getBiomeByClimate(temp, humidity) for the pipeline.
+ * Biome registry: single source of truth for biome definitions.
+ * Exports climate-based land biome selection and compatibility helpers.
  */
 import type { Biome } from "../../types";
 import type { BiomeDefinition, ClimateBounds } from "./types";
@@ -44,9 +44,11 @@ export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   windswept_forest: windsweptForestDefinition,
 };
 
-/** Base biomes that have climate bounds (used for getBiomeByClimate). */
-const BASE_BIOMES: Biome[] = [
-  "ocean",
+/**
+ * Base land biomes that have climate bounds.
+ * Ocean is selected by continentalness in terrain sampling/generation, not by climate.
+ */
+const BASE_LAND_BIOMES: Biome[] = [
   "desert",
   "plains",
   "savanna",
@@ -67,13 +69,14 @@ function distSq(
 }
 
 /**
- * Select base biome from 2D climate. Uses nearest climate center so that
- * low temperature => snow, high temp + low humidity => desert, etc.
+ * Select a land biome from 2D climate.
+ * Uses nearest climate center so that low temperature => snow,
+ * high temperature + low humidity => desert, etc.
  */
-export function getBiomeByClimate(temp: number, humidity: number): Biome {
+export function getLandBiomeByClimate(temp: number, humidity: number): Biome {
   let best: Biome = "plains";
   let bestD = Infinity;
-  for (const b of BASE_BIOMES) {
+  for (const b of BASE_LAND_BIOMES) {
     const def = BIOME_REGISTRY[b];
     if (!def.climate) continue;
     const d = distSq(temp, humidity, def.climate);
@@ -83,4 +86,12 @@ export function getBiomeByClimate(temp: number, humidity: number): Biome {
     }
   }
   return best;
+}
+
+/**
+ * Backward-compatible alias kept for existing call sites/tests.
+ * Returns land biomes only.
+ */
+export function getBiomeByClimate(temp: number, humidity: number): Biome {
+  return getLandBiomeByClimate(temp, humidity);
 }
