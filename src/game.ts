@@ -1691,17 +1691,8 @@ async function initMaterialsAndColormaps(): Promise<void> {
           textureNames: names,
         });
       }
-      // Leaves: use foliage colormap per-instance tint when available (grayscale texture × biome color); else single fallback tint.
-      const foliageTint = 0x59ae30; // default foliage green when no colormap
-      const useFoliageColormap =
-        foliageColormapData &&
-        FOLIAGE_BLOCK_TYPES.includes(blockId as BlockType);
-      const leafMaterialOpts: { color?: number; vertexColors?: boolean } =
-        useFoliageColormap
-          ? { color: 0xffffff, vertexColors: true }
-          : FOLIAGE_BLOCK_TYPES.includes(blockId as BlockType)
-          ? { color: foliageTint }
-          : {};
+      // Leaves should use the plain texture color (same behavior as most full-cube blocks).
+      const leafMaterialOpts: { color?: number; vertexColors?: boolean } = {};
       if (names.length === 1) {
         const mat = await createPBRMaterial(names[0], {
           transparent: def.transparent === true,

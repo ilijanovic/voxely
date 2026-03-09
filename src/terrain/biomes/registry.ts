@@ -5,6 +5,7 @@
 import type { Biome } from "../../types";
 import type { BiomeDefinition, ClimateBounds } from "./types";
 import { desertDefinition } from "./desert";
+import { oceanDefinition } from "./ocean";
 import { plainsDefinition } from "./plains";
 import { savannaDefinition } from "./savanna";
 import { forestDefinition } from "./forest";
@@ -24,6 +25,7 @@ import { windsweptForestDefinition } from "./windswept_forest";
 
 export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   plains: plainsDefinition,
+  ocean: oceanDefinition,
   desert: desertDefinition,
   savanna: savannaDefinition,
   forest: forestDefinition,
@@ -44,6 +46,7 @@ export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
 
 /** Base biomes that have climate bounds (used for getBiomeByClimate). */
 const BASE_BIOMES: Biome[] = [
+  "ocean",
   "desert",
   "plains",
   "savanna",

@@ -8,6 +8,7 @@ import { BIOME_TERRAIN, BIOME_LAYERS } from "./index";
 
 const ALL_BIOMES: Biome[] = [
   "plains",
+  "ocean",
   "desert",
   "savanna",
   "forest",

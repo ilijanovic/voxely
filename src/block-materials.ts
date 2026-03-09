@@ -228,6 +228,7 @@ export async function loadFoliageColormapImageData(): Promise<ImageData | null> 
 
 const BIOME_GRASS_TEMP_HUMIDITY: Record<Biome, { temp: number; humidity: number }> = {
   plains: { temp: 0.5, humidity: 0.5 },
+  ocean: { temp: 0.5, humidity: 1 },
   desert: { temp: 1, humidity: 0 },
   savanna: { temp: 0.9, humidity: 0.2 },
   forest: { temp: 0.4, humidity: 0.7 },

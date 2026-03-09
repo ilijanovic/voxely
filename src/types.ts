@@ -6,6 +6,7 @@ export type BlockType = string;
 /** Biomes for terrain and block placement. Highland biomes are height-resolved from mountain/snow regions. */
 export type Biome =
   | "plains"
+  | "ocean"
   | "desert"
   | "savanna"
   | "forest"

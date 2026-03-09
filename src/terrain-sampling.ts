@@ -60,6 +60,7 @@ export function createTerrainSampling(seed: number) {
 
   function getBiomeValue(x: number, z: number): number {
     const biome = getBiome(x, z);
+    if (biome === "ocean") return 0;
     if (biome === "desert") return 0;
     if (biome === "plains") return 1;
     if (biome === "savanna") return 2;
