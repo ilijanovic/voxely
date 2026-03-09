@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Voxel textures preview</title>
+  <style>
+    body { font-family: system-ui; padding: 16px; background: #1a1a1a; color: #eee; }
+    h1 { margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; max-width: 600px; }
+    .cell { text-align: center; }
+    .cell img { image-rendering: pixelated; image-rendering: crisp-edges; width: 128px; height: 128px; display: block; margin: 0 auto 8px; border: 1px solid #444; }
+    .cell span { font-size: 14px; color: #aaa; }
+  </style>
+</head>
+<body>
+  <h1>16×16 voxel textures</h1>
+  <p>Minecraft-style, tileable. Use with <code>THREE.NearestFilter</code>.</p>
+  <div class="grid">
+    <div class="cell"><img src="grass_top.png" alt="grass top" /><span>grass_top.png</span></div>
+    <div class="cell"><img src="grass_side.png" alt="grass side" /><span>grass_side.png</span></div>
+    <div class="cell"><img src="dirt.png" alt="dirt" /><span>dirt.png</span></div>
+    <div class="cell"><img src="stone.png" alt="stone" /><span>stone.png</span></div>
+  </div>
+</body>
+</html>

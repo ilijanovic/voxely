@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Basis-Layout für das Spiel (Vue-Mount + Canvas) */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  html,
+  body {
+    overflow: hidden;
+    height: 100%;
+    touch-action: none;
+  }
+  #app {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+  }
+}
+
+/* Hotbar: .selected wird vom Spiel per classList.toggle gesetzt */
+#hotbar .slot.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), inset 0 0 12px rgba(255, 255, 255, 0.15);
+}

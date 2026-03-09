@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 1000">
+  <defs>
+    <style>
+      .crack { fill: none; stroke: rgba(255,255,255,0.9); stroke-width: 2.5; stroke-linecap: round; }
+      .crack-shadow { fill: none; stroke: rgba(0,0,0,0.4); stroke-width: 3; stroke-linecap: round; }
+    </style>
+  </defs>
+  <!-- Stage 0: kaum sichtbar -->
+  <g transform="translate(0,0) scale(0.1)">
+    <path class="crack-shadow" d="M50 50 L55 200"/>
+    <path class="crack" d="M50 50 L55 200"/>
+  </g>
+  <!-- Stage 1 -->
+  <g transform="translate(0,100) scale(0.1)">
+    <path class="crack-shadow" d="M50 50 L60 250 L80 400"/>
+    <path class="crack" d="M50 50 L60 250 L80 400"/>
+    <path class="crack-shadow" d="M200 100 L150 350"/>
+    <path class="crack" d="M200 100 L150 350"/>
+  </g>
+  <!-- Stage 2 -->
+  <g transform="translate(0,200) scale(0.1)">
+    <path class="crack-shadow" d="M50 50 L70 280 L120 450 L180 600"/>
+    <path class="crack" d="M50 50 L70 280 L120 450 L180 600"/>
+    <path class="crack-shadow" d="M250 80 L200 300 L180 500"/>
+    <path class="crack" d="M250 80 L200 300 L180 500"/>
+    <path class="crack-shadow" d="M400 200 L350 400"/>
+    <path class="crack" d="M400 200 L350 400"/>
+  </g>
+  <!-- Stage 3 -->
+  <g transform="translate(0,300) scale(0.1)">
+    <path class="crack-shadow" d="M50 30 L80 250 L150 450 L220 650"/>
+    <path class="crack" d="M50 30 L80 250 L150 450 L220 650"/>
+    <path class="crack-shadow" d="M280 50 L220 280 L200 480"/>
+    <path class="crack" d="M280 50 L220 280 L200 480"/>
+    <path class="crack-shadow" d="M450 150 L400 380 L380 580"/>
+    <path class="crack" d="M450 150 L400 380 L380 580"/>
+    <path class="crack-shadow" d="M150 300 L200 500"/>
+    <path class="crack" d="M150 300 L200 500"/>
+  </g>
+  <!-- Stage 4 -->
+  <g transform="translate(0,400) scale(0.1)">
+    <path class="crack-shadow" d="M50 20 L90 260 L170 470 L260 680 L320 800"/>
+    <path class="crack" d="M50 20 L90 260 L170 470 L260 680 L320 800"/>
+    <path class="crack-shadow" d="M300 40 L240 270 L210 490 L250 650"/>
+    <path class="crack" d="M300 40 L240 270 L210 490 L250 650"/>
+    <path class="crack-shadow" d="M480 120 L420 350 L400 560"/>
+    <path class="crack" d="M480 120 L420 350 L400 560"/>
+    <path class="crack-shadow" d="M120 280 L180 520 L220 720"/>
+    <path class="crack" d="M120 280 L180 520 L220 720"/>
+    <path class="crack-shadow" d="M350 350 L320 550"/>
+    <path class="crack" d="M350 350 L320 550"/>
+  </g>
+  <!-- Stage 5 -->
+  <g transform="translate(0,500) scale(0.1)">
+    <path class="crack-shadow" d="M50 10 L100 250 L190 480 L290 700 L370 900"/>
+    <path class="crack" d="M50 10 L100 250 L190 480 L290 700 L370 900"/>
+    <path class="crack-shadow" d="M320 30 L260 260 L230 500 L270 680 L310 850"/>
+    <path class="crack" d="M320 30 L260 260 L230 500 L270 680 L310 850"/>
+    <path class="crack-shadow" d="M500 100 L440 330 L410 560 L450 750"/>
+    <path class="crack" d="M500 100 L440 330 L410 560 L450 750"/>
+    <path class="crack-shadow" d="M100 260 L170 510 L230 730 L280 900"/>
+    <path class="crack" d="M100 260 L170 510 L230 730 L280 900"/>
+    <path class="crack-shadow" d="M360 320 L330 560 L350 780"/>
+    <path class="crack" d="M360 320 L330 560 L350 780"/>
+    <path class="crack-shadow" d="M180 400 L220 620"/>
+    <path class="crack" d="M180 400 L220 620"/>
+  </g>
+  <!-- Stage 6 -->
+  <g transform="translate(0,600) scale(0.1)">
+    <path class="crack-shadow" d="M45 5 L110 255 L210 490 L320 720 L400 920"/>
+    <path class="crack" d="M45 5 L110 255 L210 490 L320 720 L400 920"/>
+    <path class="crack-shadow" d="M330 20 L265 255 L235 510 L280 700 L330 880"/>
+    <path class="crack" d="M330 20 L265 255 L235 510 L280 700 L330 880"/>
+    <path class="crack-shadow" d="M510 85 L450 320 L415 570 L460 770"/>
+    <path class="crack" d="M510 85 L450 320 L415 570 L460 770"/>
+    <path class="crack-shadow" d="M85 250 L165 520 L240 750 L300 920"/>
+    <path class="crack" d="M85 250 L165 520 L240 750 L300 920"/>
+    <path class="crack-shadow" d="M370 310 L340 560 L365 800 L400 950"/>
+    <path class="crack" d="M370 310 L340 560 L365 800 L400 950"/>
+    <path class="crack-shadow" d="M165 380 L215 630 L260 820"/>
+    <path class="crack" d="M165 380 L215 630 L260 820"/>
+    <path class="crack-shadow" d="M270 200 L250 450"/>
+    <path class="crack" d="M270 200 L250 450"/>
+  </g>
+  <!-- Stage 7 -->
+  <g transform="translate(0,700) scale(0.1)">
+    <path class="crack-shadow" d="M40 0 L120 260 L230 500 L350 740 L430 950"/>
+    <path class="crack" d="M40 0 L120 260 L230 500 L350 740 L430 950"/>
+    <path class="crack-shadow" d="M340 10 L270 250 L240 520 L290 720 L350 900"/>
+    <path class="crack" d="M340 10 L270 250 L240 520 L290 720 L350 900"/>
+    <path class="crack-shadow" d="M520 70 L455 315 L420 580 L470 780"/>
+    <path class="crack" d="M520 70 L455 315 L420 580 L470 780"/>
+    <path class="crack-shadow" d="M70 240 L160 530 L250 770 L320 950"/>
+    <path class="crack" d="M70 240 L160 530 L250 770 L320 950"/>
+    <path class="crack-shadow" d="M380 300 L350 570 L380 820 L420 980"/>
+    <path class="crack" d="M380 300 L350 570 L380 820 L420 980"/>
+    <path class="crack-shadow" d="M150 360 L210 640 L270 850"/>
+    <path class="crack" d="M150 360 L210 640 L270 850"/>
+    <path class="crack-shadow" d="M260 180 L245 460 L270 660"/>
+    <path class="crack" d="M260 180 L245 460 L270 660"/>
+    <path class="crack-shadow" d="M420 450 L400 700"/>
+    <path class="crack" d="M420 450 L400 700"/>
+  </g>
+  <!-- Stage 8 -->
+  <g transform="translate(0,800) scale(0.1)">
+    <path class="crack-shadow" d="M35 0 L130 265 L250 510 L380 760 L460 970"/>
+    <path class="crack" d="M35 0 L130 265 L250 510 L380 760 L460 970"/>
+    <path class="crack-shadow" d="M350 0 L275 245 L245 530 L300 740 L370 920"/>
+    <path class="crack" d="M350 0 L275 245 L245 530 L300 740 L370 920"/>
+    <path class="crack-shadow" d="M530 55 L460 310 L425 590 L480 800"/>
+    <path class="crack" d="M530 55 L460 310 L425 590 L480 800"/>
+    <path class="crack-shadow" d="M55 230 L170 540 L265 790 L340 980"/>
+    <path class="crack" d="M55 230 L170 540 L265 790 L340 980"/>
+    <path class="crack-shadow" d="M390 290 L358 580 L392 840 L435 1000"/>
+    <path class="crack" d="M390 290 L358 580 L392 840 L435 1000"/>
+    <path class="crack-shadow" d="M135 350 L220 650 L285 870"/>
+    <path class="crack" d="M135 350 L220 650 L285 870"/>
+    <path class="crack-shadow" d="M250 170 L248 480 L278 690 L320 880"/>
+    <path class="crack" d="M250 170 L248 480 L278 690 L320 880"/>
+    <path class="crack-shadow" d="M430 430 L408 710 L450 900"/>
+    <path class="crack" d="M430 430 L408 710 L450 900"/>
+    <path class="crack-shadow" d="M180 120 L200 400"/>
+    <path class="crack" d="M180 120 L200 400"/>
+  </g>
+  <!-- Stage 9: fast zerbrochen, maximale Risse -->
+  <g transform="translate(0,900) scale(0.1)">
+    <path class="crack-shadow" d="M30 0 L140 270 L270 520 L410 780 L490 990"/>
+    <path class="crack" d="M30 0 L140 270 L270 520 L410 780 L490 990"/>
+    <path class="crack-shadow" d="M360 0 L280 240 L250 540 L310 760 L390 940"/>
+    <path class="crack" d="M360 0 L280 240 L250 540 L310 760 L390 940"/>
+    <path class="crack-shadow" d="M540 40 L465 305 L430 600 L490 820"/>
+    <path class="crack" d="M540 40 L465 305 L430 600 L490 820"/>
+    <path class="crack-shadow" d="M40 220 L180 550 L280 810 L360 1000"/>
+    <path class="crack" d="M40 220 L180 550 L280 810 L360 1000"/>
+    <path class="crack-shadow" d="M400 280 L365 590 L398 860 L450 1020"/>
+    <path class="crack" d="M400 280 L365 590 L398 860 L450 1020"/>
+    <path class="crack-shadow" d="M120 340 L230 660 L300 890"/>
+    <path class="crack" d="M120 340 L230 660 L300 890"/>
+    <path class="crack-shadow" d="M240 160 L252 500 L288 720 L340 920"/>
+    <path class="crack" d="M240 160 L252 500 L288 720 L340 920"/>
+    <path class="crack-shadow" d="M440 420 L415 720 L460 930"/>
+    <path class="crack" d="M440 420 L415 720 L460 930"/>
+    <path class="crack-shadow" d="M170 100 L205 420 L240 650"/>
+    <path class="crack" d="M170 100 L205 420 L240 650"/>
+    <path class="crack-shadow" d="M310 350 L295 600 L330 800"/>
+    <path class="crack" d="M310 350 L295 600 L330 800"/>
+  </g>
+</svg>

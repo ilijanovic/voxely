@@ -1,0 +1,10 @@
+# Voxel Engine Docs
+
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** – Architecture overview, improvement roadmap, and algorithms for terrain, rendering, chunks, lighting, water, physics, and engine structure.
+
+## Examples
+
+- **`examples/greedy-mesh-chunk.ts`** – Face culling and quad emission for one chunk; builds a single `BufferGeometry` from a 3D block array. Use this to replace or complement per-block InstancedMesh with a merged mesh per chunk.
+- **`examples/chunk-worker.example.ts`** – Minimal Web Worker that receives `{ type: 'generate', chunkX, chunkZ }` and posts back serialized chunk data (blocks + water cells). Move your terrain/tree logic into a shared module and call it from the worker.
+
+These examples are reference implementations; integrate and adapt them into your main codebase (e.g. `src/`) as needed.

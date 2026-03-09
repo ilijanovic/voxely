@@ -1,0 +1,33 @@
+---
+description: When asked to stage and commit, use conventional commits format
+alwaysApply: true
+---
+
+# Git: Stage and commit
+
+When the user asks you to **stage** and **commit** (e.g. "stage and commit", "commit", "commit that"):
+
+1. **Stage** all relevant changes: `git add` for modified/new files (do not add build artifacts, env files, or paths listed in `.gitignore` unless the user asks).
+2. **Commit** with a message in **Conventional Commits** style.
+
+## Conventional Commits format
+
+```
+<type>(<optional scope>): <short description>
+
+[optional body]
+```
+
+- **type** (required): `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`
+- **scope** (optional): area of the codebase, e.g. `ui`, `game`, `multiplayer`
+- **description**: imperative, lowercase start, no period at the end (e.g. "add pause menu" not "Added pause menu.")
+
+## Examples
+
+- `feat(ui): add options menu for graphics settings`
+- `fix(game): correct player collision at chunk edges`
+- `docs: update README with controls`
+- `chore: translate UI strings to English`
+- `refactor(terrain): extract noise helpers into module`
+
+Run `git status` first to see what changed, then stage and commit with an appropriate type and message. Use `git_write` permission when running git commands that modify state.

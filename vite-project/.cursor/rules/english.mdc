@@ -1,0 +1,12 @@
+---
+description: Use English for all code comments, docs, and in-app text
+alwaysApply: true
+---
+
+# Language: English
+
+- **Code comments:** Write all comments in English (e.g. `// Update hotbar selection`, not German).
+- **Documentation:** README, MULTIPLAYER.md, and any new docs should be in English.
+- **User-facing text:** UI labels, hints, messages, and button text should be in English (e.g. "Pause", "Resume", "Multiplayer: 2 players").
+
+When adding or editing code, keep variable/function names in English and use English for commit messages and doc updates.
