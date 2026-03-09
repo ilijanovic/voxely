@@ -17,7 +17,13 @@ import {
   getRenderDistanceSq,
   getShadowsEnabled,
   getAntialias,
+  getFovNormal,
+  getFovSprint,
+  getPointerSpeed,
+  getPointerSpeedSprint,
+  getShadowMapSize,
 } from "./graphics-settings";
+import { getKeyBinding, type KeyAction } from "./key-settings";
 import { initMultiplayer, updateMultiplayer } from "./multiplayer";
 import { setWorldApi } from "./world-api";
 import {
@@ -2567,14 +2573,7 @@ let lastLookPitch = 0;
 let isSprinting = false;
 const DOUBLE_TAP_WINDOW_MS = 400;
 
-// POV-Zoom beim Sprint: größeres FOV = „zoom out“, wirkt schneller
-const FOV_NORMAL = 75;
-const FOV_SPRINT = 88;
 const FOV_LERP_SPEED = 6; // wie schnell FOV zum Ziel lerpt
-
-// Maus-Sensitivität beim Sprint etwas höher (wirkt dynamischer)
-const POINTER_SPEED_NORMAL = 1;
-const POINTER_SPEED_SPRINT = 1.3;
 
 // POV-Hand-Animation: Zustand wird auf Ziel gelerpt, kein Drift (Ziel = 0 oder Wackel-Offset)
 let povHandAnimX = 0;
@@ -2706,7 +2705,7 @@ async function init(container?: HTMLElement) {
   scene.fog = new THREE.Fog(0x87ceeb, 80, 280);
 
   camera = new THREE.PerspectiveCamera(
-    75,
+    getFovNormal(),
     window.innerWidth / window.innerHeight,
     0.1,
     1000
@@ -2731,9 +2730,9 @@ async function init(container?: HTMLElement) {
   // (4) orthografische Breite/Höhe zu klein. Fix: target/position NACH Bewegung setzen, far > SUN_DISTANCE.
   sunLight = new THREE.DirectionalLight(0xfffaf0, 1.2);
   sunLight.castShadow = true;
-  // 1024: guter Kompromiss Qualität/Performance (2048 war oft Hauptgrund für ~30 FPS)
-  sunLight.shadow.mapSize.width = 1024;
-  sunLight.shadow.mapSize.height = 1024;
+  const shadowSize = getShadowMapSize();
+  sunLight.shadow.mapSize.width = shadowSize;
+  sunLight.shadow.mapSize.height = shadowSize;
   sunLight.shadow.camera.near = 0.5;
   sunLight.shadow.camera.far = SUN_DISTANCE + 80;
   sunLight.shadow.camera.left = -SHADOW_RADIUS;
@@ -3053,92 +3052,64 @@ function isTypingFocus(): boolean {
 
 document.addEventListener("keydown", (e) => {
   if (isTypingFocus()) return;
-  switch (e.code) {
-    case "Digit1":
-      setHotbarIndex(0);
-      break;
-    case "Digit2":
-      setHotbarIndex(1);
-      break;
-    case "Digit3":
-      setHotbarIndex(2);
-      break;
-    case "Digit4":
-      setHotbarIndex(3);
-      break;
-    case "Digit5":
-      setHotbarIndex(4);
-      break;
-    case "Digit6":
-      setHotbarIndex(5);
-      break;
-    case "Digit7":
-      setHotbarIndex(6);
-      break;
-    case "Digit8":
-      setHotbarIndex(7);
-      break;
-    case "Digit9":
-      setHotbarIndex(8);
-      break;
+  const code = e.code;
 
-    case "KeyW": {
-      moveState.forward = true;
-      // Sprint nur bei echtem Doppeltipp (2x W schnell), nicht bei Key-Repeat (Halten)
-      if (!e.repeat) {
-        const now = performance.now();
-        if (lastWPressTime > 0 && now - lastWPressTime < DOUBLE_TAP_WINDOW_MS) {
-          isSprinting = true;
-        }
-        lastWPressTime = now;
-      }
-      break;
+  // Hotbar 1–9
+  for (let i = 0; i < 9; i++) {
+    if (getKeyBinding(`hotbar${i + 1}` as KeyAction) === code) {
+      setHotbarIndex(i);
+      return;
     }
-    case "KeyS":
-      moveState.back = true;
-      break;
-    case "KeyA":
-      moveState.left = true;
-      break;
-    case "KeyD":
-      moveState.right = true;
-      break;
+  }
 
-    case "Space": {
-      if (!e.repeat) {
-        jumpRequested = true;
-        if (playerGrounded) velocityY = jumpForce; // sofort anwenden, wenn schon am Boden
+  if (code === getKeyBinding("forward")) {
+    moveState.forward = true;
+    if (!e.repeat) {
+      const now = performance.now();
+      if (lastWPressTime > 0 && now - lastWPressTime < DOUBLE_TAP_WINDOW_MS) {
+        isSprinting = true;
       }
-      e.preventDefault();
-      break;
+      lastWPressTime = now;
     }
-
-    case "KeyV":
-      viewMode = viewMode === "first" ? "third" : "first";
-      break;
+    return;
+  }
+  if (code === getKeyBinding("back")) {
+    moveState.back = true;
+    return;
+  }
+  if (code === getKeyBinding("left")) {
+    moveState.left = true;
+    return;
+  }
+  if (code === getKeyBinding("right")) {
+    moveState.right = true;
+    return;
+  }
+  if (code === getKeyBinding("jump")) {
+    if (!e.repeat) {
+      jumpRequested = true;
+      if (playerGrounded) velocityY = jumpForce;
+    }
+    e.preventDefault();
+    return;
+  }
+  if (code === getKeyBinding("toggleView")) {
+    viewMode = viewMode === "first" ? "third" : "first";
   }
 });
 
 document.addEventListener("keyup", (e) => {
   if (isTypingFocus()) return;
-  switch (e.code) {
-    case "KeyW":
-      moveState.forward = false;
-      isSprinting = false;
-      break;
-    case "KeyS":
-      moveState.back = false;
-      break;
-    case "KeyA":
-      moveState.left = false;
-      break;
-    case "KeyD":
-      moveState.right = false;
-      break;
-    case "Space":
-      jumpRequested = false; // beim Loslassen verwerfen, sonst Sprung beim nächsten Landen
-      break;
+  const code = e.code;
+  if (code === getKeyBinding("forward")) {
+    moveState.forward = false;
+    isSprinting = false;
+    return;
   }
+  if (code === getKeyBinding("back")) moveState.back = false;
+  if (code === getKeyBinding("left")) moveState.left = false;
+  if (code === getKeyBinding("right")) moveState.right = false;
+  if (code === getKeyBinding("jump")) jumpRequested = false;
 });
 
 // ================= SHADOW CAMERA (pro Frame, nach Bewegung) =================
@@ -3350,7 +3321,7 @@ function animate() {
   const maxSpeed = isSprinting ? horizontalMaxSpeedSprint : horizontalMaxSpeed;
 
   // POV-FOV: beim Sprint etwas zoomen (größeres FOV = schnellerer Eindruck)
-  const targetFov = isSprinting && moveState.forward ? FOV_SPRINT : FOV_NORMAL;
+  const targetFov = isSprinting && moveState.forward ? getFovSprint() : getFovNormal();
   camera.fov += (targetFov - camera.fov) * Math.min(1, FOV_LERP_SPEED * dt);
   // Projektion nur bei spürbarer FOV-Änderung neu hochladen (spart GPU-Arbeit im Ruhezustand)
   if (Math.abs(camera.fov - _lastUploadedFov) > 0.05) {
@@ -3361,8 +3332,8 @@ function animate() {
   // Maus-Sensitivität beim Sprint etwas höher
   const targetPointerSpeed =
     isSprinting && moveState.forward
-      ? POINTER_SPEED_SPRINT
-      : POINTER_SPEED_NORMAL;
+      ? getPointerSpeedSprint()
+      : getPointerSpeed();
   controls.pointerSpeed +=
     (targetPointerSpeed - controls.pointerSpeed) *
     Math.min(1, FOV_LERP_SPEED * dt);
@@ -3823,6 +3794,15 @@ window.addEventListener("resize", () => {
 export function applyGraphicsSettings(): void {
   if (!renderer || !sunLight) return;
   renderer.shadowMap.enabled = getShadowsEnabled();
+  const size = getShadowMapSize();
+  if (sunLight.shadow.mapSize.width !== size || sunLight.shadow.mapSize.height !== size) {
+    sunLight.shadow.mapSize.width = size;
+    sunLight.shadow.mapSize.height = size;
+    if (sunLight.shadow.map) {
+      sunLight.shadow.map.dispose();
+      (sunLight.shadow as { map: THREE.RenderTarget | null }).map = null;
+    }
+  }
   sunLight.shadow.camera.left = -SHADOW_RADIUS;
   sunLight.shadow.camera.right = SHADOW_RADIUS;
   sunLight.shadow.camera.top = SHADOW_RADIUS;

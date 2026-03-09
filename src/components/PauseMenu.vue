@@ -1,26 +1,66 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref, watch, onMounted, onUnmounted } from "vue";
 import {
   getGraphicsState,
   setRenderDistance,
   setShadowsEnabled,
   setAntialias,
+  setFovNormal,
+  setFovSprint,
+  setPointerSpeed,
+  setPointerSpeedSprint,
+  setShadowMapSize,
 } from "../graphics-settings";
+import {
+  getKeyBindings,
+  setKeyBinding,
+  resetKeyBindingsToDefaults,
+  keyActionLabels,
+  keyActions,
+  codeToDisplayName,
+  type KeyAction,
+} from "../key-settings";
 import { applyGraphicsSettings } from "../game";
 
 const emit = defineEmits<{ close: [] }>();
 
 const view = ref<"main" | "options">("main");
+const optionsTab = ref<"graphics" | "controls">("graphics");
+
+// Graphics state
 const renderDistance = ref(getGraphicsState().renderDistance);
 const shadowsEnabled = ref(getGraphicsState().shadowsEnabled);
 const antialias = ref(getGraphicsState().antialias);
+const fovNormal = ref(getGraphicsState().fovNormal);
+const fovSprint = ref(getGraphicsState().fovSprint);
+const pointerSpeed = ref(getGraphicsState().pointerSpeed);
+const pointerSpeedSprint = ref(getGraphicsState().pointerSpeedSprint);
+const shadowMapSize = ref(getGraphicsState().shadowMapSize);
+
+// Controls: current bindings (reactive for UI)
+const keyBindings = ref<Record<KeyAction, string>>(getKeyBindings());
+const rebindingAction = ref<KeyAction | null>(null);
 
 watch(
-  [renderDistance, shadowsEnabled, antialias],
+  [
+    renderDistance,
+    shadowsEnabled,
+    antialias,
+    fovNormal,
+    fovSprint,
+    pointerSpeed,
+    pointerSpeedSprint,
+    shadowMapSize,
+  ],
   () => {
     setRenderDistance(renderDistance.value);
     setShadowsEnabled(shadowsEnabled.value);
     setAntialias(antialias.value);
+    setFovNormal(fovNormal.value);
+    setFovSprint(fovSprint.value);
+    setPointerSpeed(pointerSpeed.value);
+    setPointerSpeedSprint(pointerSpeedSprint.value);
+    setShadowMapSize(shadowMapSize.value as 512 | 1024 | 2048);
     applyGraphicsSettings();
   },
   { deep: true }
@@ -28,14 +68,59 @@ watch(
 
 function openOptions() {
   view.value = "options";
-  renderDistance.value = getGraphicsState().renderDistance;
-  shadowsEnabled.value = getGraphicsState().shadowsEnabled;
-  antialias.value = getGraphicsState().antialias;
+  optionsTab.value = "graphics";
+  const g = getGraphicsState();
+  renderDistance.value = g.renderDistance;
+  shadowsEnabled.value = g.shadowsEnabled;
+  antialias.value = g.antialias;
+  fovNormal.value = g.fovNormal;
+  fovSprint.value = g.fovSprint;
+  pointerSpeed.value = g.pointerSpeed;
+  pointerSpeedSprint.value = g.pointerSpeedSprint;
+  shadowMapSize.value = g.shadowMapSize;
+  keyBindings.value = getKeyBindings();
+  rebindingAction.value = null;
 }
 
 function back() {
   view.value = "main";
+  rebindingAction.value = null;
 }
+
+function startRebind(action: KeyAction) {
+  rebindingAction.value = action;
+}
+
+function onRebindKey(e: KeyboardEvent) {
+  if (rebindingAction.value == null) return;
+  e.preventDefault();
+  e.stopPropagation();
+  setKeyBinding(rebindingAction.value, e.code);
+  keyBindings.value = getKeyBindings();
+  rebindingAction.value = null;
+}
+
+function resetKeys() {
+  resetKeyBindingsToDefaults();
+  keyBindings.value = getKeyBindings();
+}
+
+const shadowMapSizeOptions = [
+  { value: 512, label: "512 (schnell)" },
+  { value: 1024, label: "1024" },
+  { value: 2048, label: "2048 (qualität)" },
+];
+
+let rebindListener: ((e: KeyboardEvent) => void) | null = null;
+onMounted(() => {
+  rebindListener = (e: KeyboardEvent) => {
+    if (rebindingAction.value != null) onRebindKey(e);
+  };
+  window.addEventListener("keydown", rebindListener, true);
+});
+onUnmounted(() => {
+  if (rebindListener) window.removeEventListener("keydown", rebindListener, true);
+});
 </script>
 
 <template>
@@ -62,7 +147,7 @@ function back() {
         </div>
       </template>
 
-      <!-- Options (Graphics) -->
+      <!-- Options -->
       <template v-else>
         <div class="options-header">
           <button
@@ -73,11 +158,31 @@ function back() {
           >
             ←
           </button>
-          <h1 class="pause-title">Options · Graphics</h1>
+          <h1 class="pause-title">Options</h1>
         </div>
-        <div class="options-list">
+        <div class="options-tabs">
+          <button
+            type="button"
+            class="options-tab"
+            :class="{ active: optionsTab === 'graphics' }"
+            @click="optionsTab = 'graphics'"
+          >
+            Grafik
+          </button>
+          <button
+            type="button"
+            class="options-tab"
+            :class="{ active: optionsTab === 'controls' }"
+            @click="optionsTab = 'controls'"
+          >
+            Steuerung
+          </button>
+        </div>
+
+        <!-- Graphics -->
+        <div v-show="optionsTab === 'graphics'" class="options-list">
           <label class="option-row">
-            <span class="option-label">Render distance (chunks)</span>
+            <span class="option-label">Sichtweite (Chunks)</span>
             <div class="option-control">
               <input
                 v-model.number="renderDistance"
@@ -90,13 +195,81 @@ function back() {
               <span class="option-value">{{ renderDistance }}</span>
             </div>
           </label>
+          <label class="option-row">
+            <span class="option-label">FOV (normal)</span>
+            <div class="option-control">
+              <input
+                v-model.number="fovNormal"
+                type="range"
+                min="60"
+                max="120"
+                step="1"
+                class="option-slider"
+              />
+              <span class="option-value">{{ fovNormal }}°</span>
+            </div>
+          </label>
+          <label class="option-row">
+            <span class="option-label">FOV (Sprint)</span>
+            <div class="option-control">
+              <input
+                v-model.number="fovSprint"
+                type="range"
+                min="60"
+                max="120"
+                step="1"
+                class="option-slider"
+              />
+              <span class="option-value">{{ fovSprint }}°</span>
+            </div>
+          </label>
+          <label class="option-row">
+            <span class="option-label">Maus-Sensitivität</span>
+            <div class="option-control">
+              <input
+                v-model.number="pointerSpeed"
+                type="range"
+                min="0.1"
+                max="3"
+                step="0.1"
+                class="option-slider"
+              />
+              <span class="option-value">{{ pointerSpeed.toFixed(1) }}</span>
+            </div>
+          </label>
+          <label class="option-row">
+            <span class="option-label">Maus (Sprint)</span>
+            <div class="option-control">
+              <input
+                v-model.number="pointerSpeedSprint"
+                type="range"
+                min="0.1"
+                max="3"
+                step="0.1"
+                class="option-slider"
+              />
+              <span class="option-value">{{ pointerSpeedSprint.toFixed(1) }}</span>
+            </div>
+          </label>
           <label class="option-row option-row-toggle">
-            <span class="option-label">Shadows</span>
+            <span class="option-label">Schatten</span>
             <input
               v-model="shadowsEnabled"
               type="checkbox"
               class="option-checkbox"
             />
+          </label>
+          <label class="option-row">
+            <span class="option-label">Schatten-Qualität</span>
+            <select v-model.number="shadowMapSize" class="option-select">
+              <option
+                v-for="opt in shadowMapSizeOptions"
+                :key="opt.value"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </option>
+            </select>
           </label>
           <label class="option-row option-row-toggle">
             <span class="option-label">Antialiasing</span>
@@ -107,8 +280,31 @@ function back() {
             />
           </label>
           <p class="option-hint">
-            Antialiasing takes effect after restarting the game.
+            Antialiasing wirkt erst nach Neustart.
           </p>
+        </div>
+
+        <!-- Controls (key bindings) -->
+        <div v-show="optionsTab === 'controls'" class="options-list controls-list">
+          <p class="option-hint">Klicke auf eine Taste und drücke die neue Belegung.</p>
+          <div
+            v-for="action in keyActions"
+            :key="action"
+            class="key-row"
+            :class="{ rebinding: rebindingAction === action }"
+          >
+            <span class="key-label">{{ keyActionLabels[action] }}</span>
+            <button
+              type="button"
+              class="key-btn"
+              @click="startRebind(action)"
+            >
+              {{ rebindingAction === action ? "… drücke Taste …" : codeToDisplayName(keyBindings[action]) }}
+            </button>
+          </div>
+          <button type="button" class="pause-btn pause-btn-reset" @click="resetKeys">
+            Tasten auf Standard zurücksetzen
+          </button>
         </div>
       </template>
     </div>
@@ -203,6 +399,35 @@ function back() {
   flex: 1;
 }
 
+.options-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.options-tab {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.options-tab:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.options-tab.active {
+  background: rgba(74, 124, 89, 0.4);
+  border-color: rgba(74, 124, 89, 0.8);
+  color: #fff;
+}
+
 .options-list {
   display: flex;
   flex-direction: column;
@@ -256,5 +481,67 @@ function back() {
   font-size: 0.8rem;
   color: rgba(255, 255, 255, 0.5);
   margin: 0.25rem 0 0 0;
+}
+
+.option-select {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.9rem;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.controls-list {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.key-row.rebinding .key-btn {
+  outline: 2px solid #4a7c59;
+  outline-offset: 2px;
+}
+
+.key-label {
+  font-size: 0.9rem;
+  color: #e0e0e0;
+  flex-shrink: 0;
+}
+
+.key-btn {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.9rem;
+  min-width: 5rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.key-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.pause-btn-reset {
+  margin-top: 1rem;
+  background: rgba(120, 80, 80, 0.6);
+  color: #fff;
+}
+
+.pause-btn-reset:hover {
+  background: rgba(140, 90, 90, 0.8);
 }
 </style>
