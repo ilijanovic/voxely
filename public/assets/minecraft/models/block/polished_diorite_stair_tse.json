@@ -1,7 +1,0 @@
-{
-	"parent": "block/polished_granite_stair_tse",
-	"textures": {
-		"0": "block/polished_diorite_stairs",
-		"particle": "block/polished_diorite"
-	}
-}

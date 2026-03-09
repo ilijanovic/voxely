@@ -1,5 +1,5 @@
 import type { BlockType } from "./types";
-import { BLOCK_TEXTURE_PATH } from "./constants";
+import { getBlockTexturePath } from "./constants";
 import {
   getAllBlockIds,
   getBlockDisplayName,
@@ -11,13 +11,14 @@ export const BLOCK_ICON: Record<string, string> = {};
 /** Block type → display name (tooltip). Built from registry. */
 export const BLOCK_LABEL: Record<string, string> = {};
 
-const defaultIcon = `${BLOCK_TEXTURE_PATH}/stone.png`;
+const blockTexturePath = getBlockTexturePath();
+const defaultIcon = `${blockTexturePath}/stone.png`;
 const defaultLabel = "Block";
 
 for (const id of getAllBlockIds()) {
   const names = getBlockTextureNames(id);
   BLOCK_ICON[id] = names.length > 0
-    ? `${BLOCK_TEXTURE_PATH}/${names[0]}.png`
+    ? `${blockTexturePath}/${names[0]}.png`
     : defaultIcon;
   BLOCK_LABEL[id] = getBlockDisplayName(id);
 }

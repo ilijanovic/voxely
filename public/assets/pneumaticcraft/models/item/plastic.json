@@ -1,0 +1,6 @@
+{
+   "textures" : {
+      "layer0" : "pneumaticcraft:items/plastic"
+   },
+   "parent" : "item/generated"
+}

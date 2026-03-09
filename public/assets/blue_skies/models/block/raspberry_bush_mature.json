@@ -1,0 +1,7 @@
+{
+    "parent": "blue_skies:block/raspberry_bush",
+    "textures": {
+	  "texture": "blue_skies:blocks/plants/raspberry_bush_mature",
+	  "particle": "blue_skies:blocks/plants/raspberry_bush_mature"
+    }
+}

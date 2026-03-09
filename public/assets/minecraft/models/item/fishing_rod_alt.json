@@ -1,6 +1,0 @@
-{
-	"parent": "item/template_fishing_rod",
-	"textures": {
-		"0": "item/alt/fishing_rod"
-	}
-}

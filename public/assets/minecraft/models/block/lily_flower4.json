@@ -1,6 +1,0 @@
-{
-  "parent": "block/lily_flower1",
-    "textures": {
-		"cross": "block/lily_pad_flower4"
-    }
-}

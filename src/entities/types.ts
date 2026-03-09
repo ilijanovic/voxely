@@ -1,5 +1,6 @@
-/** Biome for spawn logic – aligned with world types. */
-export type Biome = "plains" | "desert" | "forest" | "jungle" | "mountain" | "snow" | "meadow" | "grove" | "snowy_slopes";
+/** Biome for spawn logic – from world types to stay in sync. */
+import type { Biome } from "../types";
+export type { Biome };
 
 /** Animal kinds: sheep, pig, wolf (staged). */
 export type AnimalKind = "sheep" | "pig" | "wolf";

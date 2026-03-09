@@ -1,2 +1,5 @@
-{ "texture": { "blur": true } }
-
+{
+  "texture": {
+    "blur": true
+  }
+}

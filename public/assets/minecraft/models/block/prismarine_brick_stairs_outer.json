@@ -1,8 +1,0 @@
-{
-  "parent": "block/outer_stairs",
-  "textures": {
-    "bottom": "block/prismarine_bricks_bottom",
-    "top": "block/prismarine_bricks_top",
-    "side": "block/prismarine_bricks"
-  }
-}

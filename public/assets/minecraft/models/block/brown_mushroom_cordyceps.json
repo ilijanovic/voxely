@@ -1,7 +1,0 @@
-{
-  "parent": "block/red_mushroom_cluster",
-	"textures": {
-		"cross": "block/brown_mushroom_cordyceps",
-		"shelf": "block/brown_mushroom_shelf"
-	}
-}

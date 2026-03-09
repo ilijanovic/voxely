@@ -1,6 +1,0 @@
-{
-  "parent": "block/cube_waxed",
-	"textures": {
-		"all": "block/weathered_copper"
-	}
-}

@@ -1,7 +1,0 @@
-{
-	"parent": "block/slab_brick_small",
-	"textures": {
-		"all": "block/resin_bricks_model",
-		"particle": "block/resin_bricks"
-	}
-}

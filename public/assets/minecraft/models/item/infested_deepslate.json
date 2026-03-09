@@ -1,7 +1,0 @@
-{
-	"parent": "block/cube_infested",
-	"textures": {
-		"side": "block/deepslate",
-		"end": "block/deepslate_top"
-	}
-}

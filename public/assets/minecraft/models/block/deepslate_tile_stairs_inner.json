@@ -1,8 +1,0 @@
-{
-  "parent": "block/orientable_inner_stairs",
-  "textures": {
-    "bottom": "block/deepslate_tile_stairs",
-    "top": "block/deepslate_tile_stairs",
-    "side": "block/deepslate_tile_stairs"
-  }
-}

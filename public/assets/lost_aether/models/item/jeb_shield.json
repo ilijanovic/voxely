@@ -1,0 +1,165 @@
+{
+	"credit": "Made with Blockbench",
+	"ambientocclusion": false,
+	"textures": {
+		"particle": "aether_legacy:items/tools/jeb_shield",
+		"shield": "aether_legacy:items/tools/jeb_shield"
+	},
+	"elements": [
+		{
+			"name": "handle",
+			"from": [7, -3, 8],
+			"to": [9, 3, 14],
+			"faces": {
+				"east": {"uv": [16, 0, 13, 3], "texture": "#shield"},
+				"south": {"uv": [15.5, 0, 16, 3], "texture": "#shield"},
+				"west": {"uv": [13, 0, 16, 3], "texture": "#shield"},
+				"up": {"uv": [13, 0, 16, 0.5], "rotation": 90, "texture": "#shield"},
+				"down": {"uv": [13, 2.5, 16, 3], "rotation": 270, "texture": "#shield"}
+			}
+		},
+		{
+			"name": "bottom",
+			"from": [1.5, -9.5, 7],
+			"to": [14.5, -8.5, 8],
+			"rotation": {"angle": 45, "axis": "z", "origin": [8, 0, 7.5]},
+			"faces": {
+				"north": {"uv": [1.5, 9, 8, 9.5], "texture": "#shield"},
+				"east": {"uv": [1.5, 9, 2, 9.5], "texture": "#shield"},
+				"south": {"uv": [8, 9, 1.5, 9.5], "texture": "#shield"},
+				"west": {"uv": [7.5, 9, 8, 9.5], "texture": "#shield"},
+				"down": {"uv": [8, 9, 1.5, 9.5], "texture": "#shield"}
+			}
+		},
+		{
+			"name": "center",
+			"from": [-1.5, -6.5, 7],
+			"to": [17.5, 6.5, 8],
+			"rotation": {"angle": 45, "axis": "z", "origin": [8, 0, 7.5]},
+			"faces": {
+				"north": {"uv": [0, 1.5, 9.5, 8], "texture": "#shield"},
+				"east": {"uv": [0, 1.5, 0.5, 8], "texture": "#shield"},
+				"south": {"uv": [9.5, 1.5, 0, 8], "texture": "#shield"},
+				"west": {"uv": [9, 1.5, 9.5, 8], "texture": "#shield"},
+				"up": {"uv": [9.5, 11.5, 0, 12], "texture": "#shield"},
+				"down": {"uv": [9.5, 12, 0, 12.5], "texture": "#shield"}
+			}
+		},
+		{
+			"name": "wide top",
+			"from": [-0.5, 6.5, 7],
+			"to": [16.5, 7.5, 8],
+			"rotation": {"angle": 45, "axis": "z", "origin": [8, 0, 7.5]},
+			"faces": {
+				"north": {"uv": [0.5, 1, 9, 1.5], "texture": "#shield"},
+				"east": {"uv": [0.5, 1, 1, 1.5], "texture": "#shield"},
+				"south": {"uv": [9, 1, 0.5, 1.5], "texture": "#shield"},
+				"west": {"uv": [8.5, 1, 9, 1.5], "texture": "#shield"},
+				"up": {"uv": [9, 11, 0.5, 11.5], "texture": "#shield"}
+			}
+		},
+		{
+			"name": "wide bottom",
+			"from": [-0.5, -7.5, 7],
+			"to": [16.5, -6.5, 8],
+			"rotation": {"angle": 45, "axis": "z", "origin": [8, 0, 7.5]},
+			"faces": {
+				"north": {"uv": [0.5, 8, 9, 8.5], "texture": "#shield"},
+				"east": {"uv": [0.5, 8, 1, 8.5], "texture": "#shield"},
+				"south": {"uv": [9, 8, 0.5, 8.5], "texture": "#shield"},
+				"west": {"uv": [8.5, 8, 9, 8.5], "texture": "#shield"},
+				"down": {"uv": [9, 13, 0.5, 12.5], "texture": "#shield"}
+			}
+		},
+		{
+			"name": "mid top",
+			"from": [0.5, 7.5, 7],
+			"to": [15.5, 8.5, 8],
+			"rotation": {"angle": 45, "axis": "z", "origin": [8, 0, 7.5]},
+			"faces": {
+				"north": {"uv": [1, 0.5, 8.5, 1], "texture": "#shield"},
+				"east": {"uv": [1, 0.5, 1.5, 1], "texture": "#shield"},
+				"south": {"uv": [8.5, 0.5, 1, 1], "texture": "#shield"},
+				"west": {"uv": [8, 0.5, 8.5, 1], "texture": "#shield"},
+				"up": {"uv": [8.5, 10.5, 1, 11], "texture": "#shield"}
+			}
+		},
+		{
+			"name": "mid bottom",
+			"from": [0.5, -8.5, 7],
+			"to": [15.5, -7.5, 8],
+			"rotation": {"angle": 45, "axis": "z", "origin": [8, 0, 7.5]},
+			"faces": {
+				"north": {"uv": [1, 8.5, 8.5, 9], "texture": "#shield"},
+				"east": {"uv": [1, 8.5, 1.5, 9], "texture": "#shield"},
+				"south": {"uv": [8.5, 8.5, 1, 9], "texture": "#shield"},
+				"west": {"uv": [8, 8.5, 8.5, 9], "texture": "#shield"},
+				"down": {"uv": [8.5, 13, 1, 13.5], "texture": "#shield"}
+			}
+		},
+		{
+			"name": "top",
+			"from": [1.5, 8.5, 7],
+			"to": [14.5, 9.5, 8],
+			"rotation": {"angle": 45, "axis": "z", "origin": [8, 0, 7.5]},
+			"faces": {
+				"north": {"uv": [1.5, 0, 8, 0.5], "texture": "#shield"},
+				"east": {"uv": [1.5, 0, 2, 0.5], "texture": "#shield"},
+				"south": {"uv": [8, 0, 1.5, 0.5], "texture": "#shield"},
+				"west": {"uv": [7.5, 0, 8, 0.5], "texture": "#shield"},
+				"up": {"uv": [8, 0, 1.5, 0.5], "texture": "#shield"}
+			}
+		}
+	],
+	"gui_light": "front",
+	"overrides": [
+		{"predicate": {"blocking": 1}, "model": "lost_aether:item/jeb_shield_blocking"}
+	],
+	"display": {
+		"thirdperson_righthand": {
+			"rotation": [0, -90, 0],
+			"translation": [3.25, 6.5, 3.5],
+			"scale": [1.05, 1.05, 1.05]
+		},
+		"thirdperson_lefthand": {
+			"rotation": [0, -90, 0],
+			"translation": [3.25, 6.5, 3.5],
+			"scale": [1.05, 1.05, 1.05]
+		},
+		"firstperson_righthand": {
+			"rotation": [0, 0, -5],
+			"translation": [0, 1, -1.5],
+			"scale": [1.25, 1.25, 1.25]
+		},
+		"firstperson_lefthand": {
+			"rotation": [0, 0, -5],
+			"translation": [0, 1, -1.5],
+			"scale": [1.25, 1.25, 1.25]
+		},
+		"ground": {
+			"translation": [0, 6, 0],
+			"scale": [0.25, 0.25, 0.25]
+		},
+		"gui": {
+			"rotation": [15, 160, 5],
+			"translation": [0.25, 4.75, 0],
+			"scale": [0.65, 0.65, 0.65]
+		},
+		"head": {
+			"translation": [0, 6, -7]
+		},
+		"fixed": {
+			"translation": [0, 3.25, -1.5],
+			"scale": [0.5, 0.5, 0.5]
+		}
+	},
+	"groups": [
+		0,
+		{
+			"name": "shield",
+			"origin": [8, 0, 7.5],
+			"color": 0,
+			"children": [1, 2, 3, 4, 5, 6, 7]
+		}
+	]
+}

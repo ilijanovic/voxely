@@ -1,7 +1,0 @@
-{
-	"parent": "block/slab_brick_top",
-	"textures": {
-		"all": "block/polished_blackstone_bricks_model",
-		"particle": "block/polished_blackstone_bricks"
-	}
-}

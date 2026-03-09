@@ -1,0 +1,30 @@
+---
+description: Enforce safe terrain and biome integration workflow in TypeScript game code
+globs: src/**/*.ts
+alwaysApply: false
+---
+
+# Terrain And Biome Integrity
+
+Apply these checks when editing terrain, biomes, chunk generation, or biome-related types.
+
+## Core Constraints
+
+- Keep `src/terrain/**` pure: no `THREE`, no DOM APIs, no side effects.
+- Treat chunk payload shape as a contract between `src/terrain/index.ts`, `src/chunk.worker.ts`, and `src/game.ts`.
+- Prefer named exports in TypeScript modules.
+- Keep new comments and user-facing text in English.
+
+## Biome Change Checklist
+
+When adding or renaming a biome, update all of the following in the same change:
+
+1. `Biome` union in `src/types.ts`
+2. Biome file in `src/terrain/biomes/<biome_name>.ts` (snake_case filename)
+3. `BIOME_TERRAIN` and `BIOME_LAYERS` registry entries in `src/terrain/biomes/index.ts`
+4. `ALL_BIOMES` in `src/terrain/biomes/registry.test.ts`
+
+## Validation Before Finishing
+
+- Run `npm run test:run` when biome registry, terrain params, or layer config changed.
+- Run `npm run build` when worker payload, type contracts, or cross-module signatures changed.

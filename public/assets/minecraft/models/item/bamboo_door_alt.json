@@ -1,6 +1,0 @@
-{
-	"parent": "item/template_door",
-	"textures": {
-		"0": "block/bamboo_door_top"
-	}
-}

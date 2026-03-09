@@ -1,6 +1,0 @@
-{
-  "parent": "block/air",
-  "textures": {
-    "cross": "block/air"
-  }
-}

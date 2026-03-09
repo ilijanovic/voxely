@@ -1,6 +1,0 @@
-{
-  "parent": "block/cross_tall_up",
-  "textures": {
-    "cross": "block/cherry_sapling_2"
-  }
-}

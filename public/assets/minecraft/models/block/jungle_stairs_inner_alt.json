@@ -1,8 +1,0 @@
-{
-  "parent": "block/orientable_inner_stairs_alt",
-  "textures": {
-    "bottom": "block/jungle_planks_stairs",
-    "top": "block/jungle_planks_stairs",
-    "side": "block/jungle_planks_stairs"
-  }
-}

@@ -1,7 +1,0 @@
-{
-	"parent": "block/acacia_shelf_right",
-	"textures": {
-		"particle": "block/dark_oak_planks",
-		"all": "block/dark_oak_shelf"
-	}
-}

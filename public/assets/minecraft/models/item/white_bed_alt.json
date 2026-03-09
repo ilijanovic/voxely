@@ -1,6 +1,0 @@
-{
-	"parent": "item/red_bed_alt",
-	"textures": {
-		"1": "block/entity/bed_white"
-	}
-}

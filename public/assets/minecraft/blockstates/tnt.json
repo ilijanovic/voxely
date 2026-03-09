@@ -1,8 +1,0 @@
-{
-  "variants": {
-    "": [
-      { "model": "block/tnt", "weight": 4 },
-      { "model": "block/tnt2", "weight": 1 }
-    ]
-  }
-}

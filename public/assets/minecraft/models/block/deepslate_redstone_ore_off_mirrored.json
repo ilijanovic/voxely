@@ -1,7 +1,0 @@
-{
-  "parent": "block/cube_ore_mirrored",
-  "textures": {
-    "side": "block/deepslate_redstone_ore_off",
-    "ends": "block/deepslate_redstone_ore_top_off"
-  }
-}

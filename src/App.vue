@@ -4,6 +4,11 @@ import { initGame } from "./game.ts";
 import { subscribeConnection, type ConnectionStatus } from "./multiplayer";
 import type { BlockType } from "./types";
 import { BLOCK_ICON, BLOCK_LABEL } from "./hotbar-icons";
+
+/** 1x1 grey data URL when block icon fails to load (e.g. missing texture path). */
+const FALLBACK_ICON =
+  "data:image/svg+xml," +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="%23888"/></svg>');
 import Inventory from "./components/Inventory.vue";
 import Chat from "./components/Chat.vue";
 import Menu from "./components/Menu.vue";
@@ -189,6 +194,7 @@ onUnmounted(() => {
           :src="BLOCK_ICON[hotbarState.blocks[i - 1]]"
           :alt="BLOCK_LABEL[hotbarState.blocks[i - 1]]"
           class="h-full w-full object-cover object-center"
+          @error="(e: Event) => ((e.target as HTMLImageElement).src = FALLBACK_ICON)"
         />
         <span
           v-if="hotbarState.blocks[i - 1] && hotbarState.counts[i - 1] > 1"

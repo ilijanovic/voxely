@@ -1,7 +1,0 @@
-{
-	"parent": "block/acacia_shelf_center",
-	"textures": {
-		"particle": "block/jungle_planks",
-		"all": "block/jungle_shelf"
-	}
-}

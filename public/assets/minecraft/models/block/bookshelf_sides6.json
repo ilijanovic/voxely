@@ -1,6 +1,0 @@
-{
-	"parent": "block/bookshelf_sides",
-	"textures": {
-		"0": "block/bookshelf6"
-	}
-}

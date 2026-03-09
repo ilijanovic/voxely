@@ -1,6 +1,0 @@
-{
-  "parent": "block/lily_pad",
-    "textures": {
-        "texture": "block/lily_pad4"
-    }
-}

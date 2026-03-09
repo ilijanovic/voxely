@@ -1,0 +1,7 @@
+These textures were taken from "Mutant Beasts: The Retexturing" and ported to 1.12.2
+
+Original project:
+curseforge.com/minecraft/texture-packs/mutant-beasts-the-retexturing
+
+Thanks to tdstress, the original creator:
+curseforge.com/members/tdstress

@@ -1,7 +1,0 @@
-{
-	"parent": "block/cube_unstable",
-	"textures": {
-		"all": "block/red_sand",
-		"break": "block/red_sand_unstable"
-	}
-}

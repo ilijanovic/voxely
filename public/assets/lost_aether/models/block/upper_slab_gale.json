@@ -1,0 +1,8 @@
+{
+    "parent": "block/upper_slab",
+    "textures": {
+        "bottom": "lost_aether:blocks/gale_stone_top",
+        "top": "lost_aether:blocks/gale_stone_top",
+        "side": "lost_aether:blocks/gale_stone"
+    }
+}

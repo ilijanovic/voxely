@@ -1,0 +1,26 @@
+import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+
+export const windsweptForestTerrain: TerrainParams = {
+  baseOffset: 2,
+  detailAmp: 2.2,
+  detailFreq: 0.015,
+  flatness: 0.65,
+  mountainAllowed: true,
+};
+
+export const windsweptForestLayers: LayerConfig = {
+  surface: "grass",
+  subsurface: "dirt",
+  subsurfaceDepth: 2,
+};
+
+export const windsweptForestDefinition: BiomeDefinition = {
+  blocks: {
+    surface: "grass",
+    subsurface: "dirt",
+    subsurfaceDepth: 2,
+    shore: "sand",
+    underwater: "sand",
+  },
+  terrainParams: windsweptForestTerrain,
+};

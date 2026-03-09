@@ -1,8 +1,0 @@
-{
-  "parent": "block/orientable_stairs",
-  "textures": {
-    "bottom": "block/tuff_bricks",
-    "top": "block/tuff_bricks",
-    "side": "block/tuff_bricks"
-  }
-}

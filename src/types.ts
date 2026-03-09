@@ -3,8 +3,25 @@ import type * as THREE from "three";
 /** Block type = registry id (string). All placeable/terrain block ids from block-registry. */
 export type BlockType = string;
 
-/** Biomes for terrain and block placement. Highland biomes (meadow, grove, snowy_slopes) are height-resolved from mountain/snow. */
-export type Biome = "plains" | "desert" | "forest" | "jungle" | "mountain" | "snow" | "meadow" | "grove" | "snowy_slopes";
+/** Biomes for terrain and block placement. Highland biomes are height-resolved from mountain/snow regions. */
+export type Biome =
+  | "plains"
+  | "desert"
+  | "savanna"
+  | "forest"
+  | "jungle"
+  | "mountain"
+  | "snow"
+  | "meadow"
+  | "grove"
+  | "snowy_slopes"
+  | "stony_peaks"
+  | "frozen_peaks"
+  | "jagged_peaks"
+  | "cherry_grove"
+  | "windswept_hills"
+  | "windswept_gravelly_hills"
+  | "windswept_forest";
 
 /** Integer block position in world space. */
 export type BlockPos = { x: number; y: number; z: number };

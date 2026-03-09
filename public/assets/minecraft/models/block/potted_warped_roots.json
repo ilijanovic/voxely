@@ -1,8 +1,0 @@
-{
-	"parent": "block/potted_warped_fungus",
-	"textures": {
-		"vines": "block/flower_pot_warped_roots",
-		"soil": "block/warped_nylium",
-		"plant": "block/warped_roots"
-	}
-}

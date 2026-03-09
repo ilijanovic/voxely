@@ -1,6 +1,0 @@
-{
-  "parent": "block/orientable_stairs_face",
-  "textures": {
-    "side": "block/tuff_bricks"
-  }
-}

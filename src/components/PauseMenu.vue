@@ -4,6 +4,7 @@ import {
   getGraphicsState,
   setRenderDistance,
   setShadowsEnabled,
+  setTorchShadowsEnabled,
   setAntialias,
   setFovNormal,
   setFovSprint,
@@ -21,6 +22,12 @@ import {
   type KeyAction,
 } from "../key-settings";
 import { applyGraphicsSettings } from "../game";
+import {
+  getAvailablePacks,
+  getSelectedResourcePack,
+  setSelectedResourcePack,
+  type PackOption,
+} from "../resource-pack-settings";
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -30,6 +37,7 @@ const optionsTab = ref<"graphics" | "controls">("graphics");
 // Graphics state
 const renderDistance = ref(getGraphicsState().renderDistance);
 const shadowsEnabled = ref(getGraphicsState().shadowsEnabled);
+const torchShadowsEnabled = ref(getGraphicsState().torchShadowsEnabled);
 const antialias = ref(getGraphicsState().antialias);
 const fovNormal = ref(getGraphicsState().fovNormal);
 const fovSprint = ref(getGraphicsState().fovSprint);
@@ -45,6 +53,7 @@ watch(
   [
     renderDistance,
     shadowsEnabled,
+    torchShadowsEnabled,
     antialias,
     fovNormal,
     fovSprint,
@@ -55,6 +64,7 @@ watch(
   () => {
     setRenderDistance(renderDistance.value);
     setShadowsEnabled(shadowsEnabled.value);
+    setTorchShadowsEnabled(torchShadowsEnabled.value);
     setAntialias(antialias.value);
     setFovNormal(fovNormal.value);
     setFovSprint(fovSprint.value);
@@ -69,9 +79,11 @@ watch(
 function openOptions() {
   view.value = "options";
   optionsTab.value = "graphics";
+  loadPackOptions();
   const g = getGraphicsState();
   renderDistance.value = g.renderDistance;
   shadowsEnabled.value = g.shadowsEnabled;
+  torchShadowsEnabled.value = g.torchShadowsEnabled;
   antialias.value = g.antialias;
   fovNormal.value = g.fovNormal;
   fovSprint.value = g.fovSprint;
@@ -110,6 +122,23 @@ const shadowMapSizeOptions = [
   { value: 1024, label: "1024" },
   { value: 2048, label: "2048 (qualität)" },
 ];
+
+// Resource pack: list loaded async, selection persisted; change triggers reload
+const packOptions = ref<PackOption[]>([]);
+const selectedResourcePack = ref(getSelectedResourcePack());
+
+function loadPackOptions() {
+  getAvailablePacks().then((list) => {
+    packOptions.value = list;
+    selectedResourcePack.value = getSelectedResourcePack();
+  });
+}
+
+function onResourcePackChange(newPath: string) {
+  setSelectedResourcePack(newPath);
+  selectedResourcePack.value = newPath;
+  window.location.reload();
+}
 
 let rebindListener: ((e: KeyboardEvent) => void) | null = null;
 onMounted(() => {
@@ -181,6 +210,25 @@ onUnmounted(() => {
 
         <!-- Graphics -->
         <div v-show="optionsTab === 'graphics'" class="options-list">
+          <label class="option-row">
+            <span class="option-label">Resource pack</span>
+            <select
+              :value="selectedResourcePack"
+              class="option-select"
+              @change="onResourcePackChange(($event.target as HTMLSelectElement).value)"
+            >
+              <option
+                v-for="opt in packOptions"
+                :key="opt.path"
+                :value="opt.path"
+              >
+                {{ opt.name }}
+              </option>
+            </select>
+          </label>
+          <p class="option-hint option-hint-inline">
+            Changing the pack reloads the game to apply textures.
+          </p>
           <label class="option-row">
             <span class="option-label">Sichtweite (Chunks)</span>
             <div class="option-control">
@@ -259,6 +307,17 @@ onUnmounted(() => {
               class="option-checkbox"
             />
           </label>
+          <label class="option-row option-row-toggle">
+            <span class="option-label">Torch shadows</span>
+            <input
+              v-model="torchShadowsEnabled"
+              type="checkbox"
+              class="option-checkbox"
+            />
+          </label>
+          <p class="option-hint option-hint-inline">
+            Torch shadows may impact performance with many torches.
+          </p>
           <label class="option-row">
             <span class="option-label">Schatten-Qualität</span>
             <select v-model.number="shadowMapSize" class="option-select">

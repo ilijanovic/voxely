@@ -1,7 +1,0 @@
-{
-	"parent": "block/cube_slime",
-	"textures": {
-		"all": "block/honey_block_side",
-		"inner": "block/honey_block_bottom"
-	}
-}

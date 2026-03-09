@@ -1,6 +1,0 @@
-{
-  "parent": "block/stairs_waxed",
-	"textures": {
-		"all": "block/exposed_cut_copper"
-	}
-}

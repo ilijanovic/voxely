@@ -1,6 +1,0 @@
-{
-	"parent": "block/beacon",
-	"textures": {
-		"0": "block/beacon_still"
-	}
-}

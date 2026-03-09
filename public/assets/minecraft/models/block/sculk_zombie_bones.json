@@ -1,8 +1,0 @@
-{
-	"parent": "block/sculk_zombie",
-	"ambientocclusion": false,
-	"textures": {
-		"2": "block/sculk_statue_zombie",
-		"particle": "block/particle/sculk"
-	}
-}

@@ -9,8 +9,9 @@ const STORAGE_KEY = "voxel-graphics-settings";
 const defaults = {
   renderDistance: 4,
   shadowsEnabled: true,
+  torchShadowsEnabled: false,
   antialias: true,
-  fovNormal: 75,
+  fovNormal: 70,
   fovSprint: 88,
   pointerSpeed: 1,
   pointerSpeedSprint: 1.3,
@@ -20,6 +21,7 @@ const defaults = {
 const state = {
   renderDistance: defaults.renderDistance,
   shadowsEnabled: defaults.shadowsEnabled,
+  torchShadowsEnabled: defaults.torchShadowsEnabled,
   antialias: defaults.antialias,
   fovNormal: defaults.fovNormal,
   fovSprint: defaults.fovSprint,
@@ -37,6 +39,7 @@ function loadFromStorage(): void {
       state.renderDistance = Math.max(2, Math.min(12, Math.round(data.renderDistance)));
     }
     if (typeof data.shadowsEnabled === "boolean") state.shadowsEnabled = data.shadowsEnabled;
+    if (typeof data.torchShadowsEnabled === "boolean") state.torchShadowsEnabled = data.torchShadowsEnabled;
     if (typeof data.antialias === "boolean") state.antialias = data.antialias;
     if (typeof data.fovNormal === "number") {
       state.fovNormal = Math.max(60, Math.min(120, data.fovNormal));
@@ -80,6 +83,10 @@ export function getShadowsEnabled(): boolean {
   return state.shadowsEnabled;
 }
 
+export function getTorchShadowsEnabled(): boolean {
+  return state.torchShadowsEnabled;
+}
+
 export function getAntialias(): boolean {
   return state.antialias;
 }
@@ -111,6 +118,11 @@ export function setRenderDistance(value: number): void {
 
 export function setShadowsEnabled(value: boolean): void {
   state.shadowsEnabled = value;
+  saveToStorage();
+}
+
+export function setTorchShadowsEnabled(value: boolean): void {
+  state.torchShadowsEnabled = value;
   saveToStorage();
 }
 
@@ -148,6 +160,7 @@ export function getGraphicsState() {
   return {
     renderDistance: state.renderDistance,
     shadowsEnabled: state.shadowsEnabled,
+    torchShadowsEnabled: state.torchShadowsEnabled,
     antialias: state.antialias,
     fovNormal: state.fovNormal,
     fovSprint: state.fovSprint,

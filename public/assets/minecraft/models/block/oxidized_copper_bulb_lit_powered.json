@@ -1,7 +1,0 @@
-{
-  "parent": "block/cube_glow",
-  "textures": {
-    "all": "block/oxidized_copper_bulb_lit_powered",
-    "particle": "block/oxidized_copper_bulb"
-  }
-}

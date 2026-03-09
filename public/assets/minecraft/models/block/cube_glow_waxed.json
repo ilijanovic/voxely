@@ -1,6 +1,0 @@
-{
-	"parent": "block/cube_glow_overlay",
-	"textures": {
-		"overlay": "block/alt/outline_waxed"
-	}
-}

@@ -1,0 +1,51 @@
+/**
+ * Block type to byte id mapping for pipeline voxel buffer.
+ * Terrain-only block types; order is fixed for deterministic ids.
+ */
+import type { BlockType } from "../types";
+import { CHUNK_SIZE, WORLD_HEIGHT } from "../constants";
+
+export const AIR_ID = 0;
+/** Sentinel: position was carved by cave noise; leave as air (do not fill in stratigraphy). */
+export const CARVED_ID = 255;
+
+/** All block types that can appear in terrain generation (order defines id). */
+const TERRAIN_BLOCK_TYPES: (BlockType | "air")[] = [
+  "air",
+  "bedrock",
+  "stone",
+  "dirt",
+  "grass",
+  "grass_snow",
+  "grass_savanna",
+  "sand",
+  "snow",
+  "gravel",
+  "wood",
+  "leaves",
+];
+
+/** BlockType at id (id 0 = air, not in this array). Index = id - 1 for id >= 1. */
+export const ID_TO_TYPE: (BlockType | "air")[] = [...TERRAIN_BLOCK_TYPES];
+
+const TYPE_TO_ID_MAP = new Map<BlockType | "air", number>();
+TERRAIN_BLOCK_TYPES.forEach((t, i) => TYPE_TO_ID_MAP.set(t, i));
+
+export function typeToId(type: BlockType | "air"): number {
+  const id = TYPE_TO_ID_MAP.get(type);
+  if (id !== undefined) return id;
+  return AIR_ID;
+}
+
+export function idToType(id: number): BlockType | "air" {
+  if (id === 0 || id === CARVED_ID) return "air";
+  const t = TERRAIN_BLOCK_TYPES[id];
+  return t ?? "air";
+}
+
+/** Local key for flat voxel buffer: lx + ly*CHUNK_SIZE + lz*CHUNK_SIZE*WORLD_HEIGHT. */
+export function localKey(lx: number, ly: number, lz: number): number {
+  return lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * WORLD_HEIGHT;
+}
+
+export const VOXEL_BUFFER_LENGTH = CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE;

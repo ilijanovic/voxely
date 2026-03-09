@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
 
 export const plainsTerrain: TerrainParams = {
   baseOffset: 0,
@@ -12,4 +12,16 @@ export const plainsLayers: LayerConfig = {
   surface: "grass",
   subsurface: "dirt",
   subsurfaceDepth: 2,
+};
+
+export const plainsDefinition: BiomeDefinition = {
+  blocks: {
+    surface: "grass",
+    subsurface: "dirt",
+    subsurfaceDepth: 2,
+    shore: "sand",
+    underwater: "sand",
+  },
+  terrainParams: plainsTerrain,
+  climate: { tempMin: 0.45, tempMax: 0.7, humidityMin: 0.25, humidityMax: 0.5 },
 };

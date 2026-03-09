@@ -1,6 +1,0 @@
-{
-	"parent": "block/cube_infested",
-	"textures": {
-		"all": "block/cracked_stone_bricks"
-	}
-}

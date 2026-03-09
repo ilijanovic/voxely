@@ -1,7 +1,0 @@
-{
-	"parent": "block/wall_post",
-	"textures": {
-		"wall": "block/deepslate_tile_wall",
-		"particle": "block/deepslate_tiles"
-	}
-}

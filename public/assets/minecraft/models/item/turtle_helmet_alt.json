@@ -1,7 +1,0 @@
-{
-  "parent": "item/template_helmet",
-  "textures": {
-    "2": "block/entity/armor_turtle",
-    "particle": "item/turtle_helmet"
-  }
-}

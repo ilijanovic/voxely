@@ -1,6 +1,0 @@
-{
-    "parent": "item/brush_brushing_1",
-    "textures": {
-        "layer0": "item/brush_1"
-    }
-}

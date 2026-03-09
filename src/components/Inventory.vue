@@ -2,6 +2,11 @@
 import type { BlockType } from "../types";
 import { BLOCK_ICON, BLOCK_LABEL } from "../hotbar-icons";
 
+/** Fallback when block icon fails to load. */
+const FALLBACK_ICON =
+  "data:image/svg+xml," +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="%23888"/></svg>');
+
 defineEmits<{ close: [] }>();
 
 defineProps<{
@@ -127,6 +132,7 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
               :src="BLOCK_ICON[hotbarBlocks[i - 1]]"
               :alt="BLOCK_LABEL[hotbarBlocks[i - 1]]"
               class="h-full w-full object-cover object-center"
+              @error="(e: Event) => ((e.target as HTMLImageElement).src = FALLBACK_ICON)"
             />
             <span
               v-if="hotbarBlocks?.[i - 1] && (hotbarCounts?.[i - 1] ?? 0) > 1"

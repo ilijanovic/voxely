@@ -1,6 +1,0 @@
-{
-    "multipart": [
-		{ "apply": [ { "model": "block/potted_azalea_bush_pot" } ] },
-		{ "apply": [ { "model": "block/potted_azalea_bush" } ] }
-    ]
-}

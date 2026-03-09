@@ -1,5 +1,6 @@
 # Voxel Engine Docs
 
+- **[PROJECT_MAP.md](./PROJECT_MAP.md)** – Where to find things in the codebase (entry points, game loop, terrain, blocks, entities, UI, assets, server, tests).
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** – Architecture overview, improvement roadmap, and algorithms for terrain, rendering, chunks, lighting, water, physics, and engine structure.
 
 ## Examples

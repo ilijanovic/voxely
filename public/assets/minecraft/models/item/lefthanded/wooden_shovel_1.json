@@ -1,6 +1,0 @@
-{
-  "parent": "item/lefthanded/wooden_shovel",
-  "textures": {
-    "layer0": "item/wooden_shovel_1"
-  }
-}

@@ -1,7 +1,0 @@
-{
-	"parent": "block/slab_brick",
-	"textures": {
-		"all": "block/mossy_stone_bricks_model",
-		"particle": "block/mossy_stone_bricks"
-	}
-}

@@ -12,7 +12,10 @@ export type KeyAction =
   | "left"
   | "right"
   | "jump"
+  | "sprint"
+  | "sneak"
   | "toggleView"
+  | "place"
   | "hotbar1"
   | "hotbar2"
   | "hotbar3"
@@ -29,7 +32,10 @@ const defaultBindings: Record<KeyAction, string> = {
   left: "KeyA",
   right: "KeyD",
   jump: "Space",
+  sprint: "ControlLeft",
+  sneak: "ShiftLeft",
   toggleView: "KeyV",
+  place: "KeyF",
   hotbar1: "Digit1",
   hotbar2: "Digit2",
   hotbar3: "Digit3",
@@ -95,7 +101,10 @@ export const keyActionLabels: Record<KeyAction, string> = {
   left: "Links",
   right: "Rechts",
   jump: "Springen",
+  sprint: "Sprint",
+  sneak: "Schleichen",
   toggleView: "Ansicht wechseln (1./3. Person)",
+  place: "Place block / torch",
   hotbar1: "Hotbar 1",
   hotbar2: "Hotbar 2",
   hotbar3: "Hotbar 3",
@@ -124,7 +133,10 @@ export const keyActions: KeyAction[] = [
   "left",
   "right",
   "jump",
+  "sprint",
+  "sneak",
   "toggleView",
+  "place",
   "hotbar1",
   "hotbar2",
   "hotbar3",

@@ -1,7 +1,0 @@
-{
-  "parent": "block/cube_transparent",
-	"textures": {
-		"all": "block/exposed_copper_grate",
-		"inner": "block/alt/exposed_copper_grate_inner"
-	}
-}

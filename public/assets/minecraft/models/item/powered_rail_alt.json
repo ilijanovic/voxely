@@ -1,6 +1,0 @@
-{
-  "parent": "item/rail_alt",
-  "textures": {
-		"1": "block/powered_rail_on"
-	}
-}

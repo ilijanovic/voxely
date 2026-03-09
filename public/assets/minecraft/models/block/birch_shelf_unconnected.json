@@ -1,7 +1,0 @@
-{
-	"parent": "block/acacia_shelf_unconnected",
-	"textures": {
-		"particle": "block/birch_planks",
-		"all": "block/birch_shelf"
-	}
-}

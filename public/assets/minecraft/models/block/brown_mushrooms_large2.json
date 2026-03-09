@@ -1,8 +1,0 @@
-{
-  "parent": "block/red_mushrooms_large",
-	"textures": {
-		"cross": "block/brown_mushrooms_large2",
-		"shelf": "block/brown_mushroom_shelf",
-		"particle": "block/brown_mushroom"
-	}
-}

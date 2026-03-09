@@ -1,6 +1,0 @@
-{
-  "parent": "item/lefthanded/wooden_pickaxe",
-  "textures": {
-    "layer0": "item/wooden_pickaxe_1"
-  }
-}
