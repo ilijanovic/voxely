@@ -1,5 +1,12 @@
 import * as THREE from "three";
-import { getAntialias, getFovNormal, getShadowsEnabled } from "../../graphics-settings";
+import {
+  getAntialias,
+  getFovNormal,
+  getShadowsEnabled,
+  getToneMappingEnabled,
+  getToneMappingExposure,
+  getShadowMapType,
+} from "../../graphics-settings";
 
 export type SceneInitResult = {
   scene: THREE.Scene;
@@ -25,8 +32,14 @@ export function initSceneAndRenderer(container?: HTMLElement): SceneInitResult {
 
   const renderer = new THREE.WebGLRenderer({ antialias: getAntialias() });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = getToneMappingEnabled()
+    ? THREE.ACESFilmicToneMapping
+    : THREE.NoToneMapping;
+  renderer.toneMappingExposure = getToneMappingEnabled() ? getToneMappingExposure() : 1;
   renderer.shadowMap.enabled = getShadowsEnabled();
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type =
+    getShadowMapType() === "pcf_soft" ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   (container ?? document.body).appendChild(renderer.domElement);
 
   const fpsEl = document.getElementById("fps");

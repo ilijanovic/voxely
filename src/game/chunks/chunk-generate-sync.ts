@@ -7,7 +7,7 @@ import {
   WATER_PLANE_Y_OFFSET,
   WORLD_HEIGHT,
   SNOW_GROWTH_INTERVAL_SEC,
-  SNOW_GROWTH_RADIUS,
+  SNOW_GROWTH_CANDIDATES_PER_INTERVAL,
 } from "../../constants";
 import {
   WORLD_SEED,
@@ -35,6 +35,7 @@ import { filterVisibleBlocks as filterVisibleBlocksPure } from "./visible-blocks
 import {
   isSolidBlock as isBlockTypeSolid,
   isUnbreakableBlock,
+  getBlockHeight,
 } from "../../block-registry";
 import {
   setGrassInstanceColors,
@@ -64,6 +65,8 @@ import { RaycastMeshCache } from "./raycast-cache";
 const _matrix = new THREE.Matrix4();
 const _position = new THREE.Vector3();
 
+let _snowGrowthAccumulator = 0;
+
 const COLD_BIOMES: Set<Biome> = new Set([
   "snow",
   "grove",
@@ -71,7 +74,19 @@ const COLD_BIOMES: Set<Biome> = new Set([
   "frozen_peaks",
   "jagged_peaks",
 ]);
-let _snowGrowthAccumulator = 0;
+
+/** Block types that can have snow layers on top (when it's snowing). */
+const BLOCKS_SNOW_CAN_LAY_ON: Set<BlockType> = new Set([
+  "grass",
+  "grass_snow",
+  "grass_savanna",
+  "dirt",
+  "sand",
+  "stone",
+  "gravel",
+  "grass_path",
+  "snow",
+]);
 
 export interface ChunkSyncContext {
   grassColormapData: ImageData | null;
@@ -474,6 +489,7 @@ export function breakBlock(
     localKey,
     chunkSize: CHUNK_SIZE,
     isSolidBlock: isBlockTypeSolid,
+    getBlockHeight,
     getBlockAt,
     refreshChunkVisibleMeshes: (data, affectedBlockTypes) =>
       refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes),
@@ -683,76 +699,93 @@ export function generateChunk(
 }
 
 /**
- * When it's snowing (cold biome, above water), accumulate time and occasionally grow
- * one snow layer (add snow_layer_1 on grass_snow/snow, or increment snow_layer_k up to 8).
+ * When it's snowing, accumulate time and occasionally grow snow layers.
+ * Snow is valid per position: at (bx, bz) it snows if that position is in a cold biome
+ * (or snowForced). Candidates are spread across all loaded chunks (same biome = snow there too).
  */
 export function tryUpdateSnowAccumulation(
   ctx: ChunkSyncContext,
   dt: number,
-  playerX: number,
-  playerZ: number,
-  biome: Biome,
+  _playerX: number,
+  _playerZ: number,
+  snowForced: boolean | null,
   waterSurfaceY: number
 ): void {
-  if (!COLD_BIOMES.has(biome)) return;
   if (waterSurfaceY >= WORLD_HEIGHT) return;
 
   _snowGrowthAccumulator += dt;
   if (_snowGrowthAccumulator < SNOW_GROWTH_INTERVAL_SEC) return;
   _snowGrowthAccumulator = 0;
 
-  const radius = SNOW_GROWTH_RADIUS;
-  const bx = Math.floor(playerX) + Math.floor((Math.random() * (2 * radius + 1)) - radius);
-  const bz = Math.floor(playerZ) + Math.floor((Math.random() * (2 * radius + 1)) - radius);
+  const loadedChunkKeys = Array.from(chunks.keys());
+  if (loadedChunkKeys.length === 0) return;
 
-  const cx = Math.floor(bx / CHUNK_SIZE);
-  const cz = Math.floor(bz / CHUNK_SIZE);
-  const keyNum = chunkKeyNumeric(cx, cz);
-  const data = chunks.get(keyNum);
-  if (!data) return;
+  /** Chunks that were modified -> set of affected block types for refresh. */
+  const chunksToRefresh = new Map<number, Set<BlockType>>();
 
-  let topY = -1;
-  let topType: BlockType | "air" | null = null;
-  for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
-    const t = getBlockAt(bx, by, bz);
-    if (t !== null && t !== "air" && isBlockTypeSolid(t as BlockType)) {
-      topY = by;
-      topType = t as BlockType;
-      break;
+  for (let c = 0; c < SNOW_GROWTH_CANDIDATES_PER_INTERVAL; c++) {
+    const keyNum = loadedChunkKeys[Math.floor(Math.random() * loadedChunkKeys.length)];
+    const data = chunks.get(keyNum);
+    if (!data) continue;
+
+    const lx = Math.floor(Math.random() * CHUNK_SIZE);
+    const lz = Math.floor(Math.random() * CHUNK_SIZE);
+    const bx = data.cx * CHUNK_SIZE + lx;
+    const bz = data.cz * CHUNK_SIZE + lz;
+
+    const isSnowingHere =
+      snowForced === true || COLD_BIOMES.has(getResolvedBiome(bx, bz));
+    if (!isSnowingHere) continue;
+
+    let topY = -1;
+    let topType: BlockType | "air" | null = null;
+    for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
+      const t = getBlockAt(bx, by, bz);
+      if (t !== null && t !== "air" && isBlockTypeSolid(t as BlockType)) {
+        topY = by;
+        topType = t as BlockType;
+        break;
+      }
+    }
+    if (topY < 0 || topType === null) continue;
+
+    const above = topY + 1 < WORLD_HEIGHT ? getBlockAt(bx, topY + 1, bz) : null;
+
+    let affectedBlockTypes = chunksToRefresh.get(keyNum);
+    if (!affectedBlockTypes) {
+      affectedBlockTypes = new Set<BlockType>();
+      chunksToRefresh.set(keyNum, affectedBlockTypes);
+    }
+
+    if (BLOCKS_SNOW_CAN_LAY_ON.has(topType) && (above === null || above === "air")) {
+      const ny = topY + 1;
+      const newType: BlockType = "snow_layer_1";
+      blockModifications.set(blockKeyString(bx, ny, bz), newType);
+      const lk = localKey(lx, ny, lz);
+      data.voxelMap.set(lk, newType);
+      invalidateColumnHeight(bx, bz);
+      affectedBlockTypes.add(newType);
+      continue;
+    }
+
+    const snowLayerMatch = /^snow_layer_([1-7])$/.exec(topType);
+    if (snowLayerMatch != null) {
+      const k = parseInt(snowLayerMatch[1], 10);
+      const newType = `snow_layer_${k + 1}` as BlockType;
+      blockModifications.set(blockKeyString(bx, topY, bz), newType);
+      const lk = localKey(lx, topY, lz);
+      data.voxelMap.set(lk, newType);
+      invalidateColumnHeight(bx, bz);
+      affectedBlockTypes.add(topType);
+      affectedBlockTypes.add(newType);
     }
   }
-  if (topY < 0 || topType === null) return;
 
-  const above = topY + 1 < WORLD_HEIGHT ? getBlockAt(bx, topY + 1, bz) : null;
-  const worldX = data.cx * CHUNK_SIZE;
-  const worldZ = data.cz * CHUNK_SIZE;
-  const lx = bx - worldX;
-  const lz = bz - worldZ;
-  const affectedBlockTypes = new Set<BlockType>();
-
-  if ((topType === "grass_snow" || topType === "snow") && (above === null || above === "air")) {
-    const ny = topY + 1;
-    const newType: BlockType = "snow_layer_1";
-    blockModifications.set(blockKeyString(bx, ny, bz), newType);
-    const lk = localKey(lx, ny, lz);
-    data.voxelMap.set(lk, newType);
-    invalidateColumnHeight(bx, bz);
-    affectedBlockTypes.add(newType);
-    refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes);
-    return;
-  }
-
-  const snowLayerMatch = /^snow_layer_([1-7])$/.exec(topType);
-  if (snowLayerMatch != null) {
-    const k = parseInt(snowLayerMatch[1], 10);
-    const newType = `snow_layer_${k + 1}` as BlockType;
-    blockModifications.set(blockKeyString(bx, topY, bz), newType);
-    const lk = localKey(lx, topY, lz);
-    data.voxelMap.set(lk, newType);
-    invalidateColumnHeight(bx, bz);
-    affectedBlockTypes.add(topType);
-    affectedBlockTypes.add(newType);
-    refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes);
+  for (const [keyNum, affectedBlockTypes] of chunksToRefresh) {
+    const data = chunks.get(keyNum);
+    if (data && affectedBlockTypes.size > 0) {
+      refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes);
+    }
   }
 }
 

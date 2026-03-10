@@ -1,5 +1,24 @@
 @import "tailwindcss";
 
+/* UI design tokens */
+:root {
+  --ui-bg: rgba(0, 0, 0, 0.7);
+  --ui-bg-hover: rgba(0, 0, 0, 0.9);
+  --ui-border: #4a4a4a;
+  --ui-border-hover: #5a5a5a;
+  --ui-accent: #4a7c59;
+  --ui-accent-glow: rgba(74, 124, 89, 0.5);
+  --ui-text: #fff;
+  --ui-text-muted: rgba(255, 255, 255, 0.7);
+  --ui-radius-sm: 6px;
+  --ui-radius-md: 8px;
+  --ui-radius-lg: 12px;
+  --ui-gap: 0.5rem;
+  --ui-shadow-panel: 0 0 0 2px #2a2a2a, inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --ui-shadow-button: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --ui-font: "Nunito", system-ui, -apple-system, sans-serif;
+}
+
 /* Basis-Layout für das Spiel (Vue-Mount + Canvas) */
 @layer base {
   * {
@@ -12,6 +31,7 @@
     overflow: hidden;
     height: 100%;
     touch-action: none;
+    font-family: var(--ui-font);
   }
   #app {
     width: 100vw;
@@ -20,8 +40,22 @@
   }
 }
 
-/* Hotbar: .selected wird vom Spiel per classList.toggle gesetzt */
+/* HUD panels (FPS, hotbar, buttons) use design tokens */
+.hud-panel {
+  background: var(--ui-bg);
+  border-color: var(--ui-border);
+  box-shadow: var(--ui-shadow-panel);
+}
+.hud-panel:hover {
+  background: var(--ui-bg-hover);
+  border-color: var(--ui-border-hover);
+}
+.hud-slot {
+  border-color: #3a3a3a;
+  background: rgba(50, 50, 50, 0.9);
+  border-radius: var(--ui-radius-sm);
+}
 #hotbar .slot.selected {
-  border-color: #fff;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), inset 0 0 12px rgba(255, 255, 255, 0.15);
+  border-color: var(--ui-text);
+  box-shadow: 0 0 0 2px var(--ui-accent-glow), inset 0 0 12px rgba(255, 255, 255, 0.15);
 }

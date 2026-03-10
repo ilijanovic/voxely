@@ -41,6 +41,7 @@ function makeParams(overrides: Partial<Parameters<typeof breakBlock>[0]> = {}) {
     localKey: (lx: number, ly: number, lz: number) => lx + ly * 16 + lz * 16 * 128,
     chunkSize,
     isSolidBlock: (bt: BlockType) => bt === "stone" || bt === "dirt",
+    getBlockHeight: () => 1,
     getBlockAt: (_x: number, _y: number, _z: number): BlockType | "air" | null => "air",
     refreshChunkVisibleMeshes,
     spawnDrop,
@@ -142,7 +143,7 @@ describe("breakBlock", () => {
     expect(params.spawnDrop).toHaveBeenCalledTimes(1);
     const [, cy] = vi.mocked(params.spawnDrop).mock.calls[0];
     const dropSize = 0.35;
-    const groundY = 7 + 0.5;
+    const groundY = 7 + 1; // full block height from getBlockHeight mock
     expect(cy).toBeCloseTo(groundY + dropSize * 0.5);
   });
 

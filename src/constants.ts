@@ -41,10 +41,15 @@ export const MAX_STACK_SIZE = 64;
 export const SPAWN_X = 0;
 export const SPAWN_Z = 0;
 
+/** Max block height (world units) that the player can step over without being blocked in X/Z. 1.0 = step over any partial block (snow layers, slabs). */
+export const STEP_HEIGHT = 1;
+
 /** Snow layer height (0–8) for terrain generation. 0 = no layer, 1–8 = layers on grass_snow/snow in snow biomes. */
 export const SNOW_ACCUMULATION_HEIGHT = 1;
 
-/** Seconds of snowfall before one layer is added (when snowing in cold biomes). Max layers = 8. */
+/** Seconds of snowfall before the next batch of snow layers is added. */
 export const SNOW_GROWTH_INTERVAL_SEC = 12;
 /** Radius (blocks) around player to consider for snow growth. */
 export const SNOW_GROWTH_RADIUS = 10;
+/** Number of positions to try per interval (snow forms in parallel in the area). */
+export const SNOW_GROWTH_CANDIDATES_PER_INTERVAL = 24;

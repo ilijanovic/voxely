@@ -5,6 +5,7 @@
  * Block convention (must match rendering and worker geometry): a block at integer (bx, by, bz)
  * occupies the world AABB [bx..bx+1], [by..by+1], [bz..bz+1] (corner-based, not center-based).
  */
+import { STEP_HEIGHT } from "./constants";
 import {
   isSolidBlock as isSolidBlockRuntime,
   isSolidBlockLoadedOnly,
@@ -132,6 +133,8 @@ export function resolveVoxelCollisions(
   const blockMin = (b: number) => b;
   const blockMax = (b: number) => b + 1;
   const FLOOR_TOLERANCE = 0.05;
+  /** When moving down faster than this, treat as landing and allow any overlapping floor (avoid breaking landing). */
+  const FALLING_VELOCITY_THRESHOLD = -0.1;
   const result: CollisionResult = {
     hitX: false,
     hitZ: false,
@@ -163,10 +166,12 @@ export function resolveVoxelCollisions(
       if (zOvlp <= 1e-4) continue;
       const blockMinX = blockMin(bx);
       const blockMaxX = blockMax(bx);
-      const blockMaxY = by + Math.max(getBlockHeightAt(bx, by, bz), 1);
+      const blockH = getBlockHeightAt(bx, by, bz);
+      const blockMaxY = by + (blockH > 0 ? blockH : 1);
       const isFloorBlock = blockMaxY <= position.y + FLOOR_TOLERANCE;
       const playerFullyAbove = position.y >= blockMaxY - FLOOR_TOLERANCE;
-      if (isFloorBlock && playerFullyAbove) continue;
+      const canStepOver = blockMaxY <= position.y + STEP_HEIGHT;
+      if ((isFloorBlock && playerFullyAbove) || canStepOver) continue;
       const playerMinX = position.x - halfX;
       const playerMaxX = position.x + halfX;
       const overlapMinX = Math.max(playerMinX, blockMinX);
@@ -213,10 +218,12 @@ export function resolveVoxelCollisions(
       if (xOvlp <= 1e-4) continue;
       const blockMinZ = blockMin(bz);
       const blockMaxZ = blockMax(bz);
-      const blockMaxY = by + Math.max(getBlockHeightAt(bx, by, bz), 1);
+      const blockH = getBlockHeightAt(bx, by, bz);
+      const blockMaxY = by + (blockH > 0 ? blockH : 1);
       const isFloorBlock = blockMaxY <= position.y + FLOOR_TOLERANCE;
       const playerFullyAbove = position.y >= blockMaxY - FLOOR_TOLERANCE;
-      if (isFloorBlock && playerFullyAbove) continue;
+      const canStepOver = blockMaxY <= position.y + STEP_HEIGHT;
+      if ((isFloorBlock && playerFullyAbove) || canStepOver) continue;
       const playerMinZ = position.z - halfZ;
       const playerMaxZ = position.z + halfZ;
       const overlapMinZ = Math.max(playerMinZ, blockMinZ);
@@ -259,7 +266,8 @@ export function resolveVoxelCollisions(
         Math.max(position.z - halfZ, blockMinZ);
       if (xOvlp <= 0.001 || zOvlp <= 0.001) continue;
       const blockMinY = blockMin(by);
-      const blockMaxY = by + Math.max(getBlockHeightAt(bx, by, bz), 1);
+      const blockH = getBlockHeightAt(bx, by, bz);
+      const blockMaxY = by + (blockH > 0 ? blockH : 1);
       const playerMinY = position.y;
       const playerMaxY = position.y + height;
       const overlapMinY = Math.max(playerMinY, blockMinY);
@@ -269,8 +277,12 @@ export function resolveVoxelCollisions(
         if (!bestBlock || blockMinY < bestBlock.blockMinY)
           bestBlock = { blockMinY, blockMaxY };
       } else {
-        if (!bestBlock || blockMaxY > bestBlock.blockMaxY)
-          bestBlock = { blockMinY, blockMaxY };
+        const isFalling = velocity.y < FALLING_VELOCITY_THRESHOLD;
+        const underFeet = blockMaxY <= position.y + FLOOR_TOLERANCE;
+        if (isFalling || underFeet) {
+          if (!bestBlock || blockMaxY > bestBlock.blockMaxY)
+            bestBlock = { blockMinY, blockMaxY };
+        }
       }
     }
     if (!bestBlock) break;

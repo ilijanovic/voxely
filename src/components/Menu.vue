@@ -44,23 +44,25 @@ defineProps<{
 .menu-card {
   background: rgba(20, 25, 40, 0.9);
   border: 2px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  border-radius: var(--ui-radius-lg);
   padding: 2.5rem 3rem;
   text-align: center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--ui-shadow-panel), 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .menu-title {
   font-size: 1.75rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--ui-text);
   margin-bottom: 0.5rem;
+  font-family: var(--ui-font);
 }
 
 .menu-subtitle {
   font-size: 0.95rem;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--ui-text-muted);
   margin-bottom: 2rem;
+  font-family: var(--ui-font);
 }
 
 .menu-buttons {
@@ -78,29 +80,35 @@ defineProps<{
   border-radius: 10px;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
+  font-family: var(--ui-font);
 }
 
 .menu-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--ui-shadow-button);
 }
 
 .menu-btn:active {
   transform: translateY(0);
 }
 
+.menu-btn:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
 .menu-btn-single {
-  background: linear-gradient(180deg, #4a7c59 0%, #3d6b4a 100%);
-  color: #fff;
+  background: linear-gradient(180deg, var(--ui-accent) 0%, #3d6b4a 100%);
+  color: var(--ui-text);
 }
 
 .menu-btn-single:hover {
-  background: linear-gradient(180deg, #5a8f69 0%, #4a7c59 100%);
+  background: linear-gradient(180deg, #5a8f69 0%, var(--ui-accent) 100%);
 }
 
 .menu-btn-multi {
   background: linear-gradient(180deg, #4a6fa5 0%, #3a5a85 100%);
-  color: #fff;
+  color: var(--ui-text);
 }
 
 .menu-btn-multi:hover {

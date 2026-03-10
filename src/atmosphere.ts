@@ -80,6 +80,7 @@ const _hemiAmber = new THREE.Color(0xe0a878);
 const _hemiPurple = new THREE.Color(0x2a1540);
 const _cloudGolden = new THREE.Color(0xe8b8a8);
 const _cloudNight = new THREE.Color(0x666688);
+const _cloudRainSnow = new THREE.Color(0x8a8e98);
 const underwaterFogColor = new THREE.Color(0x0d2840);
 
 export function getDayTime(): number {
@@ -112,6 +113,8 @@ export interface AtmosphereContext {
   cloudMaterial: THREE.MeshBasicMaterial;
   rain: THREE.Points;
   getBiome: (x: number, z: number) => Biome;
+  /** Whether snow particles are currently shown (cold biome, above water). */
+  isSnowing: boolean;
   ambientLight: THREE.AmbientLight;
   hemiLight: THREE.HemisphereLight;
 }
@@ -152,6 +155,7 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
       : rainForced === false
         ? false
         : isRaining && !isUnderwater && rainAllowedInBiome(biome);
+  const isPrecipitating = showRain || ctx.isSnowing;
 
   if (isUnderwater !== wasUnderwater) {
     wasUnderwater = isUnderwater;
@@ -169,13 +173,13 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     }
   }
   if (!isUnderwater) {
-    const rainDarken = showRain ? 0.15 : 0;
+    const precipDarken = showRain ? 0.15 : ctx.isSnowing ? 0.08 : 0;
     _clearColorTemp
       .copy(_clearDay)
       .lerp(_clearGolden, sunriseSet)
       .lerp(_clearDusk, twilight * night * 0.8)
       .lerp(_clearNight, Math.pow(night, 1.4));
-    if (rainDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x4a5568), rainDarken);
+    if (precipDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x4a5568), precipDarken);
     ctx.renderer.setClearColor(_clearColorTemp);
 
     if (ctx.scene.fog && "far" in ctx.scene.fog) {
@@ -184,9 +188,14 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
         .lerp(_fogGolden, sunriseSet)
         .lerp(_fogDusk, twilight * night * 0.8)
         .lerp(_fogNight, Math.pow(night, 1.4));
-      if (rainDarken > 0) ctx.scene.fog.color.lerp(new THREE.Color(0x5a6578), rainDarken);
-      ctx.scene.fog.near = 80;
-      ctx.scene.fog.far = 280;
+      if (precipDarken > 0) ctx.scene.fog.color.lerp(new THREE.Color(0x5a6578), precipDarken);
+      if (isPrecipitating) {
+        ctx.scene.fog.near = 45;
+        ctx.scene.fog.far = 165;
+      } else {
+        ctx.scene.fog.near = 80;
+        ctx.scene.fog.far = 280;
+      }
     }
   }
 
@@ -204,7 +213,7 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     _sunPos.copy(ctx.playerPosition).addScaledVector(_sunDirection, SUN_DISTANCE);
     ctx.sunMesh.position.copy(_sunPos);
 
-    const rainSunScale = showRain ? 0.85 : 1;
+    const rainSunScale = isPrecipitating ? 0.85 : 1;
     ctx.sunLight.intensity = (Math.max(0, sunHeight) * 1.8 + sunriseSet * 0.4) * rainSunScale;
     ctx.sunLight.color
       .set(0xfffaf0)
@@ -234,12 +243,12 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     const skyMat = ctx.sky.material as THREE.ShaderMaterial;
     skyMat.uniforms.uSunHeight.value = _sunDirection.y;
 
-    const rainSkyDarken = showRain ? 0.12 : 0;
+    const precipSkyDarken = showRain ? 0.12 : ctx.isSnowing ? 0.08 : 0;
     _clearColorTemp
       .copy(_skyTopDay)
       .lerp(_skyTopGolden, sunriseSet * 0.8)
       .lerp(_skyTopNight, Math.pow(night, 1.1));
-    if (rainSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x3d4a5c), rainSkyDarken);
+    if (precipSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x3d4a5c), precipSkyDarken);
     skyMat.uniforms.uTopColor.value.copy(_clearColorTemp);
 
     _clearColorTemp
@@ -247,23 +256,22 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
       .lerp(_skyHorizonGolden, sunriseSet)
       .lerp(_skyHorizonDusk, Math.max(0, night - 0.2) * twilight)
       .lerp(_skyHorizonNight, Math.pow(night, 1.3));
-    if (rainSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x5a6578), rainSkyDarken);
+    if (precipSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x5a6578), precipSkyDarken);
     skyMat.uniforms.uHorizonColor.value.copy(_clearColorTemp);
 
     _clearColorTemp
       .copy(_skyBottomDay)
       .lerp(_skyBottomGolden, sunriseSet)
       .lerp(_skyBottomNight, Math.pow(night, 1.1));
-    if (rainSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x4a5568), rainSkyDarken);
+    if (precipSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x4a5568), precipSkyDarken);
     skyMat.uniforms.uBottomColor.value.copy(_clearColorTemp);
 
-    ctx.clouds.position.copy(ctx.playerPosition);
-    ctx.clouds.position.x += 0.01;
-    ctx.cloudMaterial.opacity = 0.6 + daylight * 0.35;
+    ctx.cloudMaterial.opacity = isPrecipitating ? 0.92 : 0.6 + daylight * 0.35;
     ctx.cloudMaterial.color
       .set(0xffffff)
       .lerp(_cloudGolden, sunriseSet)
       .lerp(_cloudNight, night);
+    if (isPrecipitating) ctx.cloudMaterial.color.lerp(_cloudRainSnow, 0.55);
 
     ctx.rain.position.copy(ctx.playerPosition);
     if (showRain) {

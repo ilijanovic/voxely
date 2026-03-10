@@ -11,6 +11,14 @@ import {
   setPointerSpeed,
   setPointerSpeedSprint,
   setShadowMapSize,
+  setToneMappingEnabled,
+  setToneMappingExposure,
+  setShadowMapType,
+  setBloomEnabled,
+  setBloomStrength,
+  setBloomRadius,
+  setBloomThreshold,
+  type ShadowMapType,
 } from "../graphics-settings";
 import {
   getKeyBindings,
@@ -44,6 +52,13 @@ const fovSprint = ref(getGraphicsState().fovSprint);
 const pointerSpeed = ref(getGraphicsState().pointerSpeed);
 const pointerSpeedSprint = ref(getGraphicsState().pointerSpeedSprint);
 const shadowMapSize = ref(getGraphicsState().shadowMapSize);
+const toneMappingEnabled = ref(getGraphicsState().toneMappingEnabled);
+const toneMappingExposure = ref(getGraphicsState().toneMappingExposure);
+const shadowMapType = ref<ShadowMapType>(getGraphicsState().shadowMapType);
+const bloomEnabled = ref(getGraphicsState().bloomEnabled);
+const bloomStrength = ref(getGraphicsState().bloomStrength);
+const bloomRadius = ref(getGraphicsState().bloomRadius);
+const bloomThreshold = ref(getGraphicsState().bloomThreshold);
 
 // Controls: current bindings (reactive for UI)
 const keyBindings = ref<Record<KeyAction, string>>(getKeyBindings());
@@ -60,6 +75,13 @@ watch(
     pointerSpeed,
     pointerSpeedSprint,
     shadowMapSize,
+    toneMappingEnabled,
+    toneMappingExposure,
+    shadowMapType,
+    bloomEnabled,
+    bloomStrength,
+    bloomRadius,
+    bloomThreshold,
   ],
   () => {
     setRenderDistance(renderDistance.value);
@@ -71,6 +93,13 @@ watch(
     setPointerSpeed(pointerSpeed.value);
     setPointerSpeedSprint(pointerSpeedSprint.value);
     setShadowMapSize(shadowMapSize.value as 512 | 1024 | 2048);
+    setToneMappingEnabled(toneMappingEnabled.value);
+    setToneMappingExposure(toneMappingExposure.value);
+    setShadowMapType(shadowMapType.value);
+    setBloomEnabled(bloomEnabled.value);
+    setBloomStrength(bloomStrength.value);
+    setBloomRadius(bloomRadius.value);
+    setBloomThreshold(bloomThreshold.value);
     applyGraphicsSettings();
   },
   { deep: true }
@@ -90,6 +119,13 @@ function openOptions() {
   pointerSpeed.value = g.pointerSpeed;
   pointerSpeedSprint.value = g.pointerSpeedSprint;
   shadowMapSize.value = g.shadowMapSize;
+  toneMappingEnabled.value = g.toneMappingEnabled;
+  toneMappingExposure.value = g.toneMappingExposure;
+  shadowMapType.value = g.shadowMapType;
+  bloomEnabled.value = g.bloomEnabled;
+  bloomStrength.value = g.bloomStrength;
+  bloomRadius.value = g.bloomRadius;
+  bloomThreshold.value = g.bloomThreshold;
   keyBindings.value = getKeyBindings();
   rebindingAction.value = null;
 }
@@ -229,6 +265,35 @@ onUnmounted(() => {
           <p class="option-hint option-hint-inline">
             Changing the pack reloads the game to apply textures.
           </p>
+          <label class="option-row option-row-toggle">
+            <span class="option-label">Tone mapping</span>
+            <input
+              v-model="toneMappingEnabled"
+              type="checkbox"
+              class="option-checkbox"
+            />
+          </label>
+          <label v-show="toneMappingEnabled" class="option-row">
+            <span class="option-label">Exposure</span>
+            <div class="option-control">
+              <input
+                v-model.number="toneMappingExposure"
+                type="range"
+                min="0.5"
+                max="2"
+                step="0.1"
+                class="option-slider"
+              />
+              <span class="option-value">{{ toneMappingExposure.toFixed(1) }}</span>
+            </div>
+          </label>
+          <label class="option-row">
+            <span class="option-label">Shadow softness</span>
+            <select v-model="shadowMapType" class="option-select">
+              <option value="pcf">PCF (standard)</option>
+              <option value="pcf_soft">PCF Soft</option>
+            </select>
+          </label>
           <label class="option-row">
             <span class="option-label">Sichtweite (Chunks)</span>
             <div class="option-control">
@@ -331,6 +396,61 @@ onUnmounted(() => {
             </select>
           </label>
           <label class="option-row option-row-toggle">
+            <span class="option-label">Bloom</span>
+            <input
+              v-model="bloomEnabled"
+              type="checkbox"
+              class="option-checkbox"
+            />
+          </label>
+          <template v-show="bloomEnabled">
+            <label class="option-row">
+              <span class="option-label">Bloom strength</span>
+              <div class="option-control">
+                <input
+                  v-model.number="bloomStrength"
+                  type="range"
+                  min="0"
+                  max="1.2"
+                  step="0.05"
+                  class="option-slider"
+                />
+                <span class="option-value">{{ bloomStrength.toFixed(1) }}</span>
+              </div>
+            </label>
+            <label class="option-row">
+              <span class="option-label">Bloom radius</span>
+              <div class="option-control">
+                <input
+                  v-model.number="bloomRadius"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  class="option-slider"
+                />
+                <span class="option-value">{{ bloomRadius.toFixed(2) }}</span>
+              </div>
+            </label>
+            <label class="option-row">
+              <span class="option-label">Bloom threshold</span>
+              <div class="option-control">
+                <input
+                  v-model.number="bloomThreshold"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  class="option-slider"
+                />
+                <span class="option-value">{{ bloomThreshold.toFixed(2) }}</span>
+              </div>
+            </label>
+          </template>
+          <p class="option-hint option-hint-inline">
+            Bloom may impact performance on low-end GPUs.
+          </p>
+          <label class="option-row option-row-toggle">
             <span class="option-label">Antialiasing</span>
             <input
               v-model="antialias"
@@ -385,18 +505,19 @@ onUnmounted(() => {
 .pause-card {
   background: rgba(20, 25, 40, 0.95);
   border: 2px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
+  border-radius: var(--ui-radius-lg);
   padding: 2rem 2.5rem;
   min-width: 280px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--ui-shadow-panel), 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .pause-title {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--ui-text);
   margin: 0 0 1.5rem 0;
   text-align: center;
+  font-family: var(--ui-font);
 }
 
 .pause-buttons {
@@ -413,21 +534,27 @@ onUnmounted(() => {
   border-radius: 10px;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
+  font-family: var(--ui-font);
 }
 
 .pause-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--ui-shadow-button);
+}
+
+.pause-btn:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
 }
 
 .pause-btn-resume {
-  background: linear-gradient(180deg, #4a7c59 0%, #3d6b4a 100%);
-  color: #fff;
+  background: linear-gradient(180deg, var(--ui-accent) 0%, #3d6b4a 100%);
+  color: var(--ui-text);
 }
 
 .pause-btn-options {
   background: linear-gradient(180deg, #5a5a6a 0%, #4a4a5a 100%);
-  color: #fff;
+  color: var(--ui-text);
 }
 
 .options-header {
@@ -442,14 +569,19 @@ onUnmounted(() => {
   font-size: 1.25rem;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  color: #fff;
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-text);
   cursor: pointer;
   line-height: 1;
 }
 
 .options-back:hover {
   background: rgba(255, 255, 255, 0.15);
+}
+
+.options-back:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
 }
 
 .pause-card .options-header .pause-title {
@@ -471,20 +603,26 @@ onUnmounted(() => {
   font-weight: 600;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.8);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-text-muted);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
+  font-family: var(--ui-font);
 }
 
 .options-tab:hover {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.options-tab:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
 .options-tab.active {
   background: rgba(74, 124, 89, 0.4);
   border-color: rgba(74, 124, 89, 0.8);
-  color: #fff;
+  color: var(--ui-text);
 }
 
 .options-list {
@@ -497,9 +635,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--ui-gap);
   color: #e0e0e0;
   font-size: 0.95rem;
+  font-family: var(--ui-font);
 }
 
 .option-row-toggle {
@@ -520,25 +659,25 @@ onUnmounted(() => {
 .option-slider {
   width: 100%;
   max-width: 120px;
-  accent-color: #4a7c59;
+  accent-color: var(--ui-accent);
 }
 
 .option-value {
   min-width: 1.5rem;
   text-align: right;
-  color: #fff;
+  color: var(--ui-text);
 }
 
 .option-checkbox {
   width: 1.1rem;
   height: 1.1rem;
-  accent-color: #4a7c59;
+  accent-color: var(--ui-accent);
   cursor: pointer;
 }
 
 .option-hint {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--ui-text-muted);
   margin: 0.25rem 0 0 0;
 }
 
@@ -547,10 +686,16 @@ onUnmounted(() => {
   font-size: 0.9rem;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  color: #fff;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
   cursor: pointer;
   min-width: 140px;
+  font-family: var(--ui-font);
+}
+
+.option-select:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
 }
 
 .controls-list {
@@ -568,7 +713,7 @@ onUnmounted(() => {
 }
 
 .key-row.rebinding .key-btn {
-  outline: 2px solid #4a7c59;
+  outline: 2px solid var(--ui-accent);
   outline-offset: 2px;
 }
 
@@ -576,6 +721,7 @@ onUnmounted(() => {
   font-size: 0.9rem;
   color: #e0e0e0;
   flex-shrink: 0;
+  font-family: var(--ui-font);
 }
 
 .key-btn {
@@ -584,14 +730,20 @@ onUnmounted(() => {
   min-width: 5rem;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  color: #fff;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
   cursor: pointer;
   transition: background 0.15s;
+  font-family: var(--ui-font);
 }
 
 .key-btn:hover {
   background: rgba(255, 255, 255, 0.15);
+}
+
+.key-btn:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
 }
 
 .pause-btn-reset {

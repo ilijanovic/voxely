@@ -39,6 +39,8 @@ export interface SnowEffectContext {
 
 export interface SnowEffect {
   update(dt: number, ctx: SnowEffectContext): void;
+  /** True when snow is currently active (particles visible). Used for ground accumulation too. */
+  isSnowing(ctx: SnowEffectContext): boolean;
   /** Override visibility: null = auto (biome/water), true = always on, false = always off. */
   setForced?(value: boolean | null): void;
   /** Current override: null = auto, true = on, false = off. */
@@ -70,6 +72,7 @@ export function createSnowEffect(scene: THREE.Scene): SnowEffect {
   const mesh = new THREE.Points(geometry, material);
   mesh.castShadow = false;
   mesh.receiveShadow = false;
+  mesh.frustumCulled = false;
   scene.add(mesh);
   mesh.position.set(0, 0, 0);
 
@@ -85,6 +88,14 @@ export function createSnowEffect(scene: THREE.Scene): SnowEffect {
 
   function getForced(): boolean | null {
     return forced;
+  }
+
+  function isSnowing(ctx: SnowEffectContext): boolean {
+    if (forced === false) return false;
+    if (forced === true) return ctx.eyeY >= ctx.waterSurfaceY;
+    if (ctx.eyeY < ctx.waterSurfaceY) return false;
+    if (ctx.biome !== undefined && !COLD_BIOMES.has(ctx.biome)) return false;
+    return true;
   }
 
   function update(dt: number, ctx: SnowEffectContext): void {
@@ -144,5 +155,5 @@ export function createSnowEffect(scene: THREE.Scene): SnowEffect {
     positionAttr.needsUpdate = true;
   }
 
-  return { update, setForced, getForced };
+  return { update, isSnowing, setForced, getForced };
 }

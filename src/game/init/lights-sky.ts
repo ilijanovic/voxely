@@ -86,12 +86,9 @@ export function initLightsAndSky(
       uniform float uSunHeight;
       varying float vHeight;
       void main() {
-        vec3 color;
-        if (vHeight < 0.5) {
-          color = mix(uBottomColor, uHorizonColor, vHeight * 2.0);
-        } else {
-          color = mix(uHorizonColor, uTopColor, (vHeight - 0.5) * 2.0);
-        }
+        float t = vHeight;
+        vec3 color = mix(uBottomColor, uHorizonColor, smoothstep(0.0, 0.5, t));
+        color = mix(color, uTopColor, smoothstep(0.5, 1.0, t));
         float sunset = smoothstep(-0.45, 0.25, uSunHeight) *
           (1.0 - smoothstep(0.25, 0.65, uSunHeight));
         sunset = min(1.0, sunset * 1.4);
@@ -100,7 +97,7 @@ export function initLightsAndSky(
           (1.0 - smoothstep(0.35, 0.75, uSunHeight));
         morning = min(1.0, morning * 1.2);
         vec3 morningColor = vec3(1.0, 0.75, 0.5);
-        float horizonBand = 2.0 * min(vHeight, 1.0 - vHeight);
+        float horizonBand = smoothstep(0.0, 0.18, min(t, 1.0 - t));
         color = mix(color, sunsetColor, sunset * horizonBand);
         color = mix(color, morningColor, morning * horizonBand);
         float night = clamp(-uSunHeight * 2.0, 0.0, 1.0);
@@ -127,31 +124,36 @@ export function initLightsAndSky(
   const cloudMaterial = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.75,
     depthWrite: false,
   });
   const cloudHeight = 120;
-  const cloudArea = 300;
-  for (let i = 0; i < 40; i++) {
+  const cloudArea = 420;
+  const cloudCount = 125;
+  for (let i = 0; i < cloudCount; i++) {
     const cloud = new THREE.Group();
-    const blocks = 4 + Math.floor(Math.random() * 6);
+    const blocks = 12 + Math.floor(Math.random() * 14);
+    const cloudSpread = 18 + Math.random() * 12;
     for (let j = 0; j < blocks; j++) {
+      const w = 5 + Math.random() * 6;
+      const h = 1.2 + Math.random() * 0.8;
+      const d = 5 + Math.random() * 6;
       const box = new THREE.Mesh(
-        new THREE.BoxGeometry(4, 1, 4),
+        new THREE.BoxGeometry(w, h, d),
         cloudMaterial
       );
       box.castShadow = false;
       box.receiveShadow = false;
       box.position.set(
-        (Math.random() - 0.5) * 12,
-        0,
-        (Math.random() - 0.5) * 12
+        (Math.random() - 0.5) * cloudSpread,
+        (Math.random() - 0.3) * 2,
+        (Math.random() - 0.5) * cloudSpread
       );
       cloud.add(box);
     }
     cloud.position.set(
       (Math.random() - 0.5) * cloudArea,
-      cloudHeight,
+      cloudHeight + (Math.random() - 0.5) * 8,
       (Math.random() - 0.5) * cloudArea
     );
     clouds.add(cloud);
@@ -175,8 +177,8 @@ export function initLightsAndSky(
   );
   const starMaterial = new THREE.PointsMaterial({
     color: 0xffffff,
-    size: 1,
-    sizeAttenuation: false,
+    size: 0.8,
+    sizeAttenuation: true,
     transparent: true,
   });
   const stars = new THREE.Points(starGeometry, starMaterial);

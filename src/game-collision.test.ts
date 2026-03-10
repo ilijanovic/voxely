@@ -76,6 +76,27 @@ describe("resolveVoxelCollisions", () => {
     expect(result.grounded).toBe(true);
   });
 
+  it("does not snap up when standing on snow layer with adjacent full block", () => {
+    const voxel = new Map<number, string>();
+    voxel.set(localKey(0, 4, 0), "snow_layer_1");
+    voxel.set(localKey(1, 4, 0), "stone");
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel));
+
+    const position = { x: 0.5, y: 4.12, z: 0.5 };
+    const velocity = { x: 0, y: 0, z: 0 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      1,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    expect(position.y).toBe(4.125);
+    expect(result.grounded).toBe(true);
+  });
+
   it("does not push when no blocks under player (empty world)", () => {
     const position = { x: 0.5, y: 64, z: 0.5 };
     const velocity = { x: 0, y: -1, z: 0 };

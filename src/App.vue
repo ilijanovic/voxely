@@ -21,6 +21,7 @@ const inventoryOpen = ref(false);
 const chatOpen = ref(false);
 const pauseMenuOpen = ref(false);
 const connectionStatus = ref<ConnectionStatus>({ connected: false, playerCount: 0 });
+const hintVisible = ref(true);
 
 function toggleInventory() {
   const willOpen = !inventoryOpen.value;
@@ -30,7 +31,13 @@ function toggleInventory() {
   inventoryOpen.value = willOpen;
 }
 
+function hideHintOnFirstMove(e: KeyboardEvent) {
+  if (gameMode.value === null) return;
+  if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(e.code)) hintVisible.value = false;
+}
+
 function onKeyDown(e: KeyboardEvent) {
+  hideHintOnFirstMove(e);
   if (e.code === "KeyI") {
     if (chatOpen.value) return;
     e.preventDefault();
@@ -100,10 +107,15 @@ watch(gameMode, async (mode) => {
   });
 });
 
+let hintTimeout: ReturnType<typeof setTimeout> | null = null;
 onMounted(() => {
   document.addEventListener("keydown", onKeyDown, true);
+  hintTimeout = setTimeout(() => {
+    hintVisible.value = false;
+  }, 8000);
 });
 onUnmounted(() => {
+  if (hintTimeout) clearTimeout(hintTimeout);
   unsubscribeConnection?.();
   document.removeEventListener("keydown", onKeyDown, true);
 });
@@ -120,49 +132,58 @@ onUnmounted(() => {
 
     <!-- Game (after mode selection) -->
     <template v-else>
-    <!-- FPS -->
+    <!-- FPS (top right) -->
     <div
       id="fps"
       aria-hidden="true"
-      class="fixed left-3 top-3 z-10 rounded-md bg-black/60 px-2.5 py-1.5 font-mono text-sm text-white pointer-events-none"
+      class="hud-panel fixed right-3 top-3 z-10 rounded-[var(--ui-radius-md)] border-2 px-2 py-1 font-mono text-xs text-[var(--ui-text)] pointer-events-none"
+      style="font-family: var(--ui-font)"
     >
       0 FPS
     </div>
 
     <!-- Multiplayer status (below FPS, left) -->
     <div
-      class="fixed left-3 top-12 z-10 rounded-md px-2.5 py-1.5 font-mono text-xs pointer-events-none"
-      :class="connectionStatus.connected ? 'bg-green-900/70 text-green-200' : 'bg-red-900/60 text-red-200'"
+      class="fixed left-3 top-12 z-10 rounded-[var(--ui-radius-md)] border-2 px-2.5 py-1.5 text-xs pointer-events-none"
+      :class="connectionStatus.connected ? 'bg-green-900/70 text-green-200 border-green-700/50' : 'bg-red-900/60 text-red-200 border-red-700/50'"
+      style="font-family: var(--ui-font)"
     >
       {{ connectionStatus.connected ? `Multiplayer: ${connectionStatus.playerCount} players` : "Multiplayer: disconnected (start server?)" }}
     </div>
 
-    <!-- Hint -->
-    <div
-      id="hint"
-      class="fixed left-1/2 top-6 z-10 -translate-x-1/2 rounded-lg bg-black/60 px-4 py-2 font-sans text-sm text-white pointer-events-none"
-    >
-      Click to start · WASD = Move · Space = Jump · Mouse = Look · V = Third-person · T = Chat · 1–9 / Scroll = Block · ESC / O = Pause / Options
-    </div>
+    <!-- Hint (auto-hide after 8s or first WASD) -->
+    <Transition name="hint-fade">
+      <div
+        v-show="hintVisible"
+        id="hint"
+        class="hud-panel fixed left-1/2 top-6 z-10 -translate-x-1/2 rounded-[var(--ui-radius-lg)] border-2 px-4 py-2 text-sm text-[var(--ui-text)] pointer-events-none"
+        style="font-family: var(--ui-font)"
+      >
+        Click to start · WASD = Move · Space = Jump · Mouse = Look · V = Third-person · T = Chat · 1–9 / Scroll = Block · ESC / O = Pause / Options
+      </div>
+    </Transition>
 
     <!-- Inventory button -->
     <button
       type="button"
-      class="fixed right-4 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-md border-2 border-[#4a4a4a] bg-black/70 font-bold text-white shadow hover:bg-black/90 hover:border-[#5a5a5a] focus:outline-none focus:ring-2 focus:ring-white/50"
+      class="hud-panel fixed right-4 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-[var(--ui-radius-md)] border-2 text-[var(--ui-text)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)] focus:ring-offset-2 focus:ring-offset-transparent"
       aria-label="Open inventory (I)"
       title="Inventory (I)"
       @click="toggleInventory"
     >
-      I
+      <svg class="h-5 w-5 opacity-90" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16v12H4V6zm2 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+      </svg>
     </button>
 
-    <!-- Crosshair -->
+    <!-- Crosshair (subtle) -->
     <div
       id="crosshair"
       aria-hidden="true"
-      class="fixed left-1/2 top-1/2 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center text-center text-2xl font-bold leading-none text-white pointer-events-none [text-shadow:0_0_2px_#000,0_0_4px_#000]"
+      class="crosshair fixed left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
     >
-      +
+      <span class="crosshair-v"></span>
+      <span class="crosshair-h"></span>
     </div>
 
     <!-- Block crack overlay (stages 0–9 while mining) -->
@@ -177,12 +198,12 @@ onUnmounted(() => {
       id="hotbar"
       role="toolbar"
       aria-label="Block inventory"
-      class="fixed bottom-4 left-1/2 z-10 flex -translate-x-1/2 gap-1 rounded border-[3px] border-[#4a4a4a] bg-black/70 p-1.5 shadow-[0_0_0_2px_#2a2a2a,inset_0_1px_0_rgba(255,255,255,0.08)] pointer-events-none"
+      class="hud-panel fixed bottom-4 left-1/2 z-10 flex -translate-x-1/2 gap-1 rounded-[var(--ui-radius-md)] border-[3px] p-1.5 pointer-events-none"
     >
       <div
         v-for="i in 9"
         :key="i - 1"
-        class="slot relative flex h-12 w-12 shrink-0 items-center justify-center rounded border-2 border-[#3a3a3a] bg-[rgba(50,50,50,0.9)] overflow-hidden transition-[border-color,box-shadow] duration-100"
+        class="slot hud-slot relative flex h-12 w-12 shrink-0 items-center justify-center border-2 overflow-hidden transition-[border-color,box-shadow] duration-100"
         :data-slot="i - 1"
         :title="hotbarState.blocks[i - 1] ? BLOCK_LABEL[hotbarState.blocks[i - 1]] : `Slot ${i}`"
       >
@@ -206,15 +227,19 @@ onUnmounted(() => {
     </div>
 
     <!-- Inventory overlay: pass hotbar state for icons -->
-    <Inventory
-      v-if="inventoryOpen"
-      :hotbar-blocks="hotbarState.blocks"
-      :hotbar-counts="hotbarState.counts"
-      @close="inventoryOpen = false"
-    />
+    <Transition name="modal">
+      <Inventory
+        v-if="inventoryOpen"
+        :hotbar-blocks="hotbarState.blocks"
+        :hotbar-counts="hotbarState.counts"
+        @close="inventoryOpen = false"
+      />
+    </Transition>
 
     <!-- Pause menu (ESC): Resume, Options · Graphics -->
-    <PauseMenu v-if="pauseMenuOpen" @close="pauseMenuOpen = false" />
+    <Transition name="modal">
+      <PauseMenu v-if="pauseMenuOpen" @close="pauseMenuOpen = false" />
+    </Transition>
 
     <!-- Chat: join/leave messages + chat (T/Enter to open) -->
     <Chat @open="chatOpen = true" @close="chatOpen = false" />
@@ -225,12 +250,50 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-#hotbar .slot.selected {
-  border-color: #fff;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), inset 0 0 12px rgba(255, 255, 255, 0.15);
+.crosshair {
+  width: 20px;
+  height: 20px;
+}
+.crosshair-v,
+.crosshair-h {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 0 1px #000;
+}
+.crosshair-v {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+.crosshair-h {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  transform: translateY(-50%);
 }
 
-/* Block-Riss-Overlay: zentriert wie Fadenkreuz, 10 Stufen via Sprite */
+.hint-fade-enter-active,
+.hint-fade-leave-active {
+  transition: opacity 0.4s ease;
+}
+.hint-fade-enter-from,
+.hint-fade-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+/* Block crack overlay: centered like crosshair, 10 stages via sprite */
 .block-crack-overlay {
   position: fixed;
   left: 50%;

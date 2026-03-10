@@ -6,6 +6,8 @@
 
 const STORAGE_KEY = "voxel-graphics-settings";
 
+export type ShadowMapType = "pcf" | "pcf_soft";
+
 const defaults = {
   renderDistance: 4,
   shadowsEnabled: true,
@@ -16,6 +18,13 @@ const defaults = {
   pointerSpeed: 1,
   pointerSpeedSprint: 1.3,
   shadowMapSize: 1024 as 512 | 1024 | 2048,
+  toneMappingEnabled: true,
+  toneMappingExposure: 1.1,
+  shadowMapType: "pcf" as ShadowMapType,
+  bloomEnabled: false,
+  bloomStrength: 0.15,
+  bloomRadius: 0.3,
+  bloomThreshold: 0.9,
 };
 
 const state = {
@@ -28,6 +37,13 @@ const state = {
   pointerSpeed: defaults.pointerSpeed,
   pointerSpeedSprint: defaults.pointerSpeedSprint,
   shadowMapSize: defaults.shadowMapSize,
+  toneMappingEnabled: defaults.toneMappingEnabled,
+  toneMappingExposure: defaults.toneMappingExposure,
+  shadowMapType: defaults.shadowMapType,
+  bloomEnabled: defaults.bloomEnabled,
+  bloomStrength: defaults.bloomStrength,
+  bloomRadius: defaults.bloomRadius,
+  bloomThreshold: defaults.bloomThreshold,
 };
 
 function loadFromStorage(): void {
@@ -55,6 +71,23 @@ function loadFromStorage(): void {
     }
     if ([512, 1024, 2048].includes(Number(data.shadowMapSize))) {
       state.shadowMapSize = data.shadowMapSize as 512 | 1024 | 2048;
+    }
+    if (typeof data.toneMappingEnabled === "boolean") state.toneMappingEnabled = data.toneMappingEnabled;
+    if (typeof data.toneMappingExposure === "number") {
+      state.toneMappingExposure = Math.max(0.5, Math.min(2, data.toneMappingExposure));
+    }
+    if (data.shadowMapType === "pcf" || data.shadowMapType === "pcf_soft") {
+      state.shadowMapType = data.shadowMapType;
+    }
+    if (typeof data.bloomEnabled === "boolean") state.bloomEnabled = data.bloomEnabled;
+    if (typeof data.bloomStrength === "number") {
+      state.bloomStrength = Math.max(0, Math.min(1.2, data.bloomStrength));
+    }
+    if (typeof data.bloomRadius === "number") {
+      state.bloomRadius = Math.max(0, Math.min(1, data.bloomRadius));
+    }
+    if (typeof data.bloomThreshold === "number") {
+      state.bloomThreshold = Math.max(0, Math.min(1, data.bloomThreshold));
     }
   } catch {
     // invalid data → keep defaults
@@ -111,6 +144,18 @@ export function getShadowMapSize(): number {
   return state.shadowMapSize;
 }
 
+export function getToneMappingEnabled(): boolean {
+  return state.toneMappingEnabled;
+}
+
+export function getToneMappingExposure(): number {
+  return state.toneMappingExposure;
+}
+
+export function getShadowMapType(): ShadowMapType {
+  return state.shadowMapType;
+}
+
 export function setRenderDistance(value: number): void {
   state.renderDistance = Math.max(2, Math.min(12, Math.round(value)));
   saveToStorage();
@@ -156,6 +201,57 @@ export function setShadowMapSize(value: 512 | 1024 | 2048): void {
   saveToStorage();
 }
 
+export function setToneMappingEnabled(value: boolean): void {
+  state.toneMappingEnabled = value;
+  saveToStorage();
+}
+
+export function setToneMappingExposure(value: number): void {
+  state.toneMappingExposure = Math.max(0.5, Math.min(2, value));
+  saveToStorage();
+}
+
+export function setShadowMapType(value: ShadowMapType): void {
+  state.shadowMapType = value;
+  saveToStorage();
+}
+
+export function getBloomEnabled(): boolean {
+  return state.bloomEnabled;
+}
+
+export function getBloomStrength(): number {
+  return state.bloomStrength;
+}
+
+export function getBloomRadius(): number {
+  return state.bloomRadius;
+}
+
+export function getBloomThreshold(): number {
+  return state.bloomThreshold;
+}
+
+export function setBloomEnabled(value: boolean): void {
+  state.bloomEnabled = value;
+  saveToStorage();
+}
+
+export function setBloomStrength(value: number): void {
+  state.bloomStrength = Math.max(0, Math.min(1.2, value));
+  saveToStorage();
+}
+
+export function setBloomRadius(value: number): void {
+  state.bloomRadius = Math.max(0, Math.min(1, value));
+  saveToStorage();
+}
+
+export function setBloomThreshold(value: number): void {
+  state.bloomThreshold = Math.max(0, Math.min(1, value));
+  saveToStorage();
+}
+
 export function getGraphicsState() {
   return {
     renderDistance: state.renderDistance,
@@ -167,5 +263,12 @@ export function getGraphicsState() {
     pointerSpeed: state.pointerSpeed,
     pointerSpeedSprint: state.pointerSpeedSprint,
     shadowMapSize: state.shadowMapSize,
+    toneMappingEnabled: state.toneMappingEnabled,
+    toneMappingExposure: state.toneMappingExposure,
+    shadowMapType: state.shadowMapType,
+    bloomEnabled: state.bloomEnabled,
+    bloomStrength: state.bloomStrength,
+    bloomRadius: state.bloomRadius,
+    bloomThreshold: state.bloomThreshold,
   };
 }

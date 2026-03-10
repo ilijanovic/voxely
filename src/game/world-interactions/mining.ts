@@ -15,6 +15,7 @@ export function breakBlock(params: {
   localKey: (lx: number, ly: number, lz: number) => number;
   chunkSize: number;
   isSolidBlock: (blockType: BlockType) => boolean;
+  getBlockHeight: (blockType: BlockType) => number;
   getBlockAt: (x: number, y: number, z: number) => BlockType | "air" | null;
   refreshChunkVisibleMeshes: (data: ChunkData, affectedBlockTypes?: Set<BlockType>) => void;
   spawnDrop: (worldX: number, worldY: number, worldZ: number, blockType: BlockType) => void;
@@ -70,7 +71,7 @@ export function breakBlock(params: {
   for (let by = pos.y - 1; by >= 0; by--) {
     const t = params.getBlockAt(pos.x, by, pos.z);
     if (t !== null && t !== "air" && params.isSolidBlock(t as BlockType)) {
-      groundY = by + 0.5;
+      groundY = by + params.getBlockHeight(t as BlockType);
       break;
     }
   }

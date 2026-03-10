@@ -12,7 +12,7 @@ import {
   columnCacheKey,
   getBlockAt,
 } from "./chunk-runtime";
-import { isSolidBlock as isBlockTypeSolid } from "./block-registry";
+import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from "./block-registry";
 import { createTerrainSampling } from "./terrain-sampling";
 import { BIOME_REGISTRY } from "./terrain/biomes";
 
@@ -116,7 +116,7 @@ function getSurfaceYVoxel(px: number, pz: number, searchMaxY: number): number {
           break;
         }
         if (type !== "wood" && isBlockTypeSolid(type as BlockType)) {
-          columnTop = by + 0.5;
+          columnTop = by + getBlockHeight(type as BlockType);
           break;
         }
       }
@@ -145,7 +145,7 @@ export function getColumnSurfaceY(wx: number, wz: number): number {
       type !== "leaves" &&
       isBlockTypeSolid(type as BlockType)
     ) {
-      return by + 0.5;
+      return by + getBlockHeight(type as BlockType);
     }
   }
   return getHeight(bx, bz) + 0.5;

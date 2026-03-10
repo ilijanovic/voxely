@@ -250,6 +250,17 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     textures: { type: "single", texture: "planks_oak" },
   }),
   D({
+    id: "door_closed",
+    displayName: "Door (closed)",
+    textures: { type: "single", texture: "planks_oak" },
+  }),
+  D({
+    id: "door_open",
+    displayName: "Door (open)",
+    textures: { type: "single", texture: "planks_oak" },
+    solid: false,
+  }),
+  D({
     id: "spruce_planks",
     displayName: "Spruce Planks",
     textures: { type: "single", texture: "planks_spruce" },
@@ -406,6 +417,14 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: "Hay Block",
     textures: { type: "single", texture: "hay_block_side" },
   }),
+  ...([1, 2, 3, 4, 5, 6, 7, 8] as const).map((k) =>
+    D({
+      id: `wheat_${k}` as const,
+      displayName: k === 8 ? "Wheat (ripe)" : "Wheat",
+      textures: { type: "single", texture: `wheat_stage_${k - 1}` },
+      solid: false,
+    })
+  ),
   D({
     id: "white_wool",
     displayName: "White Wool",

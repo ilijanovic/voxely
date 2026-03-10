@@ -41,7 +41,8 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
     @click.self="$emit('close')"
   >
     <div
-      class="inventory-panel flex gap-6 rounded-lg border-4 border-[#4a4a4a] bg-[rgba(50,45,40,0.97)] p-4 shadow-[0_0_0_2px_#2a2a2a,inset_0_1px_0_rgba(255,255,255,0.08)]"
+      class="inventory-panel flex gap-6 rounded-[var(--ui-radius-lg)] border-4 p-4"
+      style="border-color: var(--ui-border); background: rgba(50,45,40,0.97); box-shadow: var(--ui-shadow-panel)"
     >
       <!-- Left column: armor + player + off-hand + recipe book -->
       <div class="flex flex-col items-center gap-2">
@@ -50,7 +51,7 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
           <div
             v-for="slot in armorSlots"
             :key="slot.id"
-            class="slot armor-slot flex h-10 w-10 items-center justify-center rounded-sm border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
+            class="slot armor-slot flex h-10 w-10 items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
             :title="slot.label"
           >
             <span class="slot-icon text-[14px] text-white/70" :data-slot="slot.id">
@@ -60,13 +61,13 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
         </div>
         <!-- Player preview (placeholder) -->
         <div
-          class="player-preview flex h-20 w-16 items-center justify-center rounded border-2 border-[#3a3a3a] bg-[rgba(35,33,30,0.95)] text-[10px] font-bold text-white/80"
+          class="player-preview flex h-20 w-16 items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(35,33,30,0.95)] text-[10px] font-bold text-white/80"
         >
           Player
         </div>
         <!-- Off-Hand Slot -->
         <div
-          class="slot flex h-10 w-10 items-center justify-center rounded-sm border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
+          class="slot flex h-10 w-10 items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
           title="Off-Hand"
         >
           <span class="text-white/50 text-xs">🛡</span>
@@ -74,7 +75,7 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
         <!-- Rezeptbuch -->
         <button
           type="button"
-          class="flex h-10 w-10 items-center justify-center rounded-sm border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)] text-white/70 hover:border-[#5a5a5a] hover:bg-[rgba(55,52,48,0.95)]"
+          class="flex h-10 w-10 items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)] text-white/70 hover:border-[var(--ui-border-hover)] hover:bg-[rgba(55,52,48,0.95)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-accent)] focus-visible:outline-offset-2"
           title="Recipe book"
           aria-label="Recipe book"
         >
@@ -94,7 +95,7 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
               <div
                 v-for="i in craftingSlots"
                 :key="i"
-                class="slot flex h-9 w-9 items-center justify-center rounded-sm border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
+                class="slot flex h-9 w-9 items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
               />
             </div>
             <span class="text-white/50 text-lg">→</span>
@@ -109,7 +110,7 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
           <div
             v-for="(label, i) in emptySlots"
             :key="i"
-            class="slot flex h-9 w-9 items-center justify-center rounded-sm border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)] text-[9px] font-bold leading-tight text-white [text-shadow:0_1px_1px_#000]"
+            class="slot flex h-9 w-9 items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)] text-[9px] font-bold leading-tight text-white [text-shadow:0_1px_1px_#000]"
             :title="label || `Slot ${i + 1}`"
           >
             {{ label || "" }}
@@ -121,7 +122,7 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
           <div
             v-for="i in 9"
             :key="i - 1"
-            class="slot hotbar-slot relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-sm border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
+            class="slot hotbar-slot relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
             :title="hotbarBlocks?.[i - 1] ? BLOCK_LABEL[hotbarBlocks[i - 1]] : `Slot ${i}`"
           >
             <span class="absolute left-0.5 top-0 z-10 text-[8px] text-white/70 drop-shadow-[0_0_1px_#000]">
@@ -144,15 +145,16 @@ const emptySlots = Array.from({ length: inventorySlotCount }, () => null);
         </div>
       </div>
 
-      <!-- Schließen + ESC-Hinweis -->
+      <!-- Close + ESC hint -->
       <div class="absolute right-2 top-2 flex items-center gap-2">
         <span class="text-[10px] text-white/50">ESC</span>
         <button
           type="button"
-          class="rounded border border-[#4a4a4a] bg-[#3a3a3a] px-2 py-1 text-xs text-white hover:bg-[#4a4a4a]"
+          class="rounded-[var(--ui-radius-sm)] border px-2 py-1 text-xs text-[var(--ui-text)] hover:bg-[var(--ui-border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-accent)] focus-visible:outline-offset-2"
+          style="border-color: var(--ui-border); background: #3a3a3a"
           @click="$emit('close')"
         >
-          Schließen
+          Close
         </button>
       </div>
     </div>

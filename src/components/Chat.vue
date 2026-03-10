@@ -111,7 +111,8 @@ function messageClass(msg: ChatMessage): string {
     <button
       v-if="!open"
       type="button"
-      class="rounded-md border-2 border-[#4a4a4a] bg-black/70 px-3 py-2 text-sm font-medium text-white shadow hover:bg-black/90 hover:border-[#5a5a5a] focus:outline-none focus:ring-2 focus:ring-white/50"
+      class="rounded-[var(--ui-radius-md)] border-2 px-3 py-2 text-sm font-medium shadow focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)] focus:ring-offset-2 focus:ring-offset-transparent"
+      style="border-color: var(--ui-border); background: var(--ui-bg); color: var(--ui-text)"
       aria-label="Open chat"
       title="Chat (T or Enter)"
       @click="openChat"
@@ -122,20 +123,21 @@ function messageClass(msg: ChatMessage): string {
     <!-- Chat panel -->
     <div
       v-else
-      class="flex w-80 max-w-[calc(100vw-2rem)] flex-col rounded-lg border-2 border-[#4a4a4a] bg-black/85 shadow-lg"
+      class="flex w-80 max-w-[calc(100vw-2rem)] flex-col rounded-[var(--ui-radius-lg)] border-2 shadow-lg"
+      style="border-color: var(--ui-border); background: rgba(0,0,0,0.85)"
     >
       <div class="flex items-center justify-between border-b border-[#3a3a3a] px-3 py-2">
-        <span class="font-semibold text-white">Chat</span>
+        <span class="font-semibold text-[var(--ui-text)]">Chat</span>
         <button
           type="button"
-          class="rounded p-1 text-gray-400 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/50"
+          class="rounded p-1 text-gray-400 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)]"
           aria-label="Close chat"
           @click="closeChat"
         >
           ✕
         </button>
       </div>
-      <div class="flex max-h-48 min-h-32 flex-1 flex-col overflow-y-auto p-2 font-sans text-sm">
+      <div class="flex max-h-48 min-h-32 flex-1 flex-col overflow-y-auto p-2 text-sm" style="font-family: var(--ui-font)">
         <div
           v-for="(msg, i) in messages"
           :key="i"
@@ -152,7 +154,8 @@ function messageClass(msg: ChatMessage): string {
           ref="inputEl"
           v-model="input"
           type="text"
-          class="w-full rounded border border-[#4a4a4a] bg-[#1a1a1a] px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-[#6a6a6a] focus:outline-none"
+          class="w-full rounded-[var(--ui-radius-sm)] border px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)]"
+          style="border-color: var(--ui-border); background: #1a1a1a"
           placeholder="Enter message… (Enter to send)"
           maxlength="500"
           autocomplete="off"

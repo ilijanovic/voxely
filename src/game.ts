@@ -50,15 +50,23 @@ import {
   getPointerSpeed,
   getPointerSpeedSprint,
   getShadowMapSize,
+  getShadowMapType,
   getRenderDistance,
+  getToneMappingEnabled,
+  getToneMappingExposure,
+  getBloomEnabled,
+  getBloomStrength,
+  getBloomRadius,
+  getBloomThreshold,
 } from "./graphics-settings";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { syncTerrainFogFromSceneFog } from "./terrain-fog";
 import { getKeyBinding, type KeyAction } from "./key-settings";
 import { initMultiplayer, updateMultiplayer } from "./multiplayer";
 import { setWorldApi, getWorldApi } from "./world-api";
-import {
-  spawnEntitiesForChunk,
-} from "./entities/spawn";
+import { spawnEntitiesForChunk } from "./entities/spawn";
 import { updateMovement } from "./entities/movement";
 import { updateAI } from "./entities/ai";
 import { updateAnimation } from "./entities/animation";
@@ -169,8 +177,6 @@ let foliageColormapData: ImageData | null = null;
 let tallGrassMaterial: THREE.MeshStandardMaterial | null = null;
 
 // ================= BIOMES / TERRAIN / TREES (see game-terrain.ts) =================
-
-
 
 // ================= AUTOSAVE (localStorage) =================
 
@@ -329,6 +335,11 @@ const DROP_BOB_HEIGHT = 0.08;
 /** Platziere Fackeln: Weltposition (Mitte der Fackel) + Group (Mesh + PointLight). */
 const placedTorches: PlacedTorch[] = [];
 const PLACE_DISTANCE = 5;
+
+/** Block tick interval (e.g. crop growth) in seconds. */
+const BLOCK_TICK_INTERVAL = 5;
+const WHEAT_GROWTH_PROBABILITY = 0.2;
+let lastBlockTickTime = 0;
 
 const _direction = new THREE.Vector3();
 const _projScreenMatrix = new THREE.Matrix4();
@@ -542,6 +553,8 @@ function createPOVHands(camera: THREE.PerspectiveCamera) {
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
 let renderer: THREE.WebGLRenderer;
+let effectComposer: EffectComposer | null = null;
+let bloomPass: UnrealBloomPass | null = null;
 /** Container für alle platzierten Fackeln (Mesh + Licht). */
 let torchContainer: THREE.Group;
 let sunLight: THREE.DirectionalLight;
@@ -559,6 +572,33 @@ let player: THREE.Group;
 
 /** Shadow frustum radius around player (better texel density, less flicker). */
 const SHADOW_RADIUS = 60;
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+function getBloomDaylight01(): number {
+  const dayTime = getDayTime();
+  const sunAngle = dayTime * Math.PI * 2;
+  const sunHeight = new THREE.Vector3(Math.cos(sunAngle), Math.sin(sunAngle), 0.3).normalize().y;
+
+  // Soft transition around the horizon to avoid a bloom spike during sunrise/sunset.
+  return smoothstep(-0.25, 0.25, sunHeight);
+}
+
+/** Scale for bloom strength by time of day (1 at night, ~0.04 at noon) to avoid overpowering bloom in daylight. */
+function getBloomDayScale(): number {
+  const daylight01 = getBloomDaylight01();
+  return 1 - 0.96 * daylight01;
+}
+
+/** Bloom threshold is raised during day so only the brightest pixels bloom; at night use settings value. */
+function getBloomThresholdForTimeOfDay(): number {
+  const daylight01 = getBloomDaylight01();
+  const base = getBloomThreshold();
+  return Math.max(base, base + (1 - base) * daylight01 * 0.85);
+}
 
 let ambientLight: THREE.AmbientLight;
 let hemiLight: THREE.HemisphereLight;
@@ -629,6 +669,7 @@ async function init(container?: HTMLElement): Promise<void> {
   await initMaterialsAndColormaps();
   initSceneAndRenderer(container);
   initLightsAndSky();
+  initPostProcessing();
   initChunkWorker();
   initPlayerAndWorldApi();
   initControlsAndInput();
@@ -718,6 +759,23 @@ function initLightsAndSky(): void {
     snowEffect.setForced?.(pendingSnowForced);
     pendingSnowForced = undefined;
   }
+}
+
+function initPostProcessing(): void {
+  if (!scene || !camera || !renderer) return;
+  const w = renderer.domElement.width;
+  const h = renderer.domElement.height;
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(
+    new THREE.Vector2(w, h),
+    getBloomStrength(),
+    getBloomRadius(),
+    getBloomThreshold()
+  );
+  composer.addPass(bloom);
+  effectComposer = composer;
+  bloomPass = bloom;
 }
 
 function initChunkWorker(): void {
@@ -1076,6 +1134,17 @@ function updateFPSAndSpawn(time: number): void {
 }
 
 function updateDayCycleAndAtmosphere(dt: number): void {
+  const eyeY =
+    player.position.y + (viewMode === "first" ? eyeHeight : cameraHeight);
+  const snowCtx = {
+    playerPosition: player.position,
+    waterSurfaceY: WATER_LEVEL + WATER_BLOCK_HEIGHT,
+    eyeY,
+    biome: getResolvedBiome(player.position.x, player.position.z),
+  };
+  snowEffect.update(dt, snowCtx);
+  const isSnowing = snowEffect.isSnowing(snowCtx);
+
   const ctx: AtmosphereContext = {
     playerPosition: player.position,
     viewMode,
@@ -1094,31 +1163,18 @@ function updateDayCycleAndAtmosphere(dt: number): void {
     cloudMaterial,
     rain,
     getBiome: (x, z) => getWorldApi().getBiome(x, z),
+    isSnowing,
     ambientLight,
     hemiLight,
   };
   updateAtmosphere(dt, ctx);
-
-  const eyeY =
-    player.position.y +
-    (viewMode === "first" ? eyeHeight : cameraHeight);
-  const snowCtx = {
-    playerPosition: player.position,
-    waterSurfaceY: WATER_LEVEL + WATER_BLOCK_HEIGHT,
-    eyeY,
-    biome: getResolvedBiome(player.position.x, player.position.z),
-  };
-  snowEffect.update(dt, snowCtx);
-  if (
-    snowCtx.biome !== undefined &&
-    snowCtx.eyeY >= snowCtx.waterSurfaceY
-  ) {
+  if (snowEffect.isSnowing(snowCtx)) {
     tryUpdateSnowAccumulation(
       getChunkSyncCtx(),
       dt,
       player.position.x,
       player.position.z,
-      snowCtx.biome,
+      snowEffect.getForced?.() ?? null,
       snowCtx.waterSurfaceY
     );
   }
@@ -1494,6 +1550,47 @@ function updateDropsAndPickup(time: number): void {
   });
 }
 
+function runBlockTick(time: number): void {
+  if (time - lastBlockTickTime < BLOCK_TICK_INTERVAL) return;
+  lastBlockTickTime = time;
+  const changes: Array<{
+    keyStr: string;
+    bx: number;
+    by: number;
+    bz: number;
+    next: BlockType;
+  }> = [];
+  for (const [keyStr, value] of blockModifications) {
+    if (value === "air") continue;
+    const match = /^wheat_([1-7])$/.exec(value);
+    if (!match) continue;
+    if (Math.random() >= WHEAT_GROWTH_PROBABILITY) continue;
+    const stage = parseInt(match[1], 10);
+    const parts = keyStr.split(",");
+    const bx = Number(parts[0]);
+    const by = Number(parts[1]);
+    const bz = Number(parts[2]);
+    changes.push({
+      keyStr,
+      bx,
+      by,
+      bz,
+      next: `wheat_${stage + 1}` as BlockType,
+    });
+  }
+  for (const { keyStr, bx, bz, next } of changes) {
+    blockModifications.set(keyStr, next);
+    invalidateColumnHeight(bx, bz);
+    const ckx = Math.floor(bx / CHUNK_SIZE);
+    const ckz = Math.floor(bz / CHUNK_SIZE);
+    chunks.delete(chunkKeyNumeric(ckx, ckz));
+  }
+  if (changes.length > 0) {
+    raycastMeshCache.markDirty();
+    _frustumDirty = true;
+  }
+}
+
 function updateBlockBreakAndPlace(dt: number): void {
   // Platzieren (Rechtsklick oder F): Fackel oder Block (F works without pointer lock)
   const placeRequested =
@@ -1510,10 +1607,7 @@ function updateBlockBreakAndPlace(dt: number): void {
     const blockMeshesPlace = getRaycastMeshes();
     const placeHits = raycaster.intersectObjects(blockMeshesPlace);
     const placeHit = placeHits[0];
-    if (
-      placeHit &&
-      placeHit.face
-    ) {
+    if (placeHit && placeHit.face) {
       _direction
         .copy(placeHit.face.normal)
         .transformDirection(placeHit.object.matrixWorld);
@@ -1525,48 +1619,67 @@ function updateBlockBreakAndPlace(dt: number): void {
         (placeY - camera.position.y) ** 2 +
         (placeZ - camera.position.z) ** 2;
       if (distSq <= PLACE_DISTANCE * PLACE_DISTANCE) {
-        const sel = getSelectedBlockType();
-        const count = getSelectedSlotCount();
-        if (sel === "torch" && count > 0) {
-          const torchInPlayer =
-            placeX >= player.position.x - PLAYER_HALF &&
-            placeX <= player.position.x + PLAYER_HALF &&
-            placeY >= player.position.y &&
-            placeY <= player.position.y + PLAYER_HEIGHT &&
-            placeZ >= player.position.z - PLAYER_HALF &&
-            placeZ <= player.position.z + PLAYER_HALF;
-          if (!torchInPlayer && placeTorch(placeX, placeY, placeZ)) {
-            consumeOneFromSelectedSlot();
-          }
-        } else if (sel !== "torch" && count > 0 && isBlockTypeSolid(sel)) {
-          const adjX = Math.floor(placeHit.point.x + _direction.x * 0.01);
-          const adjY = Math.floor(placeHit.point.y + _direction.y * 0.01);
-          const adjZ = Math.floor(placeHit.point.z + _direction.z * 0.01);
-          const px = player.position.x;
-          const py = player.position.y;
-          const pz = player.position.z;
-          const blockOverlapsPlayer =
-            Math.min(adjX + 0.5, px + PLAYER_HALF) >
-              Math.max(adjX - 0.5, px - PLAYER_HALF) &&
-            Math.min(adjY + 0.5, py + PLAYER_HEIGHT) >
-              Math.max(adjY - 0.5, py) &&
-            Math.min(adjZ + 0.5, pz + PLAYER_HALF) >
-              Math.max(adjZ - 0.5, pz - PLAYER_HALF);
-          const at = getBlockAt(adjX, adjY, adjZ);
-          const keyStr = blockKeyString(adjX, adjY, adjZ);
-          if (
-            !blockOverlapsPlayer &&
-            (at === null || at === "air") &&
-            !blockModifications.has(keyStr)
-          ) {
-            blockModifications.set(keyStr, sel);
-            invalidateColumnHeight(adjX, adjZ);
-            const ckx = Math.floor(adjX / CHUNK_SIZE);
-            const ckz = Math.floor(adjZ / CHUNK_SIZE);
-            chunks.delete(chunkKeyNumeric(ckx, ckz));
-            raycastMeshCache.markDirty();
-            _frustumDirty = true;
-            consumeOneFromSelectedSlot();
+        // Use: block we're looking at (the one that has the hit face)
+        const useBx = Math.floor(placeHit.point.x - 0.01 * _direction.x);
+        const useBy = Math.floor(placeHit.point.y - 0.01 * _direction.y);
+        const useBz = Math.floor(placeHit.point.z - 0.01 * _direction.z);
+        const useBlock = getBlockAt(useBx, useBy, useBz);
+        if (useBlock === "door_closed" || useBlock === "door_open") {
+          const keyStr = blockKeyString(useBx, useBy, useBz);
+          blockModifications.set(
+            keyStr,
+            useBlock === "door_closed" ? "door_open" : "door_closed"
+          );
+          invalidateColumnHeight(useBx, useBz);
+          const ckx = Math.floor(useBx / CHUNK_SIZE);
+          const ckz = Math.floor(useBz / CHUNK_SIZE);
+          chunks.delete(chunkKeyNumeric(ckx, ckz));
+          raycastMeshCache.markDirty();
+          _frustumDirty = true;
+        } else {
+          const sel = getSelectedBlockType();
+          const count = getSelectedSlotCount();
+          if (sel === "torch" && count > 0) {
+            const torchInPlayer =
+              placeX >= player.position.x - PLAYER_HALF &&
+              placeX <= player.position.x + PLAYER_HALF &&
+              placeY >= player.position.y &&
+              placeY <= player.position.y + PLAYER_HEIGHT &&
+              placeZ >= player.position.z - PLAYER_HALF &&
+              placeZ <= player.position.z + PLAYER_HALF;
+            if (!torchInPlayer && placeTorch(placeX, placeY, placeZ)) {
+              consumeOneFromSelectedSlot();
+            }
+          } else if (sel !== "torch" && count > 0 && isBlockTypeSolid(sel)) {
+            const adjX = Math.floor(placeHit.point.x + _direction.x * 0.01);
+            const adjY = Math.floor(placeHit.point.y + _direction.y * 0.01);
+            const adjZ = Math.floor(placeHit.point.z + _direction.z * 0.01);
+            const px = player.position.x;
+            const py = player.position.y;
+            const pz = player.position.z;
+            const blockOverlapsPlayer =
+              Math.min(adjX + 0.5, px + PLAYER_HALF) >
+                Math.max(adjX - 0.5, px - PLAYER_HALF) &&
+              Math.min(adjY + 0.5, py + PLAYER_HEIGHT) >
+                Math.max(adjY - 0.5, py) &&
+              Math.min(adjZ + 0.5, pz + PLAYER_HALF) >
+                Math.max(adjZ - 0.5, pz - PLAYER_HALF);
+            const at = getBlockAt(adjX, adjY, adjZ);
+            const keyStr = blockKeyString(adjX, adjY, adjZ);
+            if (
+              !blockOverlapsPlayer &&
+              (at === null || at === "air") &&
+              !blockModifications.has(keyStr)
+            ) {
+              blockModifications.set(keyStr, sel);
+              invalidateColumnHeight(adjX, adjZ);
+              const ckx = Math.floor(adjX / CHUNK_SIZE);
+              const ckz = Math.floor(adjZ / CHUNK_SIZE);
+              chunks.delete(chunkKeyNumeric(ckx, ckz));
+              raycastMeshCache.markDirty();
+              _frustumDirty = true;
+              consumeOneFromSelectedSlot();
+            }
           }
         }
       }
@@ -1587,14 +1700,16 @@ function updateBlockBreakAndPlace(dt: number): void {
     const blockMeshes = getRaycastMeshes();
     const hits = raycaster.intersectObjects(blockMeshes);
     const hit = hits[0];
-    if (
-      hit &&
-      hit.face
-    ) {
-      _direction.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+    if (hit && hit.face) {
+      _direction
+        .copy(hit.face.normal)
+        .transformDirection(hit.object.matrixWorld);
 
       // Instanced path: resolve exact instance block position.
-      if (hit.object instanceof THREE.InstancedMesh && hit.instanceId !== undefined) {
+      if (
+        hit.object instanceof THREE.InstancedMesh &&
+        hit.instanceId !== undefined
+      ) {
         const ud = hit.object.userData as {
           chunkKeyNum: number;
           blockType: BlockType;
@@ -1652,7 +1767,10 @@ function updateBlockBreakAndPlace(dt: number): void {
           breakTarget = null;
           breakProgress = 0;
         } else {
-          const chunkKeyNum = chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE));
+          const chunkKeyNum = chunkKeyNumeric(
+            Math.floor(bx / CHUNK_SIZE),
+            Math.floor(bz / CHUNK_SIZE)
+          );
           if (
             breakTarget &&
             breakTarget.chunkKeyNum === chunkKeyNum &&
@@ -1728,7 +1846,14 @@ function updateShadowAndRender(dt: number): void {
   }
 
   if (multiplayerEnabled) updateMultiplayer(dt);
-  renderer.render(scene, camera);
+  if (getBloomEnabled() && effectComposer && bloomPass) {
+    bloomPass.strength = getBloomStrength() * getBloomDayScale();
+    bloomPass.radius = getBloomRadius();
+    bloomPass.threshold = getBloomThresholdForTimeOfDay();
+    effectComposer.render();
+  } else {
+    renderer.render(scene, camera);
+  }
 }
 
 function animate(): void {
@@ -1741,6 +1866,7 @@ function animate(): void {
   updateMovementAndCollision(dt, time);
   updateCameraAndViewMode(time, dt);
   updateDropsAndPickup(time);
+  runBlockTick(time);
   updateBlockBreakAndPlace(dt);
   updateShadowAndRender(dt);
 }
@@ -1749,9 +1875,13 @@ function animate(): void {
 
 window.addEventListener("resize", () => {
   if (!camera || !renderer) return;
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(w, h);
+  if (effectComposer) effectComposer.setSize(w, h);
+  if (bloomPass) bloomPass.setSize(w, h);
 });
 
 // ================= GRAFIK-OPTIONEN (zur Laufzeit) =================
@@ -1759,7 +1889,17 @@ window.addEventListener("resize", () => {
 /** Wird vom Optionen-Menü aufgerufen, wenn Grafik-Einstellungen geändert wurden. */
 export function applyGraphicsSettings(): void {
   if (!renderer || !sunLight) return;
+  renderer.toneMapping = getToneMappingEnabled()
+    ? THREE.ACESFilmicToneMapping
+    : THREE.NoToneMapping;
+  renderer.toneMappingExposure = getToneMappingEnabled()
+    ? getToneMappingExposure()
+    : 1;
   renderer.shadowMap.enabled = getShadowsEnabled();
+  renderer.shadowMap.type =
+    getShadowMapType() === "pcf_soft"
+      ? THREE.PCFSoftShadowMap
+      : THREE.PCFShadowMap;
   const size = getShadowMapSize();
   if (
     sunLight.shadow.mapSize.width !== size ||
@@ -1779,4 +1919,9 @@ export function applyGraphicsSettings(): void {
   sunLight.shadow.camera.updateProjectionMatrix();
 
   applyTorchShadowSettingsToPlacedTorches(placedTorches);
+  if (bloomPass) {
+    bloomPass.strength = getBloomStrength() * getBloomDayScale();
+    bloomPass.radius = getBloomRadius();
+    bloomPass.threshold = getBloomThresholdForTimeOfDay();
+  }
 }
