@@ -5,10 +5,10 @@
  */
 import { createChunkGenerator } from "./terrain-core";
 import type { BlockModEntry, ChunkDataPayload } from "./terrain-core";
-import { CHUNK_SIZE } from "./constants";
+import { CHUNK_SIZE, SNOW_ACCUMULATION_HEIGHT } from "./constants";
 import { buildWorkerGeometryFromVoxelBuffer } from "./terrain/worker-geometry";
 
-export type InitMsg = { type: "init"; seed: number };
+export type InitMsg = { type: "init"; seed: number; snowAccumulationHeight?: number };
 export type GenerateMsg = {
   type: "generate";
   chunkX: number;
@@ -47,7 +47,9 @@ export function createWorkerHandler() {
 
   function handleMessage(msg: WorkerMsg): ChunkDataPayload[] {
     if (msg.type === "init" && typeof msg.seed === "number") {
-      const gen = createChunkGenerator(msg.seed);
+      const gen = createChunkGenerator(msg.seed, {
+        snowAccumulationHeight: msg.snowAccumulationHeight ?? SNOW_ACCUMULATION_HEIGHT,
+      });
       generateChunkData = gen.generateChunkData;
 
       const results: ChunkDataPayload[] = [];

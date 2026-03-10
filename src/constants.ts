@@ -40,3 +40,11 @@ export const MAX_STACK_SIZE = 64;
 /** Spawn position (world block coords). */
 export const SPAWN_X = 0;
 export const SPAWN_Z = 0;
+
+/** Snow layer height (0–8) for terrain generation. 0 = no layer, 1–8 = layers on grass_snow/snow in snow biomes. */
+export const SNOW_ACCUMULATION_HEIGHT = 1;
+
+/** Seconds of snowfall before one layer is added (when snowing in cold biomes). Max layers = 8. */
+export const SNOW_GROWTH_INTERVAL_SEC = 12;
+/** Radius (blocks) around player to consider for snow growth. */
+export const SNOW_GROWTH_RADIUS = 10;

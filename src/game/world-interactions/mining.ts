@@ -16,7 +16,7 @@ export function breakBlock(params: {
   chunkSize: number;
   isSolidBlock: (blockType: BlockType) => boolean;
   getBlockAt: (x: number, y: number, z: number) => BlockType | "air" | null;
-  refreshChunkVisibleMeshes: (data: ChunkData) => void;
+  refreshChunkVisibleMeshes: (data: ChunkData, affectedBlockTypes?: Set<BlockType>) => void;
   spawnDrop: (worldX: number, worldY: number, worldZ: number, blockType: BlockType) => void;
 }): void {
   if (params.isUnbreakableBlock(params.blockType)) return;
@@ -43,8 +43,23 @@ export function breakBlock(params: {
   const lx = pos.x - data.cx * params.chunkSize;
   const lz = pos.z - data.cz * params.chunkSize;
   data.voxelMap.delete(params.localKey(lx, pos.y, lz));
+
+  const affectedBlockTypes = new Set<BlockType>([params.blockType]);
+  const neighbors: [number, number, number][] = [
+    [pos.x + 1, pos.y, pos.z],
+    [pos.x - 1, pos.y, pos.z],
+    [pos.x, pos.y + 1, pos.z],
+    [pos.x, pos.y - 1, pos.z],
+    [pos.x, pos.y, pos.z + 1],
+    [pos.x, pos.y, pos.z - 1],
+  ];
+  for (const [nx, ny, nz] of neighbors) {
+    const t = params.getBlockAt(nx, ny, nz);
+    if (t !== null && t !== "air") affectedBlockTypes.add(t as BlockType);
+  }
+
   if (instanceIndex === -1) {
-    params.refreshChunkVisibleMeshes(data);
+    params.refreshChunkVisibleMeshes(data, affectedBlockTypes);
     return;
   }
 
@@ -61,6 +76,6 @@ export function breakBlock(params: {
   }
   const cy = groundY + dropSize * 0.5;
   params.spawnDrop(cx, cy, cz, params.blockType);
-  params.refreshChunkVisibleMeshes(data);
+  params.refreshChunkVisibleMeshes(data, affectedBlockTypes);
 }
 

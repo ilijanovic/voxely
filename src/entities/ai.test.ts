@@ -13,7 +13,7 @@ vi.mock("./spawn", () => ({
 
 import { updateAI } from "./ai";
 import { addEntity, removeEntity, getAllEntities } from "./registry";
-import type { Entity, EntityState } from "./types";
+import type { Entity } from "./types";
 
 function makeEntity(
   overrides: Partial<Omit<Entity, "id">> & { id?: string } = {}

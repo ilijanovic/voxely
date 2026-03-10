@@ -124,6 +124,8 @@ function addGeometryLayerMesh(
   geo.setAttribute("normal", new THREE.BufferAttribute(layer.normal, 3));
   geo.setAttribute("uv", new THREE.BufferAttribute(layer.uv, 2));
   // Group ranges are in vertices for non-indexed BufferGeometry.
+  // Worker face order [right, left, top, bottom, front, back] matches Three.js BoxGeometry
+  // material indices 0..5, so faceIndex is used directly as materialIndex.
   let start = 0;
   for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
     const count = layer.faceVertexCounts[faceIndex] ?? 0;

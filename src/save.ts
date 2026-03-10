@@ -20,6 +20,12 @@ export interface SaveData {
   placedBlocks: Array<{ x: number; y: number; z: number; type: BlockType }>;
   placedTorches?: Array<{ x: number; y: number; z: number }>;
   dayTime?: number;
+  /** Current rain state (from atmosphere). */
+  isRaining?: boolean;
+  /** Rain override: null = auto, true = force on, false = force off. */
+  rainForced?: boolean | null;
+  /** Snow override: null = auto (cold biomes), true = force on, false = force off. */
+  snowForced?: boolean | null;
 }
 
 export const VALID_BLOCK_TYPES = new Set<string>([
@@ -31,6 +37,14 @@ export const VALID_BLOCK_TYPES = new Set<string>([
   "water",
   "wood",
   "leaves",
+  "snow_layer_1",
+  "snow_layer_2",
+  "snow_layer_3",
+  "snow_layer_4",
+  "snow_layer_5",
+  "snow_layer_6",
+  "snow_layer_7",
+  "snow_layer_8",
 ]);
 
 export function saveToStorage(data: SaveData): void {

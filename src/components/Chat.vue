@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch, nextTick } from "vue";
 import { subscribeChat, sendChat, type ChatMessage } from "../multiplayer";
+import { runCommand } from "../debug-commands";
 
 const open = ref(false);
 const messages = ref<ChatMessage[]>([]);
@@ -60,10 +61,19 @@ function closeChat() {
 
 function submit() {
   const t = input.value.trim();
-  if (t) {
-    sendChat(t);
-    input.value = "";
+  if (!t) return;
+  if (t.startsWith("/")) {
+    const result = runCommand(t);
+    if (result.handled) {
+      if (result.message) {
+        messages.value.push({ type: "system", text: result.message, time: Date.now() });
+      }
+      input.value = "";
+      return;
+    }
   }
+  sendChat(t);
+  input.value = "";
 }
 
 function formatMessage(msg: ChatMessage): string {

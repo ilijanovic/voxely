@@ -110,6 +110,13 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     displayName: "Snow",
     textures: { type: "single", texture: "snow" },
   }),
+  ...([1, 2, 3, 4, 5, 6, 7, 8] as const).map((k) =>
+    D({
+      id: `snow_layer_${k}` as const,
+      displayName: "Snow Layer",
+      textures: { type: "single", texture: "snow" },
+    })
+  ),
   D({
     id: "water",
     displayName: "Water",
@@ -505,6 +512,13 @@ export function getPlaceableBlockIds(): string[] {
 export function isSolidBlock(id: string): boolean {
   const def = REGISTRY.get(id);
   return def ? def.solid !== false : false;
+}
+
+/** Block height in world units (1 = full block). Snow layers 1–8 use 1/8 … 8/8. */
+export function getBlockHeight(blockType: string): number {
+  const m = /^snow_layer_([1-8])$/.exec(blockType);
+  if (m) return parseInt(m[1], 10) / 8;
+  return 1;
 }
 
 export function isUnbreakableBlock(id: string): boolean {

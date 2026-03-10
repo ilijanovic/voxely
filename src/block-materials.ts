@@ -421,6 +421,24 @@ export function setFoliageInstanceColors(
 export const sharedBlockGeometry = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
 sharedBlockGeometry.translate(0.5 * BLOCK_SIZE, 0.5 * BLOCK_SIZE, 0.5 * BLOCK_SIZE);
 
+const _snowLayerGeometryCache: THREE.BufferGeometry[] = [];
+/** Shared geometry for snow_layer_k (height k/8). Use for sync-path instancing. */
+export function getSnowLayerGeometry(layers: number): THREE.BufferGeometry {
+  const k = Math.max(1, Math.min(8, Math.floor(layers)));
+  if (!_snowLayerGeometryCache[k - 1]) {
+    const h = (k / 8) * BLOCK_SIZE;
+    const geo = new THREE.BoxGeometry(BLOCK_SIZE, h, BLOCK_SIZE);
+    geo.translate(0.5 * BLOCK_SIZE, 0.5 * h, 0.5 * BLOCK_SIZE);
+    _snowLayerGeometryCache[k - 1] = geo;
+  }
+  return _snowLayerGeometryCache[k - 1];
+}
+/** True if geometry is shared (block or snow layer); do not dispose when unloading chunks. */
+export function isSharedBlockOrSnowLayerGeometry(geo: THREE.BufferGeometry): boolean {
+  if (geo === sharedBlockGeometry) return true;
+  return _snowLayerGeometryCache.includes(geo);
+}
+
 /**
  * Cross geometry for tall grass (two vertical quads at 90° like Minecraft grass/flowers).
  * Y from 0 to BLOCK_SIZE; centered in XZ. Placed at (block.x+0.5, block.y+1, block.z+0.5).

@@ -25,6 +25,8 @@ vi.mock("../../block-materials", () => {
     sharedTallGrassGeometry: geo,
     FOLIAGE_BLOCK_TYPES: [],
     getMaterialForBlockType: () => mat,
+    getSnowLayerGeometry: () => geo,
+    isSharedBlockOrSnowLayerGeometry: (g: THREE.BufferGeometry) => g === geo,
     setGrassInstanceColors: vi.fn(),
     setFoliageInstanceColors: vi.fn(),
   };
@@ -178,7 +180,7 @@ describe("rebuildChunkLayer", () => {
 });
 
 describe("refreshChunkVisibleMeshes", () => {
-  it("removes worker Mesh when rebuilding after mining", () => {
+  it("removes worker Mesh when rebuilding after mining (full refresh, no affectedBlockTypes)", () => {
     const ctx = makeCtx();
     const data = makeChunkData(0, 0);
 
@@ -198,5 +200,28 @@ describe("refreshChunkVisibleMeshes", () => {
     );
     expect(stoneChildren).toHaveLength(0);
     expect(data.blockPositionsByType.get("stone" as BlockType)).toEqual([]);
+  });
+
+  it("rebuilds only affected block types when affectedBlockTypes is passed", () => {
+    const ctx = makeCtx();
+    const data = makeChunkData(0, 0);
+
+    const dirtMesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    dirtMesh.userData = { blockType: "dirt" };
+    data.group.add(dirtMesh);
+
+    data.voxelMap.set(localKey(5, 10, 5), "stone" as BlockType);
+    data.blockPositionsByType.set("stone" as BlockType, [{ x: 5, y: 10, z: 5 }]);
+    data.blockPositionsByType.set("dirt" as BlockType, []);
+
+    data.voxelMap.delete(localKey(5, 10, 5));
+
+    refreshChunkVisibleMeshes(ctx, data, new Set(["stone" as BlockType]));
+
+    expect(data.blockPositionsByType.get("stone" as BlockType)).toEqual([]);
+    const dirtChildren = data.group.children.filter(
+      (c) => (c.userData as { blockType?: string }).blockType === "dirt"
+    );
+    expect(dirtChildren).toHaveLength(1);
   });
 });

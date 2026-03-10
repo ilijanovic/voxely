@@ -23,6 +23,14 @@ const TERRAIN_BLOCK_TYPES: (BlockType | "air")[] = [
   "gravel",
   "wood",
   "leaves",
+  "snow_layer_1",
+  "snow_layer_2",
+  "snow_layer_3",
+  "snow_layer_4",
+  "snow_layer_5",
+  "snow_layer_6",
+  "snow_layer_7",
+  "snow_layer_8",
 ];
 
 /** BlockType at id (id 0 = air, not in this array). Index = id - 1 for id >= 1. */
@@ -41,6 +49,12 @@ export function idToType(id: number): BlockType | "air" {
   if (id === 0 || id === CARVED_ID) return "air";
   const t = TERRAIN_BLOCK_TYPES[id];
   return t ?? "air";
+}
+
+/** Block height in world units (1 = full block). Snow layers 1–8 use 1/8 … 8/8. */
+export function getBlockHeightById(id: number): number {
+  if (id >= 12 && id <= 19) return (id - 11) / 8; // snow_layer_1..8 at indices 12..19
+  return 1;
 }
 
 /** Local key for flat voxel buffer: lx + ly*CHUNK_SIZE + lz*CHUNK_SIZE*WORLD_HEIGHT. */

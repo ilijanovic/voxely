@@ -5,6 +5,7 @@
 import type { BlockType, ChunkData } from "./types";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants";
 import type { BlockModEntry } from "./terrain-core";
+import { getBlockHeight } from "./block-registry";
 
 export const chunks = new Map<number, ChunkData>();
 export const blockModifications = new Map<string, BlockType | "air">();
@@ -81,6 +82,13 @@ export function getBlockAt(
   const lz = iz - data.cz * CHUNK_SIZE;
   const type = data.voxelMap.get(localKey(lx, iy, lz));
   return type ?? "air";
+}
+
+/** Block height in world units at (bx, by, bz). 0 for air/unloaded; 1 for full block; 1/8..8/8 for snow layers. */
+export function getBlockHeightAt(bx: number, by: number, bz: number): number {
+  const type = getBlockAt(bx, by, bz);
+  if (type === null || type === "air") return 0;
+  return getBlockHeight(type);
 }
 
 export function isSolidBlock(

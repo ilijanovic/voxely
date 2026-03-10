@@ -6,6 +6,7 @@
  * This catches worker ↔ main-thread drift without a real Web Worker.
  */
 import { describe, it, expect } from "vitest";
+import * as THREE from "three";
 import { createWorkerHandler } from "./chunk-worker-handler";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants";
 import { idToType, CARVED_ID } from "./terrain/block-ids";
@@ -18,6 +19,23 @@ const TEST_SEED = 12345;
 function generatePayload(chunkX: number, chunkZ: number): ChunkDataPayload {
   const handler = createWorkerHandler();
   handler.handleMessage({ type: "init", seed: TEST_SEED });
+  const payloads = handler.handleMessage({
+    type: "generate",
+    chunkX,
+    chunkZ,
+    blockMods: [],
+  });
+  expect(payloads).toHaveLength(1);
+  return payloads[0];
+}
+
+function generatePayloadWithSnowHeight(
+  chunkX: number,
+  chunkZ: number,
+  snowAccumulationHeight: number
+): ChunkDataPayload {
+  const handler = createWorkerHandler();
+  handler.handleMessage({ type: "init", seed: TEST_SEED, snowAccumulationHeight });
   const payloads = handler.handleMessage({
     type: "generate",
     chunkX,
@@ -124,6 +142,46 @@ describe("ChunkDataPayload contract", () => {
         expect(sum).toBe(layer.position.length / 3);
       }
     });
+
+    it("face order matches BoxGeometry: +Y (top) face has normal (0,1,0)", () => {
+      for (const layer of payload.geometryLayers!) {
+        const faceVertexCounts = layer.faceVertexCounts;
+        const topFaceIndex = 2;
+        const startVertex =
+          (faceVertexCounts[0] ?? 0) + (faceVertexCounts[1] ?? 0);
+        if ((faceVertexCounts[topFaceIndex] ?? 0) === 0) continue;
+        const n0 = startVertex * 3;
+        expect(layer.normal[n0]).toBe(0);
+        expect(layer.normal[n0 + 1]).toBe(1);
+        expect(layer.normal[n0 + 2]).toBe(0);
+      }
+    });
+
+    it("UV layout matches Three.js BoxGeometry (fails if worker UVs diverge → rotated blocks)", () => {
+      const box = new THREE.BoxGeometry(1, 1, 1);
+      const uvAttr = box.getAttribute("uv") as THREE.BufferAttribute;
+      const topFaceGroupIndex = 2;
+      const group = box.groups[topFaceGroupIndex];
+      const firstVertexIndex = box.index
+        ? box.index.array[group.start]
+        : group.start;
+      const boxU = uvAttr.getX(firstVertexIndex);
+      const boxV = uvAttr.getY(firstVertexIndex);
+
+      let matched = false;
+      for (const layer of payload.geometryLayers!) {
+        const faceVertexCounts = layer.faceVertexCounts;
+        const topFaceVertexStart =
+          (faceVertexCounts[0] ?? 0) + (faceVertexCounts[1] ?? 0);
+        if ((faceVertexCounts[2] ?? 0) === 0) continue;
+        const workerU = layer.uv[topFaceVertexStart * 2];
+        const workerV = layer.uv[topFaceVertexStart * 2 + 1];
+        expect(workerU).toBeCloseTo(boxU, 5);
+        expect(workerV).toBeCloseTo(boxV, 5);
+        matched = true;
+      }
+      expect(matched).toBe(true);
+    });
   });
 
   describe("visibleBlockKeysByType", () => {
@@ -198,6 +256,30 @@ describe("ChunkDataPayload contract", () => {
       expect(p.chunkX).toBe(100);
       expect(p.chunkZ).toBe(200);
       expect(p.buffer.length).toBe(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
+    });
+  });
+
+  describe("snow layer placement", () => {
+    it("when snowAccumulationHeight >= 1, every snow_layer block sits on grass_snow or snow", () => {
+      const p = generatePayloadWithSnowHeight(0, 0, 2);
+      const buf = p.buffer;
+      const strideY = CHUNK_SIZE;
+      const strideZ = CHUNK_SIZE * WORLD_HEIGHT;
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        for (let ly = 1; ly < WORLD_HEIGHT; ly++) {
+          for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+            const i = lx + ly * strideY + lz * strideZ;
+            const type = idToType(buf[i]);
+            if (!type.startsWith("snow_layer_")) continue;
+            const belowI = lx + (ly - 1) * strideY + lz * strideZ;
+            const belowType = idToType(buf[belowI]);
+            expect(
+              belowType === "grass_snow" || belowType === "snow",
+              `snow_layer at (${lx},${ly},${lz}) must sit on grass_snow or snow, got ${belowType}`
+            ).toBe(true);
+          }
+        }
+      }
     });
   });
 });

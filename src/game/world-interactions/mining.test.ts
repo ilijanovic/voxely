@@ -108,21 +108,24 @@ describe("breakBlock", () => {
     params.chunks.set(0, data);
     breakBlock(params);
     expect(params.spawnDrop).toHaveBeenCalledTimes(1);
-    const [cx, cy, cz, bt] = params.spawnDrop.mock.calls[0];
+    const [cx, cy, cz, bt] = vi.mocked(params.spawnDrop).mock.calls[0];
     expect(cx).toBe(5.5);
     expect(cz).toBe(5.5);
     expect(bt).toBe("stone");
     expect(cy).toBeGreaterThan(9);
   });
 
-  it("calls refreshChunkVisibleMeshes when instanceIndex is -1", () => {
+  it("calls refreshChunkVisibleMeshes with data and affectedBlockTypes when instanceIndex is -1", () => {
     const data = makeChunkData(0, 0);
     const params = makeParams({
       getLayerPositions: () => [{ x: 99, y: 99, z: 99 }],
     });
     params.chunks.set(0, data);
     breakBlock(params);
-    expect(params.refreshChunkVisibleMeshes).toHaveBeenCalled();
+    expect(params.refreshChunkVisibleMeshes).toHaveBeenCalledTimes(1);
+    expect(params.refreshChunkVisibleMeshes).toHaveBeenCalledWith(data, expect.any(Set));
+    const affected = vi.mocked(params.refreshChunkVisibleMeshes).mock.calls[0][1] as Set<string>;
+    expect(affected.has("stone")).toBe(true);
     expect(params.spawnDrop).not.toHaveBeenCalled();
   });
 
@@ -137,7 +140,7 @@ describe("breakBlock", () => {
     params.chunks.set(0, data);
     breakBlock(params);
     expect(params.spawnDrop).toHaveBeenCalledTimes(1);
-    const [, cy] = params.spawnDrop.mock.calls[0];
+    const [, cy] = vi.mocked(params.spawnDrop).mock.calls[0];
     const dropSize = 0.35;
     const groundY = 7 + 0.5;
     expect(cy).toBeCloseTo(groundY + dropSize * 0.5);

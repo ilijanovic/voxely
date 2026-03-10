@@ -3,13 +3,52 @@
  * Game passes scene, renderer, lights, and meshes; this module updates them each frame.
  */
 import * as THREE from "three";
+import type { Biome } from "./types";
 
 const DAY_DURATION = 400;
 const SUN_DISTANCE = 200;
 const SUN_SHADOW_MIN_HEIGHT = 0.15;
 
+const RAIN_FALL_SPEED = 12;
+const RAIN_BOX_HEIGHT = 20;
+
+/** Biomes where rain is not shown (desert/savanna = dry; snow/cold = would be snow). */
+const NO_RAIN_BIOMES: Set<Biome> = new Set([
+  "desert",
+  "savanna",
+  "snow",
+  "snowy_slopes",
+  "frozen_peaks",
+  "jagged_peaks",
+  "grove",
+]);
+
+export function rainAllowedInBiome(biome: Biome): boolean {
+  return !NO_RAIN_BIOMES.has(biome);
+}
+
 let dayTime = 0;
 let wasUnderwater = false;
+let isRaining = false;
+let rainChangeCountdown = 90;
+/** Override rain visibility: null = auto, true = force on, false = force off. */
+let rainForced: boolean | null = null;
+
+export function getIsRaining(): boolean {
+  return isRaining;
+}
+
+export function setRaining(value: boolean): void {
+  isRaining = value;
+}
+
+export function getRainForced(): boolean | null {
+  return rainForced;
+}
+
+export function setRainForced(value: boolean | null): void {
+  rainForced = value;
+}
 
 const _sunDirection = new THREE.Vector3(1, 1.2, 0.5).normalize();
 const _sunPos = new THREE.Vector3();
@@ -71,12 +110,27 @@ export interface AtmosphereContext {
   stars: THREE.Points;
   clouds: THREE.Group;
   cloudMaterial: THREE.MeshBasicMaterial;
+  rain: THREE.Points;
+  getBiome: (x: number, z: number) => Biome;
   ambientLight: THREE.AmbientLight;
   hemiLight: THREE.HemisphereLight;
 }
 
 export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
   dayTime += dt / DAY_DURATION;
+  rainChangeCountdown -= dt;
+  if (rainChangeCountdown <= 0) {
+    if (isRaining) {
+      isRaining = false;
+      rainChangeCountdown = 60 + Math.random() * 60;
+    } else {
+      isRaining = Math.random() < 0.25;
+      rainChangeCountdown = isRaining
+        ? 30 + Math.random() * 60
+        : 30 + Math.random() * 60;
+    }
+  }
+
   const sunAngle = dayTime * Math.PI * 2;
   _sunDirection.set(Math.cos(sunAngle), Math.sin(sunAngle), 0.3).normalize();
   const sunHeight = _sunDirection.y;
@@ -91,6 +145,13 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     (ctx.viewMode === "first" ? ctx.eyeHeight : ctx.cameraHeight);
   const waterSurfaceY = ctx.waterLevel + ctx.waterBlockHeight;
   const isUnderwater = eyeY < waterSurfaceY;
+  const biome = ctx.getBiome(ctx.playerPosition.x, ctx.playerPosition.z);
+  const showRain =
+    rainForced === true
+      ? !isUnderwater
+      : rainForced === false
+        ? false
+        : isRaining && !isUnderwater && rainAllowedInBiome(biome);
 
   if (isUnderwater !== wasUnderwater) {
     wasUnderwater = isUnderwater;
@@ -108,11 +169,13 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     }
   }
   if (!isUnderwater) {
+    const rainDarken = showRain ? 0.15 : 0;
     _clearColorTemp
       .copy(_clearDay)
       .lerp(_clearGolden, sunriseSet)
       .lerp(_clearDusk, twilight * night * 0.8)
       .lerp(_clearNight, Math.pow(night, 1.4));
+    if (rainDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x4a5568), rainDarken);
     ctx.renderer.setClearColor(_clearColorTemp);
 
     if (ctx.scene.fog && "far" in ctx.scene.fog) {
@@ -121,6 +184,7 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
         .lerp(_fogGolden, sunriseSet)
         .lerp(_fogDusk, twilight * night * 0.8)
         .lerp(_fogNight, Math.pow(night, 1.4));
+      if (rainDarken > 0) ctx.scene.fog.color.lerp(new THREE.Color(0x5a6578), rainDarken);
       ctx.scene.fog.near = 80;
       ctx.scene.fog.far = 280;
     }
@@ -140,7 +204,8 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     _sunPos.copy(ctx.playerPosition).addScaledVector(_sunDirection, SUN_DISTANCE);
     ctx.sunMesh.position.copy(_sunPos);
 
-    ctx.sunLight.intensity = Math.max(0, sunHeight) * 1.8 + sunriseSet * 0.4;
+    const rainSunScale = showRain ? 0.85 : 1;
+    ctx.sunLight.intensity = (Math.max(0, sunHeight) * 1.8 + sunriseSet * 0.4) * rainSunScale;
     ctx.sunLight.color
       .set(0xfffaf0)
       .lerp(_sunColorOrange, sunriseSet)
@@ -169,10 +234,12 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     const skyMat = ctx.sky.material as THREE.ShaderMaterial;
     skyMat.uniforms.uSunHeight.value = _sunDirection.y;
 
+    const rainSkyDarken = showRain ? 0.12 : 0;
     _clearColorTemp
       .copy(_skyTopDay)
       .lerp(_skyTopGolden, sunriseSet * 0.8)
       .lerp(_skyTopNight, Math.pow(night, 1.1));
+    if (rainSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x3d4a5c), rainSkyDarken);
     skyMat.uniforms.uTopColor.value.copy(_clearColorTemp);
 
     _clearColorTemp
@@ -180,12 +247,14 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
       .lerp(_skyHorizonGolden, sunriseSet)
       .lerp(_skyHorizonDusk, Math.max(0, night - 0.2) * twilight)
       .lerp(_skyHorizonNight, Math.pow(night, 1.3));
+    if (rainSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x5a6578), rainSkyDarken);
     skyMat.uniforms.uHorizonColor.value.copy(_clearColorTemp);
 
     _clearColorTemp
       .copy(_skyBottomDay)
       .lerp(_skyBottomGolden, sunriseSet)
       .lerp(_skyBottomNight, Math.pow(night, 1.1));
+    if (rainSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x4a5568), rainSkyDarken);
     skyMat.uniforms.uBottomColor.value.copy(_clearColorTemp);
 
     ctx.clouds.position.copy(ctx.playerPosition);
@@ -195,11 +264,24 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
       .set(0xffffff)
       .lerp(_cloudGolden, sunriseSet)
       .lerp(_cloudNight, night);
+
+    ctx.rain.position.copy(ctx.playerPosition);
+    if (showRain) {
+      const posAttr = ctx.rain.geometry.getAttribute("position") as THREE.BufferAttribute;
+      const pos = posAttr.array as Float32Array;
+      for (let i = 0; i < pos.length; i += 3) {
+        pos[i + 1] -= RAIN_FALL_SPEED * dt;
+        if (pos[i + 1] < 0) pos[i + 1] += RAIN_BOX_HEIGHT;
+      }
+      posAttr.needsUpdate = true;
+    }
+    ctx.rain.visible = showRain;
   } else {
     ctx.sunMesh.visible = false;
     ctx.moonMesh.visible = false;
     ctx.stars.visible = false;
     ctx.clouds.visible = false;
+    ctx.rain.visible = false;
   }
   ctx.sky.position.copy(ctx.playerPosition);
 }

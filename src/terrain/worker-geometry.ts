@@ -1,7 +1,8 @@
 import { CHUNK_SIZE, WORLD_HEIGHT } from "../constants";
-import { CARVED_ID } from "./block-ids";
+import { CARVED_ID, getBlockHeightById } from "./block-ids";
 
-type FaceIndex = 0 | 1 | 2 | 3 | 4 | 5; // [right, left, top, bottom, front, back]
+// Face order matches Three.js BoxGeometry material indices: [right, left, top, bottom, front, back].
+type FaceIndex = 0 | 1 | 2 | 3 | 4 | 5;
 
 export type GeometryLayer = {
   blockTypeId: number;
@@ -45,10 +46,11 @@ function writeFaceNonIndexed(
   pos: Float32Array,
   nor: Float32Array,
   uv: Float32Array,
-  vtxCursor: number
+  vtxCursor: number,
+  blockHeight: number = 1
 ): void {
-  // 6 vertices (2 triangles) per face
-  // UV quad: (0,0)-(1,1)
+  const topY = y + blockHeight;
+  // 6 vertices (2 triangles) per face. UV layout matches Three.js BoxGeometry (V = 1 - iy).
   // Winding is counter-clockwise as seen from outside.
   let nx = 0, ny = 0, nz = 0;
   let ax = 0, ay = 0, az = 0;
@@ -60,23 +62,23 @@ function writeFaceNonIndexed(
     case 0: // +X (right)
       nx = 1;
       ax = x + 1; ay = y;     az = z;
-      bx = x + 1; by = y + 1; bz = z;
-      cx = x + 1; cy = y + 1; cz = z + 1;
+      bx = x + 1; by = topY; bz = z;
+      cx = x + 1; cy = topY; cz = z + 1;
       dx = x + 1; dy = y;     dz = z + 1;
       break;
     case 1: // -X (left)
       nx = -1;
       ax = x; ay = y;     az = z + 1;
-      bx = x; by = y + 1; bz = z + 1;
-      cx = x; cy = y + 1; cz = z;
+      bx = x; by = topY; bz = z + 1;
+      cx = x; cy = topY; cz = z;
       dx = x; dy = y;     dz = z;
       break;
     case 2: // +Y (top)
       ny = 1;
-      ax = x;     ay = y + 1; az = z + 1;
-      bx = x + 1; by = y + 1; bz = z + 1;
-      cx = x + 1; cy = y + 1; cz = z;
-      dx = x;     dy = y + 1; dz = z;
+      ax = x;     ay = topY; az = z + 1;
+      bx = x + 1; by = topY; bz = z + 1;
+      cx = x + 1; cy = topY; cz = z;
+      dx = x;     dy = topY; dz = z;
       break;
     case 3: // -Y (bottom)
       ny = -1;
@@ -88,20 +90,21 @@ function writeFaceNonIndexed(
     case 4: // +Z (front)
       nz = 1;
       ax = x + 1; ay = y;     az = z + 1;
-      bx = x + 1; by = y + 1; bz = z + 1;
-      cx = x;     cy = y + 1; cz = z + 1;
+      bx = x + 1; by = topY; bz = z + 1;
+      cx = x;     cy = topY; cz = z + 1;
       dx = x;     dy = y;     dz = z + 1;
       break;
     case 5: // -Z (back)
       nz = -1;
       ax = x;     ay = y;     az = z;
-      bx = x;     by = y + 1; bz = z;
-      cx = x + 1; cy = y + 1; cz = z;
+      bx = x;     by = topY; bz = z;
+      cx = x + 1; cy = topY; cz = z;
       dx = x + 1; dy = y;     dz = z;
       break;
   }
 
   // Tri 1: a, b, c  | Tri 2: a, c, d
+  // UV layout matches Three.js BoxGeometry buildPlane: (0,1) at first corner, V = 1 - iy.
   const v = vtxCursor;
   const p0 = v * 3;
   const n0 = v * 3;
@@ -110,28 +113,27 @@ function writeFaceNonIndexed(
   // a
   pos[p0] = ax; pos[p0 + 1] = ay; pos[p0 + 2] = az;
   nor[n0] = nx; nor[n0 + 1] = ny; nor[n0 + 2] = nz;
-  uv[t0] = 0; uv[t0 + 1] = 0;
+  uv[t0] = 0; uv[t0 + 1] = 1;
   // b
   pos[p0 + 3] = bx; pos[p0 + 4] = by; pos[p0 + 5] = bz;
   nor[n0 + 3] = nx; nor[n0 + 4] = ny; nor[n0 + 5] = nz;
-  uv[t0 + 2] = 1; uv[t0 + 3] = 0;
+  uv[t0 + 2] = 1; uv[t0 + 3] = 1;
   // c
   pos[p0 + 6] = cx; pos[p0 + 7] = cy; pos[p0 + 8] = cz;
   nor[n0 + 6] = nx; nor[n0 + 7] = ny; nor[n0 + 8] = nz;
-  uv[t0 + 4] = 1; uv[t0 + 5] = 1;
-
+  uv[t0 + 4] = 1; uv[t0 + 5] = 0;
   // a
   pos[p0 + 9] = ax; pos[p0 + 10] = ay; pos[p0 + 11] = az;
   nor[n0 + 9] = nx; nor[n0 + 10] = ny; nor[n0 + 11] = nz;
-  uv[t0 + 6] = 0; uv[t0 + 7] = 0;
+  uv[t0 + 6] = 0; uv[t0 + 7] = 1;
   // c
   pos[p0 + 12] = cx; pos[p0 + 13] = cy; pos[p0 + 14] = cz;
   nor[n0 + 12] = nx; nor[n0 + 13] = ny; nor[n0 + 14] = nz;
-  uv[t0 + 8] = 1; uv[t0 + 9] = 1;
+  uv[t0 + 8] = 1; uv[t0 + 9] = 0;
   // d
   pos[p0 + 15] = dx; pos[p0 + 16] = dy; pos[p0 + 17] = dz;
   nor[n0 + 15] = nx; nor[n0 + 16] = ny; nor[n0 + 17] = nz;
-  uv[t0 + 10] = 0; uv[t0 + 11] = 1;
+  uv[t0 + 10] = 0; uv[t0 + 11] = 0;
 }
 
 export function buildWorkerGeometryFromVoxelBuffer(options: {
@@ -232,13 +234,14 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     const z = worldZ + lz;
 
     let anyVisible = false;
+    const blockHeight = getBlockHeightById(id);
     for (let f: FaceIndex = 0 as FaceIndex; f < 6; f = (f + 1) as FaceIndex) {
       const nid = getNeighborId(buffer, i, lx, ly, lz, f);
       if (!isEmpty(nid)) continue;
       anyVisible = true;
       const baseVertex =
         state.faceVertexStarts[f] + state.faceVertexCursors[f];
-      writeFaceNonIndexed(f, x, y, z, state.layer.position, state.layer.normal, state.layer.uv, baseVertex);
+      writeFaceNonIndexed(f, x, y, z, state.layer.position, state.layer.normal, state.layer.uv, baseVertex, blockHeight);
       state.faceVertexCursors[f] += 6;
     }
 

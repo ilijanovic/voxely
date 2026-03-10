@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { ID_TO_TYPE } from "./terrain/block-ids";
-import { getBlockDefinition } from "./block-registry";
+import { getBlockDefinition, getBlockHeight } from "./block-registry";
 import { VALID_BLOCK_TYPES } from "./save";
 
 describe("Block-type consistency: terrain block-ids vs block-registry", () => {
@@ -14,6 +14,19 @@ describe("Block-type consistency: terrain block-ids vs block-registry", () => {
       const def = getBlockDefinition(type);
       expect(def, `terrain block type "${type}" (id ${id}) must have a BlockDefinition in block-registry`).toBeDefined();
       expect(def!.id).toBe(type);
+    }
+  });
+});
+
+describe("getBlockHeight", () => {
+  it("returns 1 for full blocks", () => {
+    expect(getBlockHeight("stone")).toBe(1);
+    expect(getBlockHeight("snow")).toBe(1);
+  });
+
+  it("returns layer/8 for snow_layer_1..8", () => {
+    for (let k = 1; k <= 8; k++) {
+      expect(getBlockHeight(`snow_layer_${k}`)).toBe(k / 8);
     }
   });
 });

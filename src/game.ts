@@ -55,7 +55,7 @@ import {
 import { syncTerrainFogFromSceneFog } from "./terrain-fog";
 import { getKeyBinding, type KeyAction } from "./key-settings";
 import { initMultiplayer, updateMultiplayer } from "./multiplayer";
-import { setWorldApi } from "./world-api";
+import { setWorldApi, getWorldApi } from "./world-api";
 import {
   spawnEntitiesForChunk,
 } from "./entities/spawn";
@@ -86,19 +86,23 @@ import {
 import {
   getDayTime,
   setDayTime,
+  getIsRaining,
+  setRaining,
+  getRainForced,
+  setRainForced,
   getSunDirection,
   updateAtmosphere,
   SUN_DISTANCE,
   type AtmosphereContext,
 } from "./atmosphere";
+import { createSnowEffect, type SnowEffect } from "./snow-effect";
+import { registerCommand } from "./debug-commands";
 import {
   chunks,
   blockModifications,
   columnHeightCache,
   chunkKey,
   chunkKeyNumeric,
-  blockKeyNumeric,
-  blockKeyFromNumeric,
   blockKeyString,
   invalidateColumnHeight,
   getBlockAt,
@@ -119,6 +123,7 @@ import {
   getBlockWorldPosition as getBlockWorldPositionSync,
   placeTorch as placeTorchSync,
   getRaycastMeshes as getRaycastMeshesSync,
+  tryUpdateSnowAccumulation,
   type ChunkSyncContext,
 } from "./game/chunks/chunk-generate-sync";
 import {
@@ -210,6 +215,9 @@ function saveGame(): void {
     placedBlocks,
     placedTorches: placedTorches.map((t) => ({ x: t.x, y: t.y, z: t.z })),
     dayTime: getDayTime() % 1,
+    isRaining: getIsRaining(),
+    rainForced: getRainForced(),
+    snowForced: snowEffect?.getForced?.() ?? undefined,
   };
   saveToStorage(state);
 }
@@ -268,6 +276,12 @@ function loadGame(): boolean {
   loadedRotationY = data.player.rotationY;
   loadedLookPitch = data.player.lookPitch;
   if (data.dayTime != null) setDayTime(data.dayTime);
+  if (typeof data.isRaining === "boolean") setRaining(data.isRaining);
+  if (data.rainForced !== undefined) setRainForced(data.rainForced);
+  if (data.snowForced !== undefined) {
+    if (snowEffect) snowEffect.setForced?.(data.snowForced);
+    else pendingSnowForced = data.snowForced;
+  }
   return true;
 }
 
@@ -537,6 +551,10 @@ let stars: THREE.Points;
 let sky: THREE.Mesh;
 let clouds: THREE.Group;
 let cloudMaterial: THREE.MeshBasicMaterial;
+let rain: THREE.Points;
+let snowEffect: SnowEffect;
+/** Applied to snowEffect when it is created (set by loadGame when run before initLightsAndSky). */
+let pendingSnowForced: boolean | null | undefined;
 let player: THREE.Group;
 
 /** Shadow frustum radius around player (better texel density, less flicker). */
@@ -614,6 +632,56 @@ async function init(container?: HTMLElement): Promise<void> {
   initChunkWorker();
   initPlayerAndWorldApi();
   initControlsAndInput();
+  registerDebugCommands();
+}
+
+function registerDebugCommands(): void {
+  registerCommand("snow", (args) => {
+    const sub = (args[0] ?? "").toLowerCase();
+    if (sub === "start") {
+      snowEffect.setForced?.(true);
+      return "Snow: on";
+    }
+    if (sub === "end") {
+      snowEffect.setForced?.(false);
+      return "Snow: off";
+    }
+    if (sub === "auto" || sub === "") {
+      snowEffect.setForced?.(null);
+      return "Snow: auto (biome)";
+    }
+    return "Usage: /snow start | end | auto";
+  });
+
+  registerCommand("rain", (args) => {
+    const sub = (args[0] ?? "").toLowerCase();
+    if (sub === "start") {
+      setRainForced(true);
+      return "Rain: on";
+    }
+    if (sub === "end") {
+      setRainForced(false);
+      return "Rain: off";
+    }
+    if (sub === "auto" || sub === "") {
+      setRainForced(null);
+      return "Rain: auto";
+    }
+    return "Usage: /rain start | end | auto";
+  });
+
+  registerCommand("time", (args) => {
+    const sub = (args[0] ?? "").toLowerCase();
+    if (sub === "day") {
+      setDayTime(0.25);
+      return "Time: day (noon)";
+    }
+    if (sub === "night") {
+      setDayTime(0.75);
+      return "Time: night (midnight)";
+    }
+    return "Usage: /time day | night";
+  });
 }
 
 async function initMaterialsAndColormaps(): Promise<void> {
@@ -642,8 +710,14 @@ function initLightsAndSky(): void {
   clouds = result.clouds;
   cloudMaterial = result.cloudMaterial;
   stars = result.stars;
+  rain = result.rain;
   ambientLight = result.ambientLight;
   hemiLight = result.hemiLight;
+  snowEffect = createSnowEffect(scene);
+  if (pendingSnowForced !== undefined) {
+    snowEffect.setForced?.(pendingSnowForced);
+    pendingSnowForced = undefined;
+  }
 }
 
 function initChunkWorker(): void {
@@ -1018,10 +1092,36 @@ function updateDayCycleAndAtmosphere(dt: number): void {
     stars,
     clouds,
     cloudMaterial,
+    rain,
+    getBiome: (x, z) => getWorldApi().getBiome(x, z),
     ambientLight,
     hemiLight,
   };
   updateAtmosphere(dt, ctx);
+
+  const eyeY =
+    player.position.y +
+    (viewMode === "first" ? eyeHeight : cameraHeight);
+  const snowCtx = {
+    playerPosition: player.position,
+    waterSurfaceY: WATER_LEVEL + WATER_BLOCK_HEIGHT,
+    eyeY,
+    biome: getResolvedBiome(player.position.x, player.position.z),
+  };
+  snowEffect.update(dt, snowCtx);
+  if (
+    snowCtx.biome !== undefined &&
+    snowCtx.eyeY >= snowCtx.waterSurfaceY
+  ) {
+    tryUpdateSnowAccumulation(
+      getChunkSyncCtx(),
+      dt,
+      player.position.x,
+      player.position.z,
+      snowCtx.biome,
+      snowCtx.waterSurfaceY
+    );
+  }
 
   // Tune fog range to render distance so far LOD fades into the sky cleanly.
   if (scene.fog && "far" in scene.fog) {

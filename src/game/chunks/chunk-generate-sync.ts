@@ -1,11 +1,13 @@
 import * as THREE from "three";
-import type { BlockType, ChunkData, BlockPos, TreeNoiseCaches } from "../../types";
+import type { BlockType, ChunkData, BlockPos, TreeNoiseCaches, Biome } from "../../types";
 import {
   CHUNK_SIZE,
   WATER_LEVEL,
   WATER_BLOCK_HEIGHT,
   WATER_PLANE_Y_OFFSET,
   WORLD_HEIGHT,
+  SNOW_GROWTH_INTERVAL_SEC,
+  SNOW_GROWTH_RADIUS,
 } from "../../constants";
 import {
   WORLD_SEED,
@@ -41,6 +43,8 @@ import {
   sharedBlockGeometry,
   sharedTallGrassGeometry,
   getMaterialForBlockType,
+  getSnowLayerGeometry,
+  isSharedBlockOrSnowLayerGeometry,
 } from "../../block-materials";
 import {
   despawnEntitiesInChunk,
@@ -59,6 +63,15 @@ import { RaycastMeshCache } from "./raycast-cache";
 // Scratch buffers (reused every frame to avoid allocations)
 const _matrix = new THREE.Matrix4();
 const _position = new THREE.Vector3();
+
+const COLD_BIOMES: Set<Biome> = new Set([
+  "snow",
+  "grove",
+  "snowy_slopes",
+  "frozen_peaks",
+  "jagged_peaks",
+]);
+let _snowGrowthAccumulator = 0;
 
 export interface ChunkSyncContext {
   grassColormapData: ImageData | null;
@@ -105,13 +118,15 @@ export function addInstancedLayer(
   group: THREE.Group,
   positions: BlockPos[],
   material: THREE.Material | THREE.Material[],
-  userData?: { chunkKeyNum: number; blockType: BlockType }
+  userData?: { chunkKeyNum: number; blockType: BlockType },
+  geometry?: THREE.BufferGeometry
 ): THREE.InstancedMesh | null {
   const count = positions.length;
   if (count === 0) return null;
 
+  const geom = geometry ?? sharedBlockGeometry;
   const mesh = new THREE.InstancedMesh(
-    sharedBlockGeometry,
+    geom,
     material as THREE.Material,
     count
   );
@@ -346,13 +361,19 @@ export function rebuildChunkLayer(
       data.group.remove(child);
       if (child instanceof THREE.InstancedMesh) {
         child.dispose();
-      } else if (child.geometry && child.geometry !== sharedBlockGeometry) {
+      } else if (child.geometry && !isSharedBlockOrSnowLayerGeometry(child.geometry)) {
         child.geometry.dispose();
       }
     }
   }
 
   if (positions.length === 0) return;
+
+  const snowLayerMatch = /^snow_layer_([1-8])$/.exec(blockType);
+  const geometry =
+    snowLayerMatch != null
+      ? getSnowLayerGeometry(parseInt(snowLayerMatch[1], 10))
+      : undefined;
 
   const mesh = addInstancedLayer(
     data.group,
@@ -361,7 +382,8 @@ export function rebuildChunkLayer(
     {
       chunkKeyNum: keyNum,
       blockType,
-    }
+    },
+    geometry
   );
   if (
     mesh &&
@@ -387,32 +409,44 @@ export function rebuildChunkLayer(
 
 export function refreshChunkVisibleMeshes(
   ctx: ChunkSyncContext,
-  data: ChunkData
+  data: ChunkData,
+  affectedBlockTypes?: Set<BlockType>
 ): void {
   const worldX = data.cx * CHUNK_SIZE;
   const worldZ = data.cz * CHUNK_SIZE;
-  const previousTypes = new Set<BlockType>(data.blockPositionsByType.keys());
   const positionsByType = buildPositionsByType(
     worldX,
     worldZ,
     Array.from(data.voxelMap.entries()) as Array<[number, BlockType]>
   );
-  const nextVisibleByType = new Map<BlockType, BlockPos[]>();
 
-  for (const [blockType, positions] of positionsByType) {
-    nextVisibleByType.set(
-      blockType,
-      filterVisibleBlocks(worldX, worldZ, data.voxelMap, positions)
-    );
-  }
-  for (const blockType of previousTypes) {
-    if (!nextVisibleByType.has(blockType)) nextVisibleByType.set(blockType, []);
+  if (affectedBlockTypes !== undefined) {
+    for (const blockType of affectedBlockTypes) {
+      const positions = positionsByType.get(blockType) ?? [];
+      const visible = filterVisibleBlocks(worldX, worldZ, data.voxelMap, positions);
+      data.blockPositionsByType.set(blockType, visible);
+      rebuildChunkLayer(ctx, data, blockType);
+    }
+  } else {
+    const previousTypes = new Set<BlockType>(data.blockPositionsByType.keys());
+    const nextVisibleByType = new Map<BlockType, BlockPos[]>();
+
+    for (const [blockType, positions] of positionsByType) {
+      nextVisibleByType.set(
+        blockType,
+        filterVisibleBlocks(worldX, worldZ, data.voxelMap, positions)
+      );
+    }
+    for (const blockType of previousTypes) {
+      if (!nextVisibleByType.has(blockType)) nextVisibleByType.set(blockType, []);
+    }
+
+    data.blockPositionsByType = nextVisibleByType;
+    for (const blockType of nextVisibleByType.keys()) {
+      rebuildChunkLayer(ctx, data, blockType);
+    }
   }
 
-  data.blockPositionsByType = nextVisibleByType;
-  for (const blockType of nextVisibleByType.keys()) {
-    rebuildChunkLayer(ctx, data, blockType);
-  }
   ctx.raycastMeshCache.markDirty();
   ctx.frustumDirty = true;
 }
@@ -441,7 +475,8 @@ export function breakBlock(
     chunkSize: CHUNK_SIZE,
     isSolidBlock: isBlockTypeSolid,
     getBlockAt,
-    refreshChunkVisibleMeshes: (data) => refreshChunkVisibleMeshes(ctx, data),
+    refreshChunkVisibleMeshes: (data, affectedBlockTypes) =>
+      refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes),
     spawnDrop: (wx, wy, wz, bt) => spawnDrop(ctx, wx, wy, wz, bt),
   });
 }
@@ -455,7 +490,7 @@ export function unloadChunk(scene: THREE.Scene, keyNum: number, raycastMeshCache
     if (
       obj instanceof THREE.Mesh &&
       obj.geometry &&
-      obj.geometry !== sharedBlockGeometry
+      !isSharedBlockOrSnowLayerGeometry(obj.geometry)
     ) {
       obj.geometry.dispose();
     }
@@ -645,6 +680,80 @@ export function generateChunk(
   ctx.raycastMeshCache.markDirty();
   ctx.frustumDirty = true;
   return data;
+}
+
+/**
+ * When it's snowing (cold biome, above water), accumulate time and occasionally grow
+ * one snow layer (add snow_layer_1 on grass_snow/snow, or increment snow_layer_k up to 8).
+ */
+export function tryUpdateSnowAccumulation(
+  ctx: ChunkSyncContext,
+  dt: number,
+  playerX: number,
+  playerZ: number,
+  biome: Biome,
+  waterSurfaceY: number
+): void {
+  if (!COLD_BIOMES.has(biome)) return;
+  if (waterSurfaceY >= WORLD_HEIGHT) return;
+
+  _snowGrowthAccumulator += dt;
+  if (_snowGrowthAccumulator < SNOW_GROWTH_INTERVAL_SEC) return;
+  _snowGrowthAccumulator = 0;
+
+  const radius = SNOW_GROWTH_RADIUS;
+  const bx = Math.floor(playerX) + Math.floor((Math.random() * (2 * radius + 1)) - radius);
+  const bz = Math.floor(playerZ) + Math.floor((Math.random() * (2 * radius + 1)) - radius);
+
+  const cx = Math.floor(bx / CHUNK_SIZE);
+  const cz = Math.floor(bz / CHUNK_SIZE);
+  const keyNum = chunkKeyNumeric(cx, cz);
+  const data = chunks.get(keyNum);
+  if (!data) return;
+
+  let topY = -1;
+  let topType: BlockType | "air" | null = null;
+  for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
+    const t = getBlockAt(bx, by, bz);
+    if (t !== null && t !== "air" && isBlockTypeSolid(t as BlockType)) {
+      topY = by;
+      topType = t as BlockType;
+      break;
+    }
+  }
+  if (topY < 0 || topType === null) return;
+
+  const above = topY + 1 < WORLD_HEIGHT ? getBlockAt(bx, topY + 1, bz) : null;
+  const worldX = data.cx * CHUNK_SIZE;
+  const worldZ = data.cz * CHUNK_SIZE;
+  const lx = bx - worldX;
+  const lz = bz - worldZ;
+  const affectedBlockTypes = new Set<BlockType>();
+
+  if ((topType === "grass_snow" || topType === "snow") && (above === null || above === "air")) {
+    const ny = topY + 1;
+    const newType: BlockType = "snow_layer_1";
+    blockModifications.set(blockKeyString(bx, ny, bz), newType);
+    const lk = localKey(lx, ny, lz);
+    data.voxelMap.set(lk, newType);
+    invalidateColumnHeight(bx, bz);
+    affectedBlockTypes.add(newType);
+    refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes);
+    return;
+  }
+
+  const snowLayerMatch = /^snow_layer_([1-7])$/.exec(topType);
+  if (snowLayerMatch != null) {
+    const k = parseInt(snowLayerMatch[1], 10);
+    const newType = `snow_layer_${k + 1}` as BlockType;
+    blockModifications.set(blockKeyString(bx, topY, bz), newType);
+    const lk = localKey(lx, topY, lz);
+    data.voxelMap.set(lk, newType);
+    invalidateColumnHeight(bx, bz);
+    affectedBlockTypes.add(topType);
+    affectedBlockTypes.add(newType);
+    refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes);
+  }
 }
 
 export function getRaycastMeshes(

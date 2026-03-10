@@ -6,6 +6,7 @@ import {
   typeToId,
   idToType,
   localKey,
+  getBlockHeightById,
   AIR_ID,
   CARVED_ID,
   ID_TO_TYPE,
@@ -34,6 +35,20 @@ describe("typeToId and idToType", () => {
 
   it("typeToId returns AIR_ID for unknown type", () => {
     expect(typeToId("unknown_block" as "stone")).toBe(AIR_ID);
+  });
+});
+
+describe("getBlockHeightById", () => {
+  it("returns 1 for full blocks", () => {
+    expect(getBlockHeightById(typeToId("stone"))).toBe(1);
+    expect(getBlockHeightById(typeToId("snow"))).toBe(1);
+  });
+
+  it("returns layer/8 for snow_layer_1..8", () => {
+    for (let k = 1; k <= 8; k++) {
+      const id = typeToId(`snow_layer_${k}` as "snow_layer_1");
+      expect(getBlockHeightById(id)).toBe(k / 8);
+    }
   });
 });
 

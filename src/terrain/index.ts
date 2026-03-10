@@ -19,7 +19,7 @@ import { createStage2 } from "./stages/carve-3d";
 import { createStage3 } from "./stages/stratigraphy";
 import { createStage4 } from "./stages/structures";
 import { createTreeFeature } from "./features/trees";
-import { localKey, typeToId, AIR_ID } from "./block-ids";
+import { localKey, typeToId, idToType, AIR_ID } from "./block-ids";
 
 /** Block modification for a chunk: world coords + value. */
 export type BlockModEntry = { bx: number; by: number; bz: number; value: BlockType | "air" };
@@ -52,6 +52,8 @@ export interface ChunkDataPayload {
     /**
      * Vertex counts per cube face in BoxGeometry material order:
      * [right, left, top, bottom, front, back]. Used to set geometry groups.
+     * Worker face order and UV layout must match Three.js BoxGeometry so that
+     * chunk-apply can use faceIndex directly as materialIndex.
      */
     faceVertexCounts: Uint32Array;
   }>;
@@ -67,7 +69,8 @@ export interface ChunkDataPayload {
   requestId?: number;
 }
 
-export function createChunkGenerator(seed: number) {
+export function createChunkGenerator(seed: number, options?: { snowAccumulationHeight?: number }) {
+  const snowAccumulationHeight = clamp(options?.snowAccumulationHeight ?? 1, 0, 8);
   const temperatureNoise2D = createNoise2D(makeSeededRandom(seed + 500));
   const humidityNoise2D = createNoise2D(makeSeededRandom(seed + 600));
   const continentalNoise2D = createNoise2D(makeSeededRandom(seed + 123));
@@ -817,6 +820,25 @@ export function createChunkGenerator(seed: number) {
       if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE && m.by >= 0 && m.by < WORLD_HEIGHT) {
         const lk = localKey(lx, m.by, lz);
         ctx.voxelMap[lk] = m.value === "air" ? AIR_ID : typeToId(m.value);
+      }
+    }
+
+    // Snow layer placement: on top of grass_snow/snow in snow biomes when air above (no trees).
+    if (snowAccumulationHeight >= 1) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+          const topY = ctx.heightmap[lx][lz];
+          if (topY + 1 >= WORLD_HEIGHT) continue;
+          const surfaceLk = localKey(lx, topY, lz);
+          const aboveLk = localKey(lx, topY + 1, lz);
+          if (ctx.voxelMap[aboveLk] !== 0) continue;
+          const surfaceType = idToType(ctx.voxelMap[surfaceLk]);
+          if (surfaceType !== "grass_snow" && surfaceType !== "snow") continue;
+          const biome = ctx.biomeMap[lx][lz];
+          if (!SNOW_BIOMES.includes(biome)) continue;
+          const layers = Math.min(snowAccumulationHeight, 8);
+          ctx.voxelMap[aboveLk] = typeToId(`snow_layer_${layers}` as BlockType);
+        }
       }
     }
 

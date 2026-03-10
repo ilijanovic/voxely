@@ -1,5 +1,6 @@
 import type { ChunkDataPayload, BlockModEntry } from "../../terrain-core";
 import { chunkKeyNumeric } from "../../chunk-runtime";
+import { SNOW_ACCUMULATION_HEIGHT } from "../../constants";
 
 export type ChunkWorkerClient = {
   /**
@@ -27,6 +28,8 @@ type WorkerState = {
 
 export function initChunkWorkerClient(options: {
   seed: number;
+  /** Snow layer height 0–8 for terrain. Default from SNOW_ACCUMULATION_HEIGHT. */
+  snowAccumulationHeight?: number;
   /**
    * Upper bound for how many workers may be created.
    * Default: 4.
@@ -104,7 +107,11 @@ export function initChunkWorkerClient(options: {
         options.onError?.(event.message, event);
       };
 
-      worker.postMessage({ type: "init", seed: options.seed });
+      worker.postMessage({
+        type: "init",
+        seed: options.seed,
+        snowAccumulationHeight: options.snowAccumulationHeight ?? SNOW_ACCUMULATION_HEIGHT,
+      });
       workers.push(state);
     }
   } catch (error) {

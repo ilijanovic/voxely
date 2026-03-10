@@ -2,6 +2,11 @@ import * as THREE from "three";
 import { getShadowMapSize } from "../../graphics-settings";
 import { SUN_DISTANCE } from "../../atmosphere";
 
+const RAIN_PARTICLE_COUNT = 3500;
+const RAIN_BOX_WIDTH = 40;
+const RAIN_BOX_HEIGHT = 20;
+const RAIN_BOX_DEPTH = 40;
+
 export interface LightsAndSky {
   sunLight: THREE.DirectionalLight;
   sunMesh: THREE.Mesh;
@@ -10,6 +15,7 @@ export interface LightsAndSky {
   clouds: THREE.Group;
   cloudMaterial: THREE.MeshBasicMaterial;
   stars: THREE.Points;
+  rain: THREE.Points;
   ambientLight: THREE.AmbientLight;
   hemiLight: THREE.HemisphereLight;
 }
@@ -178,6 +184,31 @@ export function initLightsAndSky(
   stars.receiveShadow = false;
   scene.add(stars);
 
+  const rainPositions = new Float32Array(RAIN_PARTICLE_COUNT * 3);
+  for (let i = 0; i < RAIN_PARTICLE_COUNT; i++) {
+    rainPositions[i * 3] = (Math.random() - 0.5) * RAIN_BOX_WIDTH;
+    rainPositions[i * 3 + 1] = Math.random() * RAIN_BOX_HEIGHT;
+    rainPositions[i * 3 + 2] = (Math.random() - 0.5) * RAIN_BOX_DEPTH;
+  }
+  const rainGeometry = new THREE.BufferGeometry();
+  rainGeometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(rainPositions, 3)
+  );
+  const rainMaterial = new THREE.PointsMaterial({
+    color: 0xccccdd,
+    size: 0.15,
+    transparent: true,
+    opacity: 0.7,
+    depthWrite: false,
+    sizeAttenuation: true,
+  });
+  const rain = new THREE.Points(rainGeometry, rainMaterial);
+  rain.castShadow = false;
+  rain.receiveShadow = false;
+  rain.visible = false;
+  scene.add(rain);
+
   return {
     sunLight,
     sunMesh,
@@ -186,6 +217,7 @@ export function initLightsAndSky(
     clouds,
     cloudMaterial,
     stars,
+    rain,
     ambientLight,
     hemiLight,
   };

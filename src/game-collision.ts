@@ -8,6 +8,7 @@
 import {
   isSolidBlock as isSolidBlockRuntime,
   isSolidBlockLoadedOnly,
+  getBlockHeightAt,
 } from "./chunk-runtime";
 import { isSolidBlock as isBlockTypeSolid } from "./block-registry";
 
@@ -162,7 +163,7 @@ export function resolveVoxelCollisions(
       if (zOvlp <= 1e-4) continue;
       const blockMinX = blockMin(bx);
       const blockMaxX = blockMax(bx);
-      const blockMaxY = blockMax(by);
+      const blockMaxY = by + Math.max(getBlockHeightAt(bx, by, bz), 1);
       const isFloorBlock = blockMaxY <= position.y + FLOOR_TOLERANCE;
       const playerFullyAbove = position.y >= blockMaxY - FLOOR_TOLERANCE;
       if (isFloorBlock && playerFullyAbove) continue;
@@ -212,7 +213,7 @@ export function resolveVoxelCollisions(
       if (xOvlp <= 1e-4) continue;
       const blockMinZ = blockMin(bz);
       const blockMaxZ = blockMax(bz);
-      const blockMaxY = blockMax(by);
+      const blockMaxY = by + Math.max(getBlockHeightAt(bx, by, bz), 1);
       const isFloorBlock = blockMaxY <= position.y + FLOOR_TOLERANCE;
       const playerFullyAbove = position.y >= blockMaxY - FLOOR_TOLERANCE;
       if (isFloorBlock && playerFullyAbove) continue;
@@ -258,7 +259,7 @@ export function resolveVoxelCollisions(
         Math.max(position.z - halfZ, blockMinZ);
       if (xOvlp <= 0.001 || zOvlp <= 0.001) continue;
       const blockMinY = blockMin(by);
-      const blockMaxY = blockMax(by);
+      const blockMaxY = by + Math.max(getBlockHeightAt(bx, by, bz), 1);
       const playerMinY = position.y;
       const playerMaxY = position.y + height;
       const overlapMinY = Math.max(playerMinY, blockMinY);
