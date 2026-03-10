@@ -2,6 +2,8 @@
 
 A browser-based voxel game – procedurally generated worlds, mine and place blocks, multiplayer, and third-person controls.
 
+⚠️ **Alpha status:** This project is in an early alpha stage and may contain visible bugs and unfinished features.
+
 ## Gameplay mechanics (LLM-friendly)
 
 - See `docs/GAMEPLAY_LLM.md` for a **current behavior vs target spec** breakdown designed for LLMs.
@@ -10,6 +12,8 @@ A browser-based voxel game – procedurally generated worlds, mine and place blo
 ![Vue 3](https://img.shields.io/badge/Vue-3.5-42b883)
 ![Three.js](https://img.shields.io/badge/Three.js-0.183-black)
 ![Vite](https://img.shields.io/badge/Vite-7-646cff)
+
+![Forest biome screenshot](docs/forest-biome.png)
 
 ## Features
 
