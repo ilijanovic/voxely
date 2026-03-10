@@ -24,14 +24,10 @@ let generateChunkData: ReturnType<typeof createChunkGenerator>["generateChunkDat
 let pendingQueue: GenerateMsg[] = [];
 
 function postPayload(payload: ChunkDataPayload): void {
-  // Hook for Transferables: when ChunkDataPayload starts carrying ArrayBuffers (e.g. typed arrays),
-  // collect them here and pass as a transfer list to avoid cloning cost.
   const transferList: Transferable[] = [];
-  // Example for future use:
-  // if ((payload as any).heightmapBuffer instanceof ArrayBuffer) {
-  //   transferList.push((payload as any).heightmapBuffer);
-  // }
-  // DedicatedWorkerGlobalScope.postMessage overload accepts an empty transfer list.
+  if (payload.buffer?.buffer instanceof ArrayBuffer) {
+    transferList.push(payload.buffer.buffer);
+  }
   // @ts-expect-error lib.d.ts may not declare self as DedicatedWorkerGlobalScope in this context.
   self.postMessage(payload, transferList);
 }

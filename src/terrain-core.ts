@@ -7,3 +7,4 @@ export {
   type BlockModEntry,
   type ChunkDataPayload,
 } from "./terrain";
+export { idToType, CARVED_ID } from "./terrain/block-ids";

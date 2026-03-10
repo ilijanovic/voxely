@@ -19,7 +19,7 @@ import { createStage2 } from "./stages/carve-3d";
 import { createStage3 } from "./stages/stratigraphy";
 import { createStage4 } from "./stages/structures";
 import { createTreeFeature } from "./features/trees";
-import { localKey, typeToId, idToType, AIR_ID, CARVED_ID } from "./block-ids";
+import { localKey, typeToId, AIR_ID } from "./block-ids";
 
 /** Block modification for a chunk: world coords + value. */
 export type BlockModEntry = { bx: number; by: number; bz: number; value: BlockType | "air" };
@@ -29,7 +29,8 @@ export interface ChunkDataPayload {
   chunkX: number;
   chunkZ: number;
   heightmap: number[][];
-  voxelMapEntries: Array<[number, BlockType]>;
+  /** Flat voxel buffer (CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE bytes). Transferable. */
+  buffer: Uint8Array;
   /**
    * Optional request identifier used by the main thread to discard stale worker responses.
    * When present, this must be propagated unchanged from the worker request.
@@ -790,25 +791,11 @@ export function createChunkGenerator(seed: number) {
       }
     }
 
-    const voxelMapEntries: Array<[number, BlockType]> = [];
-    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (let ly = 0; ly < WORLD_HEIGHT; ly++) {
-          const lk = localKey(lx, ly, lz);
-          const id = ctx.voxelMap[lk];
-          if (id !== AIR_ID && id !== CARVED_ID) {
-            const type = idToType(id);
-            if (type !== "air") voxelMapEntries.push([lk, type as BlockType]);
-          }
-        }
-      }
-    }
-
     return {
       chunkX: ctx.chunkX,
       chunkZ: ctx.chunkZ,
       heightmap: ctx.heightmap,
-      voxelMapEntries,
+      buffer: ctx.voxelMap,
     };
   }
 

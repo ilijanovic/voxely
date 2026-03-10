@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { createChunkGenerator } from "./index";
 import { getBiomeByClimate } from "./biomes";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "../constants";
-import { localKey } from "./block-ids";
+import { localKey, idToType, CARVED_ID, VOXEL_BUFFER_LENGTH } from "./block-ids";
 
 const ALL_BIOMES = [
   "plains",
@@ -44,8 +44,14 @@ describe("createChunkGenerator", () => {
     expect(payload.heightmap).toBeDefined();
     expect(payload.heightmap.length).toBe(16);
     expect(payload.heightmap[0].length).toBe(16);
-    expect(Array.isArray(payload.voxelMapEntries)).toBe(true);
-    expect(payload.voxelMapEntries.length).toBeGreaterThan(0);
+    expect(payload.buffer).toBeInstanceOf(Uint8Array);
+    expect(payload.buffer.length).toBe(VOXEL_BUFFER_LENGTH);
+    let nonAir = 0;
+    for (let i = 0; i < payload.buffer.length; i++) {
+      const id = payload.buffer[i];
+      if (id !== 0 && id !== CARVED_ID) nonAir++;
+    }
+    expect(nonAir).toBeGreaterThan(0);
   });
 
   it("getHeight returns integer in world bounds", () => {
@@ -84,12 +90,25 @@ describe("createChunkGenerator", () => {
   it("trees never spawn on sand/stone/water and never in snow/grove", () => {
     const gen = createChunkGenerator(1);
 
-    // Scan a small area; this should be stable for the fixed generator and tends to
-    // cover coasts + cold uplands without making the test too slow.
+    function bufferToVoxelMap(buffer: Uint8Array): Map<number, string> {
+      const voxel = new Map<number, string>();
+      for (let i = 0; i < buffer.length; i++) {
+        const id = buffer[i];
+        if (id === 0 || id === CARVED_ID) continue;
+        const type = idToType(id);
+        if (type === "air") continue;
+        const lx = i % CHUNK_SIZE;
+        const ly = Math.floor(i / CHUNK_SIZE) % WORLD_HEIGHT;
+        const lz = Math.floor(i / (CHUNK_SIZE * WORLD_HEIGHT));
+        voxel.set(localKey(lx, ly, lz), type);
+      }
+      return voxel;
+    }
+
     for (let cx = -6; cx <= 6; cx++) {
       for (let cz = -6; cz <= 6; cz++) {
         const payload = gen.generateChunkData(cx, cz, []);
-        const voxel = new Map<number, string>(payload.voxelMapEntries);
+        const voxel = bufferToVoxelMap(payload.buffer);
 
         for (let lx = 0; lx < CHUNK_SIZE; lx++) {
           for (let lz = 0; lz < CHUNK_SIZE; lz++) {

@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import type { BlockPos, BlockType, ChunkData } from "../../types";
 import type { ChunkDataPayload } from "../../terrain-core";
+import { idToType, CARVED_ID } from "../../terrain-core";
 import { CHUNK_SIZE, WATER_BLOCK_HEIGHT, WATER_LEVEL, WATER_PLANE_Y_OFFSET, WORLD_HEIGHT } from "../../constants";
-import { decodeLocalKey, localKey, chunkKeyNumeric } from "../../chunk-runtime";
+import { localKey, chunkKeyNumeric } from "../../chunk-runtime";
 import { sharedBlockGeometry, sharedTallGrassGeometry, FOLIAGE_BLOCK_TYPES, getMaterialForBlockType, setFoliageInstanceColors, setGrassInstanceColors } from "../../block-materials";
 import { isSolidBlock as isBlockTypeSolid } from "../../block-registry";
 import { filterVisibleBlocks } from "./visible-blocks";
@@ -70,20 +71,30 @@ function addInstancedLayer(
   return mesh;
 }
 
-function buildPositionsByType(
+/** Decode flat voxel buffer into voxelMap and positions grouped by block type (skips air and carved). */
+function buildVoxelMapAndPositionsFromBuffer(
+  buffer: Uint8Array,
   worldX: number,
-  worldZ: number,
-  voxelMapEntries: Array<[number, BlockType]>
-): Map<BlockType, BlockPos[]> {
-  const byType = new Map<BlockType, BlockPos[]>();
-  for (const [key, blockType] of voxelMapEntries) {
-    const { lx, ly, lz } = decodeLocalKey(key);
+  worldZ: number
+): { voxelMap: Map<number, BlockType>; positionsByType: Map<BlockType, BlockPos[]> } {
+  const voxelMap = new Map<number, BlockType>();
+  const positionsByType = new Map<BlockType, BlockPos[]>();
+  for (let i = 0; i < buffer.length; i++) {
+    const blockID = buffer[i];
+    if (blockID === 0 || blockID === CARVED_ID) continue;
+    const blockType = idToType(blockID) as BlockType;
+    if (blockType === "air") continue;
+    const lx = i % CHUNK_SIZE;
+    const ly = Math.floor(i / CHUNK_SIZE) % WORLD_HEIGHT;
+    const lz = Math.floor(i / (CHUNK_SIZE * WORLD_HEIGHT));
+    const key = lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * WORLD_HEIGHT;
+    voxelMap.set(key, blockType);
     const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz };
-    const arr = byType.get(blockType) ?? [];
+    const arr = positionsByType.get(blockType) ?? [];
     arr.push(pos);
-    byType.set(blockType, arr);
+    positionsByType.set(blockType, arr);
   }
-  return byType;
+  return { voxelMap, positionsByType };
 }
 
 const GRASS_BLOCK_TYPES_FOR_TALL_GRASS: BlockType[] = ["grass", "grass_savanna"];
@@ -199,10 +210,11 @@ export function applyChunkPayload(
   const group = new THREE.Group();
   group.userData = { chunkKeyNum: keyNum, cx: payload.chunkX, cz: payload.chunkZ };
 
-  const voxelMap = new Map<number, BlockType>();
-  for (const [k, t] of payload.voxelMapEntries) voxelMap.set(k, t);
-
-  const positionsByType = buildPositionsByType(worldX, worldZ, payload.voxelMapEntries);
+  const { voxelMap, positionsByType } = buildVoxelMapAndPositionsFromBuffer(
+    payload.buffer,
+    worldX,
+    worldZ
+  );
   const blockPositionsByType = new Map<BlockType, BlockPos[]>();
   for (const [blockType, positions] of positionsByType) {
     const visible = filterVisibleBlocks({
