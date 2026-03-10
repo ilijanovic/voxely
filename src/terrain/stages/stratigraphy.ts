@@ -1,7 +1,9 @@
 /**
  * Stage 3: Stratigraphy. Fill voxelMap from 0 to heightmap using BiomeRegistry blocks.
  * Only writes where voxelMap is empty (0); skips CARVED_ID (cave).
+ * When getSurfaceBlock is provided, it overrides the surface block (e.g. grass_snow near snow biomes).
  */
+import type { BlockType } from "../../types";
 import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from "../../constants";
 import { localKey, typeToId, CARVED_ID } from "../block-ids";
 import { BIOME_REGISTRY } from "../biomes";
@@ -11,7 +13,14 @@ function isShore(topY: number): boolean {
   return topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1;
 }
 
-export function createStage3(): PipelineStage {
+export interface Stage3Deps {
+  /** Optional: return surface block for column (lx, lz), e.g. grass_snow at snow boundaries. */
+  getSurfaceBlock?: (ctx: ChunkContext, lx: number, lz: number) => BlockType;
+}
+
+export function createStage3(deps?: Stage3Deps): PipelineStage {
+  const getSurfaceBlock = deps?.getSurfaceBlock;
+
   return function stage3Stratigraphy(ctx: ChunkContext): void {
     const { heightmap, biomeMap, voxelMap } = ctx;
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -31,13 +40,16 @@ export function createStage3(): PipelineStage {
           } else if (ly === topY) {
             if (topY < WATER_LEVEL) block = blocks.underwater;
             else if (isShore(topY)) block = blocks.shore;
-            else block = blocks.surface;
+            else
+              block = getSurfaceBlock
+                ? getSurfaceBlock(ctx, lx, lz)
+                : blocks.surface;
           } else if (ly >= topY - blocks.subsurfaceDepth) {
             block = blocks.subsurface;
           } else {
             block = "stone";
           }
-          voxelMap[lk] = typeToId(block as import("../../types").BlockType);
+          voxelMap[lk] = typeToId(block as BlockType);
         }
       }
     }

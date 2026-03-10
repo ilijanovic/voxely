@@ -246,7 +246,8 @@ const FOREST_DENSITY_SCALE = 0.028;
 const TREE_PLACEMENT_SCALE = 0.12;
 const FOREST_DENSITY_THRESHOLD = 0.0;
 const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1;
-const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.45;
+const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0;
+const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.65;
 const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93;
 const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97;
 const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55;
@@ -302,10 +303,10 @@ const TREE_SHAPE_JUNGLE: TreeShapeConfig = {
   trunkMin: 8,
   trunkMax: 14,
   leafRadiusMin: 3,
-  leafRadiusMax: 5,
+  leafRadiusMax: 6,
   leafHeightMin: 6,
-  leafHeightMax: 10,
-  leafDensityMin: 0.72,
+  leafHeightMax: 11,
+  leafDensityMin: 0.78,
   leafDensityMax: 0.98,
   giantChance: 0.1,
   giantTrunkBonusMax: 8,
@@ -428,7 +429,7 @@ function getTreePlacementPass(
   if (biome === "windswept_forest") {
     const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity);
     if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false;
-    return placement > TREE_PLACEMENT_FOREST_THRESHOLD;
+    return placement > TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD;
   }
   if (biome === "snow" || biome === "grove")
     return placement > TREE_PLACEMENT_SNOW_THRESHOLD;

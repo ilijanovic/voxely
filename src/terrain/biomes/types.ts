@@ -3,6 +3,29 @@
  */
 import type { BlockType } from "../../types";
 
+/**
+ * 6D multi-noise point used for biome selection (Minecraft-style multi-noise).
+ * Ranges are intentionally not normalized here; the sampler is responsible for producing
+ * consistent ranges per dimension (e.g. erosion/temperature in [-1..1], continentalness in [0..1]).
+ */
+export interface MultiNoise6Point {
+  continentalness: number;
+  erosion: number;
+  temperature: number;
+  humidity: number;
+  weirdness: number;
+  y: number;
+}
+
+export type MultiNoise6Weights = Partial<Record<keyof MultiNoise6Point, number>>;
+
+export interface MultiNoiseSelector6D {
+  /** Target center in 6D noise space. */
+  center: MultiNoise6Point;
+  /** Optional per-dimension weights; missing keys default to 1. */
+  weights?: MultiNoise6Weights;
+}
+
 export interface TerrainParams {
   baseOffset: number;
   detailAmp: number;
@@ -40,4 +63,9 @@ export interface BiomeDefinition {
   terrainParams: TerrainParams;
   /** Only set for base biomes (desert, plains, savanna, forest, jungle, mountain, snow). */
   climate?: ClimateBounds;
+  /**
+   * Optional 6D multi-noise selector target for biome selection.
+   * When present, the biome can be selected by nearest-center distance in 6D space.
+   */
+  multiNoise?: MultiNoiseSelector6D;
 }

@@ -244,7 +244,7 @@ const BIOME_GRASS_TEMP_HUMIDITY: Record<Biome, { temp: number; humidity: number 
   cherry_grove: { temp: 0.5, humidity: 0.6 },
   windswept_hills: { temp: 0.3, humidity: 0.5 },
   windswept_gravelly_hills: { temp: 0.3, humidity: 0.4 },
-  windswept_forest: { temp: 0.3, humidity: 0.7 },
+  windswept_forest: { temp: 0.2, humidity: 0.3 },
 };
 
 const _grassColor = new THREE.Color();

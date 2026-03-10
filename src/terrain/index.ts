@@ -5,9 +5,10 @@
 import { createNoise2D, createNoise3D } from "simplex-noise";
 import type { Biome, BlockType } from "../types";
 import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from "../constants";
-import { BIOME_REGISTRY, BIOME_TERRAIN, getLandBiomeByClimate } from "./biomes";
+import { BIOME_REGISTRY, BIOME_TERRAIN, getBiomeByMultiNoise, getLandBiomeByClimate } from "./biomes";
 import { makeSeededRandom, clamp } from "./utils";
 import { runPipeline, createChunkContext } from "./pipeline";
+import type { ChunkContext } from "./pipeline-types";
 import { createStage1 } from "./stages/heightmap-biome";
 import { createStage2 } from "./stages/carve-3d";
 import { createStage3 } from "./stages/stratigraphy";
@@ -37,6 +38,7 @@ export function createChunkGenerator(seed: number) {
   const highlandVariantNoise2D = createNoise2D(makeSeededRandom(seed + 1717));
   const erosionNoise2D = createNoise2D(makeSeededRandom(seed + 202));
   const flatNoise2D = createNoise2D(makeSeededRandom(seed + 303));
+  const weirdnessNoise2D = createNoise2D(makeSeededRandom(seed + 909));
   const forestDensityNoise2D = createNoise2D(makeSeededRandom(seed + 777));
   const treePlacementNoise2D = createNoise2D(makeSeededRandom(seed + 888));
   const caveNoise3D = createNoise3D(makeSeededRandom(seed + 400));
@@ -49,12 +51,15 @@ export function createChunkGenerator(seed: number) {
   const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44;
   const EROSION_SCALE = 0.018;
   const EROSION_AMPLITUDE = 7;
+  const EROSION_DETAIL_BOOST_MAX = 1.65;
+  const EROSION_JAGGEDNESS_START = 0.25;
   const MOUNTAIN_MASK_SCALE = 0.003;
   const MOUNTAIN_HEIGHT_SCALE = 0.008;
-  const MOUNTAIN_AMPLITUDE = 16;
+  const MOUNTAIN_AMPLITUDE = 24;
   const MOUNTAIN_THRESHOLD = 0.3;
   const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1;
-  const SNOW_BIOME_HEIGHT_BOOST = 1.5;
+  const SNOW_BIOME_HEIGHT_BOOST = 4.5;
+  const WEIRDNESS_SCALE = 0.0016;
   const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10;
   const HIGHLAND_GROVE_MAX = WATER_LEVEL + 20;
   const HIGHLAND_SNOWY_SLOPES_MAX = WATER_LEVEL + 30;
@@ -66,11 +71,19 @@ export function createChunkGenerator(seed: number) {
   const TREE_PLACEMENT_SCALE = 0.12;
   const FOREST_DENSITY_THRESHOLD = 0.0;
   const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1;
-  const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.45;
+  const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0;
+  const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.65;
   const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93;
   const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97;
   const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55;
+  const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55;
+  const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16;
+  const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26;
   const TREE_MAX_SLOPE = 2;
+  const PEAK_Y_MIN = WATER_LEVEL + 30;
+  const PEAK_Y_RANGE = 24;
+
+  const SNOW_BIOMES: Biome[] = ["snow", "snowy_slopes", "frozen_peaks", "jagged_peaks", "grove"];
   type TreeShapeConfig = {
     trunkMin: number;
     trunkMax: number;
@@ -121,10 +134,10 @@ export function createChunkGenerator(seed: number) {
     trunkMin: 8,
     trunkMax: 14,
     leafRadiusMin: 3,
-    leafRadiusMax: 5,
+    leafRadiusMax: 6,
     leafHeightMin: 6,
-    leafHeightMax: 10,
-    leafDensityMin: 0.72,
+    leafHeightMax: 11,
+    leafDensityMin: 0.78,
     leafDensityMax: 0.98,
     giantChance: 0.1,
     giantTrunkBonusMax: 8,
@@ -164,14 +177,42 @@ export function createChunkGenerator(seed: number) {
   };
   const CAVE_THRESHOLD = 0.4;
 
+  function clamp01(v: number): number {
+    return Math.max(0, Math.min(1, v));
+  }
+
+  function smoothstep01(t: number): number {
+    const x = clamp01(t);
+    return x * x * (3 - 2 * x);
+  }
+
   function getTemperature(x: number, z: number): number {
     const n = temperatureNoise2D(x * TEMP_SCALE, z * TEMP_SCALE);
     return (n + 1) * 0.5;
   }
 
+  function getTemperatureSmoothed(x: number, z: number): number {
+    // Smooths sharp biome edges that come from hard temperature thresholds.
+    // Keep it lightweight: 5-tap kernel (center + 4-cardinal).
+    const tC = getTemperature(x, z);
+    const tN = getTemperature(x, z - 1);
+    const tS = getTemperature(x, z + 1);
+    const tW = getTemperature(x - 1, z);
+    const tE = getTemperature(x + 1, z);
+    return tC * 0.5 + (tN + tS + tW + tE) * 0.125;
+  }
+
   function getHumidity(x: number, z: number): number {
     const n = humidityNoise2D(x * HUMIDITY_SCALE, z * HUMIDITY_SCALE);
     return (n + 1) * 0.5;
+  }
+
+  function getTemperatureSigned(x: number, z: number): number {
+    return temperatureNoise2D(x * TEMP_SCALE, z * TEMP_SCALE);
+  }
+
+  function getHumiditySigned(x: number, z: number): number {
+    return humidityNoise2D(x * HUMIDITY_SCALE, z * HUMIDITY_SCALE);
   }
 
   function getMacroTerrain(x: number, z: number): number {
@@ -194,7 +235,10 @@ export function createChunkGenerator(seed: number) {
     const n = detailNoise2D(x * params.detailFreq, z * params.detailFreq);
     const flat = flatNoise2D(x * 0.01, z * 0.01);
     const smooth = (flat + 1) * 0.5;
-    const effectiveAmp = params.detailAmp * (params.flatness + (1 - params.flatness) * smooth);
+    let effectiveAmp = params.detailAmp * (params.flatness + (1 - params.flatness) * smooth);
+    const erosionSigned = getErosionSigned(x, z);
+    const jaggednessT = smoothstep01(((-erosionSigned) - EROSION_JAGGEDNESS_START) / (1 - EROSION_JAGGEDNESS_START));
+    effectiveAmp *= 1 + jaggednessT * (EROSION_DETAIL_BOOST_MAX - 1);
     return n * effectiveAmp;
   }
 
@@ -212,9 +256,21 @@ export function createChunkGenerator(seed: number) {
     return t * mountain * MOUNTAIN_AMPLITUDE * biomeBoost;
   }
 
+  function getErosionSigned(x: number, z: number): number {
+    return erosionNoise2D(x * EROSION_SCALE, z * EROSION_SCALE);
+  }
+
   function getErosion(x: number, z: number): number {
-    const n = (erosionNoise2D(x * EROSION_SCALE, z * EROSION_SCALE) + 1) * 0.5;
+    const n = (getErosionSigned(x, z) + 1) * 0.5;
     return n * EROSION_AMPLITUDE;
+  }
+
+  function getWeirdness(x: number, z: number): number {
+    return weirdnessNoise2D(x * WEIRDNESS_SCALE, z * WEIRDNESS_SCALE);
+  }
+
+  function getPeakY01(topY: number): number {
+    return clamp01((topY - PEAK_Y_MIN) / PEAK_Y_RANGE);
   }
 
   function getHeightForBase(base: Biome, x: number, z: number): number {
@@ -224,18 +280,20 @@ export function createChunkGenerator(seed: number) {
 
   function getResolvedBiomeFromHeight(base: Biome, height: number, x: number, z: number): Biome {
     if (base !== "mountain" && base !== "snow") {
-      const temp = getTemperature(x, z);
+      const temp = getTemperatureSmoothed(x, z);
       if (temp <= COLD_HIGHLAND_TEMP_MAX) {
         if (height >= HIGHLAND_SNOWY_SLOPES_MAX + 6) return "frozen_peaks";
         if (height >= HIGHLAND_SNOWY_SLOPES_MAX) return "snowy_slopes";
         if (height >= HIGHLAND_GROVE_MAX) return "grove";
       }
-      if (temp <= COLD_UPLAND_TEMP_MAX && height >= HIGHLAND_MEADOW_MAX + 4) return "windswept_hills";
+      if (temp <= COLD_UPLAND_TEMP_MAX && height >= HIGHLAND_MEADOW_MAX + 4)
+        return getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN ? "windswept_forest" : "windswept_hills";
       return base;
     }
     if (height < HIGHLAND_MEADOW_MAX) {
       const v = (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5;
-      if (v < 0.25) return "windswept_hills";
+      if (v < 0.25)
+        return getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN ? "windswept_forest" : "windswept_hills";
       if (v < 0.5) return "windswept_gravelly_hills";
       if (v < 0.75) return "cherry_grove";
       return "meadow";
@@ -246,6 +304,16 @@ export function createChunkGenerator(seed: number) {
       return "grove";
     }
     if (height < HIGHLAND_SNOWY_SLOPES_MAX) return "snowy_slopes";
+    const peakPick = getBiomeByMultiNoise({
+      continentalness: getContinentalness(x, z),
+      erosion: getErosionSigned(x, z),
+      temperature: getTemperatureSigned(x, z),
+      humidity: getHumiditySigned(x, z),
+      weirdness: getWeirdness(x, z),
+      y: getPeakY01(height),
+    });
+    if (peakPick === "stony_peaks" || peakPick === "frozen_peaks" || peakPick === "jagged_peaks")
+      return peakPick;
     const peakVariant = (peakVariantNoise2D(x * PEAK_VARIANT_SCALE, z * PEAK_VARIANT_SCALE) + 1) * 0.5;
     if (base === "mountain" && peakVariant < 0.55) return "stony_peaks";
     if (peakVariant < 0.82) return "frozen_peaks";
@@ -253,13 +321,19 @@ export function createChunkGenerator(seed: number) {
   }
 
   function getHeightUncached(x: number, z: number): number {
-    const base = getBaseBiomeAt(x, z);
-    const rawH = getHeightForBase(base, x, z);
-    const n = getHeightForBase(getBaseBiomeAt(x, z + 1), x, z + 1);
-    const s = getHeightForBase(getBaseBiomeAt(x, z - 1), x, z - 1);
-    const e = getHeightForBase(getBaseBiomeAt(x + 1, z), x + 1, z);
-    const w = getHeightForBase(getBaseBiomeAt(x - 1, z), x - 1, z);
-    const smoothedH = rawH * 0.5 + (n + s + e + w) * 0.125;
+    const h00 = getHeightForBase(getBaseBiomeAt(x - 1, z - 1), x - 1, z - 1);
+    const h01 = getHeightForBase(getBaseBiomeAt(x - 1, z), x - 1, z);
+    const h02 = getHeightForBase(getBaseBiomeAt(x - 1, z + 1), x - 1, z + 1);
+    const h10 = getHeightForBase(getBaseBiomeAt(x, z - 1), x, z - 1);
+    const h11 = getHeightForBase(getBaseBiomeAt(x, z), x, z);
+    const h12 = getHeightForBase(getBaseBiomeAt(x, z + 1), x, z + 1);
+    const h20 = getHeightForBase(getBaseBiomeAt(x + 1, z - 1), x + 1, z - 1);
+    const h21 = getHeightForBase(getBaseBiomeAt(x + 1, z), x + 1, z);
+    const h22 = getHeightForBase(getBaseBiomeAt(x + 1, z + 1), x + 1, z + 1);
+    const smoothedH =
+      h11 * 0.25 +
+      (h01 + h21 + h10 + h12) * 0.125 +
+      (h00 + h02 + h20 + h22) * 0.0625;
     return Math.floor(clamp(smoothedH, 0, WORLD_HEIGHT));
   }
 
@@ -296,7 +370,7 @@ export function createChunkGenerator(seed: number) {
     if (biome === "plains" || biome === "meadow" || biome === "savanna" || biome === "cherry_grove") return placement > TREE_PLACEMENT_PLAINS_THRESHOLD;
     if (biome === "windswept_forest") {
       if (getForestDensityCached(wx, wz, forestCache) <= FOREST_DENSITY_THRESHOLD) return false;
-      return placement > TREE_PLACEMENT_FOREST_THRESHOLD;
+      return placement > TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD;
     }
     if (biome === "snow" || biome === "grove") return placement > TREE_PLACEMENT_SNOW_THRESHOLD;
     return false;
@@ -449,6 +523,7 @@ export function createChunkGenerator(seed: number) {
     getBaseBiomeAt,
     getHeightForBase,
     getResolvedBiomeFromHeight,
+    getHeight: getHeightUncached,
   });
 
   const stage2 = createStage2({
@@ -456,7 +531,83 @@ export function createChunkGenerator(seed: number) {
     carveThreshold: CAVE_THRESHOLD,
   });
 
-  const stage3 = createStage3();
+  function getSurfaceBlock(ctx: ChunkContext, lx: number, lz: number): BlockType {
+    const topY = ctx.heightmap[lx][lz];
+    const biome = ctx.biomeMap[lx][lz];
+    const wx = ctx.worldX + lx;
+    const wz = ctx.worldZ + lz;
+    const def = BIOME_REGISTRY[biome];
+    const surface = def.blocks.surface;
+
+    const getMaxSlopeDelta = (x: number, z: number): number => {
+      const h = getHeightUncached(x, z);
+      // Cardinal neighbors are enough for a stable "cliff" signal.
+      const dN = Math.abs(getHeightUncached(x, z - 1) - h);
+      const dS = Math.abs(getHeightUncached(x, z + 1) - h);
+      const dW = Math.abs(getHeightUncached(x - 1, z) - h);
+      const dE = Math.abs(getHeightUncached(x + 1, z) - h);
+      return Math.max(dN, dS, dW, dE);
+    };
+
+    if (topY < WATER_LEVEL) return def.blocks.underwater as BlockType;
+    if (topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1) return def.blocks.shore as BlockType;
+
+    if (
+      (biome === "mountain" || biome === "windswept_hills" || biome === "windswept_forest") &&
+      topY >= MOUNTAIN_STONE_SURFACE_HEIGHT
+    )
+      return "stone";
+    if (biome === "meadow" && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return "stone";
+    if (
+      topY >= SURFACE_STONE_HEIGHT &&
+      biome !== "frozen_peaks" &&
+      biome !== "jagged_peaks"
+    )
+      return "stone";
+
+    // Frozen peaks: snow cover + packed ice cliffs (glaciers) at steep, high elevations.
+    if (biome === "frozen_peaks") {
+      const slope = getMaxSlopeDelta(wx, wz);
+      const steep = slope >= 6;
+      const verySteep = slope >= 9;
+      const high = topY >= WATER_LEVEL + 30;
+      const n = (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5; // [0..1]
+      const blob = (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5;
+
+      if (high && (verySteep || (steep && n < 0.62))) return "packed_ice";
+      if (high && steep && blob < 0.12) return "ice";
+      return "snow";
+    }
+
+    if (
+      topY >= WATER_LEVEL + 20 &&
+      biome !== "desert" &&
+      biome !== "savanna" &&
+      biome !== "mountain" &&
+      biome !== "jungle" &&
+      biome !== "cherry_grove" &&
+      biome !== "windswept_forest" &&
+      biome !== "meadow" &&
+      biome !== "plains"
+    )
+      return "grass_snow";
+
+    if (surface === "snow") return "grass_snow";
+    if (biome === "savanna" && surface === "grass") return "grass_savanna";
+
+    if (surface === "grass") {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          if (dx === 0 && dz === 0) continue;
+          const n = getResolvedBiome(wx + dx, wz + dz);
+          if (SNOW_BIOMES.includes(n)) return "grass_snow";
+        }
+      }
+    }
+    return surface as BlockType;
+  }
+
+  const stage3 = createStage3({ getSurfaceBlock });
 
   const treeFeature = createTreeFeature({ shouldPlaceTree, getTreeBlocks });
   const stage4 = createStage4([treeFeature]);

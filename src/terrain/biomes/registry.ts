@@ -3,7 +3,12 @@
  * Exports climate-based land biome selection and compatibility helpers.
  */
 import type { Biome } from "../../types";
-import type { BiomeDefinition, ClimateBounds } from "./types";
+import type {
+  BiomeDefinition,
+  ClimateBounds,
+  MultiNoise6Point,
+  MultiNoiseSelector6D,
+} from "./types";
 import { desertDefinition } from "./desert";
 import { oceanDefinition } from "./ocean";
 import { plainsDefinition } from "./plains";
@@ -58,6 +63,28 @@ const BASE_LAND_BIOMES: Biome[] = [
   "snow",
 ];
 
+const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [
+  "continentalness",
+  "erosion",
+  "temperature",
+  "humidity",
+  "weirdness",
+  "y",
+];
+
+function distSqMultiNoise(
+  query: MultiNoise6Point,
+  selector: MultiNoiseSelector6D
+): number {
+  let d = 0;
+  for (const k of MULTI_NOISE_KEYS) {
+    const w = selector.weights?.[k] ?? 1;
+    const diff = query[k] - selector.center[k];
+    d += w * diff * diff;
+  }
+  return d;
+}
+
 function distSq(
   temp: number,
   humidity: number,
@@ -94,4 +121,27 @@ export function getLandBiomeByClimate(temp: number, humidity: number): Biome {
  */
 export function getBiomeByClimate(temp: number, humidity: number): Biome {
   return getLandBiomeByClimate(temp, humidity);
+}
+
+/**
+ * Select a biome by nearest multi-noise center in 6D.
+ * Only considers biomes that have `multiNoise` defined.
+ *
+ * Note: This does not replace `getLandBiomeByClimate()` yet; call sites can opt-in
+ * for specific selections (e.g. peak variants).
+ */
+export function getBiomeByMultiNoise(point: MultiNoise6Point): Biome {
+  let best: Biome = "plains";
+  let bestD = Infinity;
+  for (const [b, def] of Object.entries(BIOME_REGISTRY) as Array<
+    [Biome, BiomeDefinition]
+  >) {
+    if (!def.multiNoise) continue;
+    const d = distSqMultiNoise(point, def.multiNoise);
+    if (d < bestD) {
+      bestD = d;
+      best = b;
+    }
+  }
+  return best;
 }

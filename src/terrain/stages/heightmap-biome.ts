@@ -11,13 +11,15 @@ export interface Stage1Deps {
   getBaseBiomeAt(x: number, z: number): Biome;
   getHeightForBase(base: Biome, x: number, z: number): number;
   getResolvedBiomeFromHeight(base: Biome, height: number, x: number, z: number): Biome;
+  /** Smoothed height (e.g. 3x3 kernel) for gentle biome transitions. */
+  getHeight(x: number, z: number): number;
 }
 
 export function createStage1(deps: Stage1Deps): PipelineStage {
   const {
     getBaseBiomeAt,
-    getHeightForBase,
     getResolvedBiomeFromHeight,
+    getHeight,
   } = deps;
 
   return function stage1HeightmapBiome(ctx: ChunkContext): void {
@@ -27,13 +29,7 @@ export function createStage1(deps: Stage1Deps): PipelineStage {
         const wx = worldX + lx;
         const wz = worldZ + lz;
         const base = getBaseBiomeAt(wx, wz);
-        const rawH = getHeightForBase(base, wx, wz);
-        const n = getHeightForBase(getBaseBiomeAt(wx, wz + 1), wx, wz + 1);
-        const s = getHeightForBase(getBaseBiomeAt(wx, wz - 1), wx, wz - 1);
-        const e = getHeightForBase(getBaseBiomeAt(wx + 1, wz), wx + 1, wz);
-        const w = getHeightForBase(getBaseBiomeAt(wx - 1, wz), wx - 1, wz);
-        const smoothedH = rawH * 0.5 + (n + s + e + w) * 0.125;
-        const height = Math.floor(clamp(smoothedH, 0, WORLD_HEIGHT));
+        const height = Math.floor(clamp(getHeight(wx, wz), 0, WORLD_HEIGHT));
         heightmap[lx][lz] = height;
         biomeMap[lx][lz] = getResolvedBiomeFromHeight(base, height, wx, wz);
       }

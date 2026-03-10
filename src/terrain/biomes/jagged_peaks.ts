@@ -23,4 +23,19 @@ export const jaggedPeaksDefinition: BiomeDefinition = {
     underwater: "sand",
   },
   terrainParams: jaggedPeaksTerrain,
+  multiNoise: {
+    center: {
+      continentalness: 0.78,
+      erosion: -0.86,
+      temperature: -0.05,
+      humidity: 0.25,
+      weirdness: 0.35,
+      y: 0.86,
+    },
+    weights: {
+      y: 3,
+      erosion: 3,
+      continentalness: 1.5,
+    },
+  },
 };

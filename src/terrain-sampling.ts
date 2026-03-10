@@ -6,7 +6,7 @@
 import { createNoise2D } from "simplex-noise";
 import type { Biome, BlockType } from "./types";
 import { WATER_LEVEL } from "./constants";
-import { getLandBiomeByClimate } from "./terrain/biomes";
+import { getBiomeByMultiNoise, getLandBiomeByClimate } from "./terrain/biomes";
 import { BIOME_LAYERS, BIOME_TERRAIN } from "./terrain/biomes";
 import { makeSeededRandom } from "./terrain/utils";
 
@@ -16,14 +16,17 @@ const CONTINENTAL_AMPLITUDE = 20;
 const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44;
 const EROSION_SCALE = 0.018;
 const EROSION_AMPLITUDE = 7;
+const EROSION_DETAIL_BOOST_MAX = 1.65;
+const EROSION_JAGGEDNESS_START = 0.25; // erosionSigned <= -0.25 starts boosting
 const MOUNTAIN_MASK_SCALE = 0.003;
 const MOUNTAIN_HEIGHT_SCALE = 0.008;
-const MOUNTAIN_AMPLITUDE = 16;
+const MOUNTAIN_AMPLITUDE = 24;
 const MOUNTAIN_THRESHOLD = 0.3;
 const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1;
-const SNOW_BIOME_HEIGHT_BOOST = 1.5;
+const SNOW_BIOME_HEIGHT_BOOST = 4.5;
 const TEMP_SCALE = 0.001;
 const HUMIDITY_SCALE = 0.0012;
+const WEIRDNESS_SCALE = 0.0016;
 const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10;
 const HIGHLAND_GROVE_MAX = WATER_LEVEL + 20;
 const HIGHLAND_SNOWY_SLOPES_MAX = WATER_LEVEL + 30;
@@ -31,13 +34,25 @@ const COLD_HIGHLAND_TEMP_MAX = 0.42;
 const COLD_UPLAND_TEMP_MAX = 0.5;
 const PEAK_VARIANT_SCALE = 0.004;
 const HIGHLAND_VARIANT_SCALE = 0.004;
+const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55;
 const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26;
 const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16;
+const PEAK_Y_MIN = WATER_LEVEL + 30;
+const PEAK_Y_RANGE = 24;
 
 export type GetHeightFn = (x: number, z: number) => number;
 
 function createNoise(seed: number) {
   return createNoise2D(makeSeededRandom(seed));
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+function smoothstep01(t: number): number {
+  const x = clamp01(t);
+  return x * x * (3 - 2 * x);
 }
 
 export function createTerrainSampling(seed: number) {
@@ -51,6 +66,7 @@ export function createTerrainSampling(seed: number) {
   const highlandVariantNoise2D = createNoise(seed + 1717);
   const erosionNoise2D = createNoise(seed + 202);
   const flatNoise2D = createNoise(seed + 303);
+  const weirdnessNoise2D = createNoise(seed + 909);
 
   function getTemperature(x: number, z: number): number {
     const n = temperatureNoise2D(x * TEMP_SCALE, z * TEMP_SCALE);
@@ -60,6 +76,14 @@ export function createTerrainSampling(seed: number) {
   function getHumidity(x: number, z: number): number {
     const n = humidityNoise2D(x * HUMIDITY_SCALE, z * HUMIDITY_SCALE);
     return (n + 1) * 0.5;
+  }
+
+  function getTemperatureSigned(x: number, z: number): number {
+    return temperatureNoise2D(x * TEMP_SCALE, z * TEMP_SCALE);
+  }
+
+  function getHumiditySigned(x: number, z: number): number {
+    return humidityNoise2D(x * HUMIDITY_SCALE, z * HUMIDITY_SCALE);
   }
 
   function getBiomeValue(x: number, z: number): number {
@@ -108,8 +132,12 @@ export function createTerrainSampling(seed: number) {
     const n = detailNoise2D(x * params.detailFreq, z * params.detailFreq);
     const flat = flatNoise2D(x * 0.01, z * 0.01);
     const smooth = (flat + 1) * 0.5;
-    const effectiveAmp =
+    let effectiveAmp =
       params.detailAmp * (params.flatness + (1 - params.flatness) * smooth);
+    // Low erosion (more negative) => sharper, higher-frequency relief.
+    const erosionSigned = getErosionSigned(x, z);
+    const jaggednessT = smoothstep01(((-erosionSigned) - EROSION_JAGGEDNESS_START) / (1 - EROSION_JAGGEDNESS_START));
+    effectiveAmp *= 1 + jaggednessT * (EROSION_DETAIL_BOOST_MAX - 1);
     return n * effectiveAmp;
   }
 
@@ -130,9 +158,21 @@ export function createTerrainSampling(seed: number) {
     return t * mountain * MOUNTAIN_AMPLITUDE * biomeBoost;
   }
 
+  function getErosionSigned(x: number, z: number): number {
+    return erosionNoise2D(x * EROSION_SCALE, z * EROSION_SCALE);
+  }
+
   function getErosion(x: number, z: number): number {
-    const n = (erosionNoise2D(x * EROSION_SCALE, z * EROSION_SCALE) + 1) * 0.5;
+    const n = (getErosionSigned(x, z) + 1) * 0.5;
     return n * EROSION_AMPLITUDE;
+  }
+
+  function getWeirdness(x: number, z: number): number {
+    return weirdnessNoise2D(x * WEIRDNESS_SCALE, z * WEIRDNESS_SCALE);
+  }
+
+  function getPeakY01(topY: number): number {
+    return clamp01((topY - PEAK_Y_MIN) / PEAK_Y_RANGE);
   }
 
   function getRawTerrainHeight(x: number, z: number): number {
@@ -146,12 +186,20 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getSmoothedHeight(x: number, z: number): number {
-    const center = getRawTerrainHeight(x, z);
-    const n = getRawTerrainHeight(x, z + 1);
-    const s = getRawTerrainHeight(x, z - 1);
-    const e = getRawTerrainHeight(x + 1, z);
-    const w = getRawTerrainHeight(x - 1, z);
-    return center * 0.5 + (n + s + e + w) * 0.125;
+    const h00 = getRawTerrainHeight(x - 1, z - 1);
+    const h01 = getRawTerrainHeight(x - 1, z);
+    const h02 = getRawTerrainHeight(x - 1, z + 1);
+    const h10 = getRawTerrainHeight(x, z - 1);
+    const h11 = getRawTerrainHeight(x, z);
+    const h12 = getRawTerrainHeight(x, z + 1);
+    const h20 = getRawTerrainHeight(x + 1, z - 1);
+    const h21 = getRawTerrainHeight(x + 1, z);
+    const h22 = getRawTerrainHeight(x + 1, z + 1);
+    return (
+      h11 * 0.25 +
+      (h01 + h21 + h10 + h12) * 0.125 +
+      (h00 + h02 + h20 + h22) * 0.0625
+    );
   }
 
   function getResolvedBiome(x: number, z: number, getHeight: GetHeightFn): Biome {
@@ -164,12 +212,14 @@ export function createTerrainSampling(seed: number) {
         if (h >= HIGHLAND_SNOWY_SLOPES_MAX) return "snowy_slopes";
         if (h >= HIGHLAND_GROVE_MAX) return "grove";
       }
-      if (temp <= COLD_UPLAND_TEMP_MAX && h >= HIGHLAND_MEADOW_MAX + 4) return "windswept_hills";
+      if (temp <= COLD_UPLAND_TEMP_MAX && h >= HIGHLAND_MEADOW_MAX + 4)
+        return getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN ? "windswept_forest" : "windswept_hills";
       return base;
     }
     if (h < HIGHLAND_MEADOW_MAX) {
       const v = (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5;
-      if (v < 0.25) return "windswept_hills";
+      if (v < 0.25)
+        return getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN ? "windswept_forest" : "windswept_hills";
       if (v < 0.5) return "windswept_gravelly_hills";
       if (v < 0.75) return "cherry_grove";
       return "meadow";
@@ -180,6 +230,17 @@ export function createTerrainSampling(seed: number) {
       return "grove";
     }
     if (h < HIGHLAND_SNOWY_SLOPES_MAX) return "snowy_slopes";
+    const peakPick = getBiomeByMultiNoise({
+      continentalness: getContinentalness(x, z),
+      erosion: getErosionSigned(x, z),
+      temperature: getTemperatureSigned(x, z),
+      humidity: getHumiditySigned(x, z),
+      weirdness: getWeirdness(x, z),
+      y: getPeakY01(h),
+    });
+    if (peakPick === "stony_peaks" || peakPick === "frozen_peaks" || peakPick === "jagged_peaks")
+      return peakPick;
+    // Fallback to legacy distribution if multi-noise yields a non-peak biome.
     const peakVariant =
       (peakVariantNoise2D(x * PEAK_VARIANT_SCALE, z * PEAK_VARIANT_SCALE) + 1) * 0.5;
     if (base === "mountain" && peakVariant < 0.55) return "stony_peaks";
