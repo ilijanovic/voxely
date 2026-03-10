@@ -29,8 +29,39 @@ export interface ChunkDataPayload {
   chunkX: number;
   chunkZ: number;
   heightmap: number[][];
+  /**
+   * Transferable heightmap (row-major): heightmapBuffer[lx + lz * CHUNK_SIZE] = surfaceY.
+   * Prefer this over `heightmap` on the main thread to avoid structured-clone overhead.
+   */
+  heightmapBuffer?: Float32Array;
   /** Flat voxel buffer (CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE bytes). Transferable. */
   buffer: Uint8Array;
+  /** Optional LOD hint for the renderer. */
+  lod?: "full" | "far";
+  /**
+   * Optional worker-generated geometry for rendering.
+   * When present, the main thread can build BufferGeometries directly from these arrays.
+   */
+  geometryLayers?: Array<{
+    /** Terrain block id (see terrain/block-ids.ts). */
+    blockTypeId: number;
+    /** Non-indexed triangles: 3 floats per vertex. */
+    position: Float32Array;
+    /** 3 floats per vertex. */
+    normal: Float32Array;
+    /** 2 floats per vertex. */
+    uv: Float32Array;
+    /**
+     * Vertex counts per cube face in BoxGeometry material order:
+     * [right, left, top, bottom, front, back]. Used to set geometry groups.
+     */
+    faceVertexCounts: Uint32Array;
+  }>;
+  /**
+   * Optional visible block local-keys per block type (for raycast/mining/tall grass).
+   * Keys are `localKey(lx, ly, lz)` using terrain's localKey convention.
+   */
+  visibleBlockKeysByType?: Array<{ blockTypeId: number; keys: Uint32Array }>;
   /**
    * Optional request identifier used by the main thread to discard stale worker responses.
    * When present, this must be propagated unchanged from the worker request.
@@ -778,6 +809,24 @@ export function createChunkGenerator(seed: number) {
 
   const stages = [stage1, stage2, stage3, stage4];
 
+  function generateChunkHeightmap(chunkX: number, chunkZ: number): Pick<ChunkDataPayload, "chunkX" | "chunkZ" | "heightmap" | "heightmapBuffer" | "buffer"> {
+    const ctx = createChunkContext(chunkX, chunkZ, []);
+    stage1(ctx);
+    const heightmapBuffer = new Float32Array(CHUNK_SIZE * CHUNK_SIZE);
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        heightmapBuffer[lx + lz * CHUNK_SIZE] = ctx.heightmap[lx][lz];
+      }
+    }
+    return {
+      chunkX: ctx.chunkX,
+      chunkZ: ctx.chunkZ,
+      heightmap: ctx.heightmap,
+      heightmapBuffer,
+      buffer: new Uint8Array(0),
+    };
+  }
+
   function generateChunkData(chunkX: number, chunkZ: number, blockMods: BlockModEntry[]): ChunkDataPayload {
     const ctx = createChunkContext(chunkX, chunkZ, blockMods);
     runPipeline(ctx, stages);
@@ -791,16 +840,25 @@ export function createChunkGenerator(seed: number) {
       }
     }
 
+    const heightmapBuffer = new Float32Array(CHUNK_SIZE * CHUNK_SIZE);
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        heightmapBuffer[lx + lz * CHUNK_SIZE] = ctx.heightmap[lx][lz];
+      }
+    }
+
     return {
       chunkX: ctx.chunkX,
       chunkZ: ctx.chunkZ,
       heightmap: ctx.heightmap,
+      heightmapBuffer,
       buffer: ctx.voxelMap,
     };
   }
 
   return {
     generateChunkData,
+    generateChunkHeightmap,
     getHeight: getHeightUncached,
     getResolvedBiome,
   };

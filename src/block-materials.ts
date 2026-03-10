@@ -417,7 +417,9 @@ export function setFoliageInstanceColors(
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 }
 
+// Project convention: block at (x,y,z) occupies [x..x+1] in world space (corner-based). Matches worker geometry and collision.
 export const sharedBlockGeometry = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+sharedBlockGeometry.translate(0.5 * BLOCK_SIZE, 0.5 * BLOCK_SIZE, 0.5 * BLOCK_SIZE);
 
 /**
  * Cross geometry for tall grass (two vertical quads at 90° like Minecraft grass/flowers).

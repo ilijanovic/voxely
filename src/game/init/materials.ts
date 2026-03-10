@@ -9,6 +9,7 @@ import {
   sampleGrassColormap,
   setPixelFilter,
 } from "../../block-materials";
+import { patchMaterialWithTerrainFog } from "../../terrain-fog";
 
 export type MaterialsInitResult = {
   grassColormapData: ImageData | null;
@@ -40,9 +41,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
   await Promise.all(
     getAllBlockIds().map(async (blockId) => {
       if (blockId === "water") {
-        blockMaterialCache.set(
-          blockId,
-          new THREE.MeshStandardMaterial({
+        const mat = new THREE.MeshStandardMaterial({
             color: 0x3366aa,
             roughness: 0.2,
             metalness: 0.1,
@@ -54,8 +53,9 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
             polygonOffset: true,
             polygonOffsetUnits: 1,
             polygonOffsetFactor: 1,
-          })
-        );
+          });
+        patchMaterialWithTerrainFog(mat);
+        blockMaterialCache.set(blockId, mat);
         return;
       }
       const def = getBlockDefinition(blockId)!;
@@ -91,6 +91,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
           ...grassMaterialOpts,
           ...leafMaterialOpts,
         });
+        patchMaterialWithTerrainFog(mat);
         blockMaterialCache.set(blockId, mat);
         if (
           DEBUG_GRASS_TINT &&
@@ -119,6 +120,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
             })
           )
         )) as THREE.MeshStandardMaterial[];
+        patchMaterialWithTerrainFog(mats);
         blockMaterialCache.set(blockId, mats);
         if (
           DEBUG_GRASS_TINT &&
@@ -154,6 +156,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
       color: 0xffffff,
       vertexColors: true,
     });
+    patchMaterialWithTerrainFog(tallGrassMaterial);
   }
 
   return { grassColormapData, foliageColormapData, tallGrassMaterial };

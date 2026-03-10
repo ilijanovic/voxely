@@ -8,6 +8,7 @@ import { sharedBlockGeometry, sharedTallGrassGeometry, FOLIAGE_BLOCK_TYPES, getM
 import { isSolidBlock as isBlockTypeSolid } from "../../block-registry";
 import { filterVisibleBlocks } from "./visible-blocks";
 import type { Biome } from "../../game-terrain";
+import { patchMaterialWithTerrainFog } from "../../terrain-fog";
 
 export type ChunkApplyDeps = {
   chunks: Map<number, ChunkData>;
@@ -22,6 +23,13 @@ export type ChunkApplyDeps = {
 
 const _matrix = new THREE.Matrix4();
 const _position = new THREE.Vector3();
+
+const farLodMaterial = new THREE.MeshStandardMaterial({
+  color: 0x4b8f3a,
+  roughness: 1.0,
+  metalness: 0.0,
+});
+patchMaterialWithTerrainFog(farLodMaterial);
 
 function hasVertexColorsEnabled(material: THREE.Material | THREE.Material[]): boolean {
   if (Array.isArray(material)) {
@@ -71,14 +79,9 @@ function addInstancedLayer(
   return mesh;
 }
 
-/** Decode flat voxel buffer into voxelMap and positions grouped by block type (skips air and carved). */
-function buildVoxelMapAndPositionsFromBuffer(
-  buffer: Uint8Array,
-  worldX: number,
-  worldZ: number
-): { voxelMap: Map<number, BlockType>; positionsByType: Map<BlockType, BlockPos[]> } {
+/** Decode flat voxel buffer into voxelMap (skips air and carved). */
+function buildVoxelMapFromBuffer(buffer: Uint8Array): Map<number, BlockType> {
   const voxelMap = new Map<number, BlockType>();
-  const positionsByType = new Map<BlockType, BlockPos[]>();
   for (let i = 0; i < buffer.length; i++) {
     const blockID = buffer[i];
     if (blockID === 0 || blockID === CARVED_ID) continue;
@@ -89,12 +92,58 @@ function buildVoxelMapAndPositionsFromBuffer(
     const lz = Math.floor(i / (CHUNK_SIZE * WORLD_HEIGHT));
     const key = lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * WORLD_HEIGHT;
     voxelMap.set(key, blockType);
-    const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz };
-    const arr = positionsByType.get(blockType) ?? [];
-    arr.push(pos);
-    positionsByType.set(blockType, arr);
   }
-  return { voxelMap, positionsByType };
+  return voxelMap;
+}
+
+function buildPositionsByTypeFromVisibleKeys(
+  visible: NonNullable<ChunkDataPayload["visibleBlockKeysByType"]>,
+  worldX: number,
+  worldZ: number
+): Map<BlockType, BlockPos[]> {
+  const out = new Map<BlockType, BlockPos[]>();
+  for (const entry of visible) {
+    const blockType = idToType(entry.blockTypeId) as BlockType;
+    if (blockType === "air") continue;
+    const keys = entry.keys;
+    const positions: BlockPos[] = new Array(keys.length);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      const lx = k % CHUNK_SIZE;
+      const ly = Math.floor(k / CHUNK_SIZE) % WORLD_HEIGHT;
+      const lz = Math.floor(k / (CHUNK_SIZE * WORLD_HEIGHT));
+      positions[i] = { x: worldX + lx, y: ly, z: worldZ + lz };
+    }
+    out.set(blockType, positions);
+  }
+  return out;
+}
+
+function addGeometryLayerMesh(
+  group: THREE.Group,
+  layer: NonNullable<ChunkDataPayload["geometryLayers"]>[number],
+  material: THREE.Material | THREE.Material[],
+  userData?: { chunkKeyNum: number; blockType: BlockType }
+): THREE.Mesh | null {
+  const vertexCount = layer.position.length / 3;
+  if (!Number.isFinite(vertexCount) || vertexCount <= 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(layer.position, 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(layer.normal, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(layer.uv, 2));
+  // Group ranges are in vertices for non-indexed BufferGeometry.
+  let start = 0;
+  for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
+    const count = layer.faceVertexCounts[faceIndex] ?? 0;
+    if (count > 0) geo.addGroup(start, count, faceIndex);
+    start += count;
+  }
+  const mesh = new THREE.Mesh(geo, material as THREE.Material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  if (userData) mesh.userData = userData;
+  group.add(mesh);
+  return mesh;
 }
 
 const GRASS_BLOCK_TYPES_FOR_TALL_GRASS: BlockType[] = ["grass", "grass_savanna"];
@@ -157,7 +206,11 @@ function addTallGrassLayer(
   return mesh;
 }
 
-function buildChunkWaterGeometry(worldX: number, worldZ: number, heightmap: number[][]): THREE.BufferGeometry | null {
+function buildChunkWaterGeometry(
+  worldX: number,
+  worldZ: number,
+  heightmap: number[][] | Float32Array
+): THREE.BufferGeometry | null {
   const waterY = WATER_LEVEL + WATER_BLOCK_HEIGHT + WATER_PLANE_Y_OFFSET;
   const gridSize = CHUNK_SIZE + 1;
   const positions = new Float32Array(gridSize * gridSize * 3);
@@ -176,7 +229,7 @@ function buildChunkWaterGeometry(worldX: number, worldZ: number, heightmap: numb
   const indices: number[] = [];
   for (let lz = 0; lz < CHUNK_SIZE; lz++) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-      const topY = heightmap[lx][lz];
+      const topY = Array.isArray(heightmap) ? heightmap[lx][lz] : heightmap[lx + lz * CHUNK_SIZE];
       if (topY >= WATER_LEVEL) continue;
       const i00 = lx + lz * gridSize;
       const i10 = lx + 1 + lz * gridSize;
@@ -210,33 +263,119 @@ export function applyChunkPayload(
   const group = new THREE.Group();
   group.userData = { chunkKeyNum: keyNum, cx: payload.chunkX, cz: payload.chunkZ };
 
-  const { voxelMap, positionsByType } = buildVoxelMapAndPositionsFromBuffer(
-    payload.buffer,
-    worldX,
-    worldZ
-  );
-  const blockPositionsByType = new Map<BlockType, BlockPos[]>();
-  for (const [blockType, positions] of positionsByType) {
-    const visible = filterVisibleBlocks({
-      worldX,
-      worldZ,
-      chunkSize: CHUNK_SIZE,
-      worldHeight: WORLD_HEIGHT,
-      voxelMap,
-      positions,
-      localKey,
-      isSolidBlock: isBlockTypeSolid,
-    });
-    blockPositionsByType.set(blockType, visible);
-    const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
-      chunkKeyNum: keyNum,
-      blockType,
-    });
-    if (mesh && (blockType === "grass" || blockType === "grass_savanna") && deps.grassColormapData) {
-      setGrassInstanceColors(mesh, visible, deps.getResolvedBiome, deps.grassColormapData);
+  if (payload.lod === "far" && payload.heightmapBuffer) {
+    const segments = CHUNK_SIZE;
+    const geo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, segments, segments);
+    geo.rotateX(-Math.PI / 2);
+    // Displace vertices by heightmap (nearest sampling).
+    const posAttr = geo.getAttribute("position") as THREE.BufferAttribute;
+    const arr = posAttr.array as Float32Array;
+    const grid = CHUNK_SIZE + 1;
+    for (let i = 0; i < grid * grid; i++) {
+      const lx = i % grid;
+      const lz = Math.floor(i / grid);
+      const hx = Math.min(lx, CHUNK_SIZE - 1);
+      const hz = Math.min(lz, CHUNK_SIZE - 1);
+      const h = payload.heightmapBuffer[hx + hz * CHUNK_SIZE];
+      arr[i * 3 + 1] = h;
     }
-    if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && deps.foliageColormapData) {
-      setFoliageInstanceColors(mesh, visible, deps.getResolvedBiome, deps.foliageColormapData);
+    posAttr.needsUpdate = true;
+    geo.computeVertexNormals();
+    geo.translate(worldX + CHUNK_SIZE / 2, 0, worldZ + CHUNK_SIZE / 2);
+    const mesh = new THREE.Mesh(geo, farLodMaterial);
+    mesh.castShadow = false;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+
+    const data: ChunkData = {
+      group,
+      cx: payload.chunkX,
+      cz: payload.chunkZ,
+      lod: "far",
+      voxelMap: new Map(),
+      blockPositionsByType: new Map(),
+    };
+    deps.chunks.set(keyNum, data);
+    scene.add(group);
+    deps.onChunkAdded?.(data);
+    deps.pendingChunkKeys.delete(keyNum);
+    deps.onChunkChanged?.();
+    return;
+  }
+
+  const voxelMap = buildVoxelMapFromBuffer(payload.buffer);
+
+  const blockPositionsByType =
+    payload.visibleBlockKeysByType
+      ? buildPositionsByTypeFromVisibleKeys(payload.visibleBlockKeysByType, worldX, worldZ)
+      : new Map<BlockType, BlockPos[]>();
+
+  if (payload.geometryLayers && payload.geometryLayers.length > 0) {
+    for (const layer of payload.geometryLayers) {
+      const blockType = idToType(layer.blockTypeId) as BlockType;
+      if (blockType === "air") continue;
+      // Keep instancing path for blocks that rely on per-instance colormap tint.
+      if (blockType === "grass" || blockType === "grass_savanna" || FOLIAGE_BLOCK_TYPES.includes(blockType)) {
+        continue;
+      }
+      addGeometryLayerMesh(group, layer, getMaterialForBlockType(blockType), { chunkKeyNum: keyNum, blockType });
+    }
+  }
+
+  // Fallback / special-case instancing (colormap tint, or if no worker geometry available).
+  if (!payload.geometryLayers || payload.geometryLayers.length === 0 || blockPositionsByType.size > 0) {
+    const positionsSource =
+      blockPositionsByType.size > 0
+        ? blockPositionsByType
+        : (() => {
+            const positionsByType = new Map<BlockType, BlockPos[]>();
+            for (let i = 0; i < payload.buffer.length; i++) {
+              const blockID = payload.buffer[i];
+              if (blockID === 0 || blockID === CARVED_ID) continue;
+              const blockType = idToType(blockID) as BlockType;
+              if (blockType === "air") continue;
+              const lx = i % CHUNK_SIZE;
+              const ly = Math.floor(i / CHUNK_SIZE) % WORLD_HEIGHT;
+              const lz = Math.floor(i / (CHUNK_SIZE * WORLD_HEIGHT));
+              const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz };
+              const arr = positionsByType.get(blockType) ?? [];
+              arr.push(pos);
+              positionsByType.set(blockType, arr);
+            }
+            return positionsByType;
+          })();
+
+    for (const [blockType, positions] of positionsSource) {
+      let visible = positions;
+      if (!payload.visibleBlockKeysByType) {
+        visible = filterVisibleBlocks({
+          worldX,
+          worldZ,
+          chunkSize: CHUNK_SIZE,
+          worldHeight: WORLD_HEIGHT,
+          voxelMap,
+          positions,
+          localKey,
+          isSolidBlock: isBlockTypeSolid,
+        });
+      }
+      blockPositionsByType.set(blockType, visible);
+      if (payload.geometryLayers && payload.geometryLayers.length > 0) {
+        // Only instance tinted blocks when worker geometry is present.
+        if (!(blockType === "grass" || blockType === "grass_savanna" || FOLIAGE_BLOCK_TYPES.includes(blockType))) {
+          continue;
+        }
+      }
+      const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
+        chunkKeyNum: keyNum,
+        blockType,
+      });
+      if (mesh && (blockType === "grass" || blockType === "grass_savanna") && deps.grassColormapData) {
+        setGrassInstanceColors(mesh, visible, deps.getResolvedBiome, deps.grassColormapData);
+      }
+      if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && deps.foliageColormapData) {
+        setFoliageInstanceColors(mesh, visible, deps.getResolvedBiome, deps.foliageColormapData);
+      }
     }
   }
 
@@ -259,7 +398,8 @@ export function applyChunkPayload(
     }
   }
 
-  const waterGeo = buildChunkWaterGeometry(worldX, worldZ, payload.heightmap);
+  const waterSource = payload.heightmapBuffer ?? payload.heightmap;
+  const waterGeo = waterSource ? buildChunkWaterGeometry(worldX, worldZ, waterSource) : null;
   if (waterGeo) {
     const waterMesh = new THREE.Mesh(waterGeo, getMaterialForBlockType("water"));
     waterMesh.castShadow = false;
@@ -273,6 +413,7 @@ export function applyChunkPayload(
     group,
     cx: payload.chunkX,
     cz: payload.chunkZ,
+    lod: payload.lod ?? "full",
     voxelMap,
     blockPositionsByType,
   };

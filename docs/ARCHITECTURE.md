@@ -106,9 +106,10 @@ Modules outside `src/game.ts` use this to avoid tight coupling and to keep `src/
 Chunk streaming is coordinated by `src/game/chunks/chunk-manager.ts`:
 
 - Reads current render distance from graphics settings
-- Uses a planner (`planChunksAroundPlayer`) to compute:
+- Uses the planner in `src/game/chunks/chunk-planning.ts` (`planChunksAroundPlayer`) to compute:
   - `toLoad`: chunks inside render distance not yet loaded/pending
   - `toUnload`: chunks outside render distance
+- The planner can take `farLodStartDistance` for LOD (e.g. far chunks with reduced detail)
 - Tracks `pendingChunkKeys` to avoid duplicate in-flight requests
 
 ### Worker vs sync fallback
@@ -133,14 +134,18 @@ After chunks are added, `updateChunks()` triggers chunk-level entity spawning (`
 The worker lives at `src/chunk.worker.ts` and speaks a minimal message protocol:
 
 - Main → worker: `{ type: "init", seed }`
-- Main → worker: `{ type: "generate", chunkX, chunkZ, blockMods }`
+- Main → worker: `{ type: "generate", chunkX, chunkZ, blockMods, requestId? }`
 - Worker → main: `ChunkDataPayload`
 
-`ChunkDataPayload` currently contains:
+`ChunkDataPayload` (see `src/terrain/index.ts`) contains:
 
 - `chunkX`, `chunkZ`
-- `heightmap: number[][]`
-- `voxelMapEntries: Array<[localKey, BlockType]>` (sparse: only non-air, non-carved)
+- `heightmap: number[][]`, `heightmapBuffer?: Float32Array` (transferable; prefer on main thread)
+- `buffer: Uint8Array` (flat voxel buffer; transferable)
+- `lod?: "full" | "far"`
+- `geometryLayers?` – optional worker-built geometry (position, normal, uv, faceVertexCounts per block type id)
+- `visibleBlockKeysByType?` – optional visible block local keys per block type (for raycast/mining/tall grass)
+- `requestId?` – optional; propagated back for stale-response filtering on the main thread
 
 ### Terrain core: createChunkGenerator
 
@@ -174,16 +179,19 @@ This staged approach keeps terrain logic composable and makes it easier to add f
 `src/game/chunks/chunk-apply.ts` turns `ChunkDataPayload` into:
 
 - A `THREE.Group` containing:
-  - **InstancedMeshes** per block type (after visibility filtering)
+  - **InstancedMeshes** per block type (when `geometryLayers` is present, built from worker geometry; otherwise from voxel buffer after visibility filtering)
   - Optional **tall grass** instancing (cross geometry), placed deterministically
   - A chunk-local **water surface mesh** (built from the heightmap)
 - A `ChunkData` runtime object stored in `chunks`:
   - `voxelMap: Map<localKey, BlockType>` for fast queries
+  - `blockPositionsByType` (for raycast/mining)
   - `heightmap` + metadata (`cx`, `cz`, group reference, etc.)
+
+Materials are patched with **`patchMaterialWithTerrainFog`** (`src/terrain-fog.ts`); fog state is synced from the scene in the main loop.
 
 ### Visibility filtering (cheap culling)
 
-Before instancing, the block positions are filtered by `filterVisibleBlocks()` so fully internal blocks are not rendered. This is a performance win without changing the instancing approach.
+When the payload does not include worker-built geometry, block positions are filtered by `filterVisibleBlocks()` in `src/game/chunks/visible-blocks.ts` so fully internal blocks are not rendered. When `geometryLayers` and `visibleBlockKeysByType` are present, the worker has already done the culling.
 
 ### Biome-dependent tinting
 
@@ -203,6 +211,7 @@ This keeps the geometry instanced while still allowing biome coloration.
   - Shadows can be enabled/disabled from graphics settings.
 - **Materials**: `src/game/init/materials.ts` builds block materials and caches them.
   - Water is a transparent `MeshStandardMaterial` with polygon offset to reduce z-fighting.
+- **Terrain fog**: `src/terrain-fog.ts` provides `terrainFogState` and `patchMaterialWithTerrainFog`. `syncTerrainFogFromSceneFog` is called from the main loop so terrain materials follow scene fog.
 - **Atmosphere**: `src/atmosphere.ts` handles day-time tracking and sun direction, and `src/game.ts` applies it to lights/sky.
 
 ---

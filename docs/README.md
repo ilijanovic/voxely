@@ -6,6 +6,6 @@
 ## Examples
 
 - **`docs/examples/greedy-mesh-chunk.ts`** – Face culling and quad emission for one chunk; builds a single `BufferGeometry` from a 3D block array. Use this to replace or complement per-block InstancedMesh with a merged mesh per chunk.
-- **`docs/examples/chunk-worker.example.ts`** – Minimal Web Worker that receives `{ type: 'generate', chunkX, chunkZ }` and posts back serialized chunk data (blocks + water cells). Move your terrain/tree logic into a shared module and call it from the worker.
+- **`docs/examples/chunk-worker.example.ts`** – Minimal Web Worker that receives `{ type: 'generate', chunkX, chunkZ }` and posts back serialized chunk data (blocks + water cells). The main codebase uses `src/terrain-core.ts` and `src/terrain/worker-geometry.ts` with the full `ChunkDataPayload` (buffer, heightmapBuffer, optional geometryLayers/visibleBlockKeysByType); this example is a minimal reference for integration patterns.
 
 These examples are reference implementations; integrate and adapt them into your main codebase (e.g. `src/`) as needed.

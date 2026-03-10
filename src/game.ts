@@ -60,7 +60,9 @@ import {
   getPointerSpeed,
   getPointerSpeedSprint,
   getShadowMapSize,
+  getRenderDistance,
 } from "./graphics-settings";
+import { syncTerrainFogFromSceneFog } from "./terrain-fog";
 import { getKeyBinding, type KeyAction } from "./key-settings";
 import { initMultiplayer, updateMultiplayer } from "./multiplayer";
 import { setWorldApi } from "./world-api";
@@ -117,7 +119,10 @@ import {
 import { filterVisibleBlocks as filterVisibleBlocksPure } from "./game/chunks/visible-blocks";
 import { isPendingSpawnReady } from "./game/player/pending-spawn";
 import { RaycastMeshCache } from "./game/chunks/raycast-cache";
-import { initChunkWorkerClient, type ChunkWorkerClient } from "./game/chunks/chunk-worker-client";
+import {
+  initChunkWorkerClient,
+  type ChunkWorkerClient,
+} from "./game/chunks/chunk-worker-client";
 import { applyChunkPayload as applyChunkPayloadToScene } from "./game/chunks/chunk-apply";
 import { updateChunks as updateChunksFromModule } from "./game/chunks/chunk-manager";
 import {
@@ -740,7 +745,8 @@ function addTallGrassLayer(
 /** Setzt die Spawn-Position, sobald alle Chunks aus pendingSpawn geladen sind (nach Worker-Antwort). */
 function applyPendingSpawnIfReady(): void {
   if (!pendingSpawn || !player) return;
-  if (!isPendingSpawnReady(pendingSpawn, (keyNum) => chunks.has(keyNum))) return;
+  if (!isPendingSpawnReady(pendingSpawn, (keyNum) => chunks.has(keyNum)))
+    return;
   const y = getSurfaceY(pendingSpawn.spawnX, pendingSpawn.spawnZ);
   player.position.set(pendingSpawn.spawnX, y, pendingSpawn.spawnZ);
   velocityY = 0;
@@ -796,7 +802,12 @@ function getBlockWorldPosition(
   return positions[instanceId];
 }
 
-function spawnDrop(worldX: number, worldY: number, worldZ: number, blockType: BlockType): void {
+function spawnDrop(
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+  blockType: BlockType
+): void {
   spawnDropItem({ scene, drops, worldX, worldY, worldZ, blockType });
 }
 
@@ -959,7 +970,7 @@ let lastPlayerChunkX: number | null = null;
 let lastPlayerChunkZ: number | null = null;
 
 /** OPT-3: Return cached list of block InstancedMeshes for raycasting; rebuild only when chunks changed. */
-function getRaycastMeshes(): THREE.InstancedMesh[] {
+function getRaycastMeshes(): Array<THREE.InstancedMesh | THREE.Mesh> {
   return raycastMeshCache.get(chunks);
 }
 
@@ -1345,7 +1356,7 @@ function initChunkWorker(): void {
   const client = initChunkWorkerClient({
     seed: WORLD_SEED,
     // Cap worker pool size (default is 4; this makes it easy to wire into settings later).
-    maxWorkers: 4,
+    maxWorkers: 8,
     onPayload: (payload) =>
       applyChunkPayloadToScene(
         scene,
@@ -1797,6 +1808,18 @@ function updateDayCycleAndAtmosphere(dt: number): void {
     hemiLight,
   };
   updateAtmosphere(dt, ctx);
+
+  // Tune fog range to render distance so far LOD fades into the sky cleanly.
+  if (scene.fog && "far" in scene.fog) {
+    // If underwater, atmosphere sets a short fog range; keep that.
+    if (scene.fog.far > 50) {
+      const rd = getRenderDistance();
+      const farStart = Math.max(2, rd - 2);
+      scene.fog.near = Math.max(10, farStart * CHUNK_SIZE * 0.8);
+      scene.fog.far = Math.max(scene.fog.near + 10, rd * CHUNK_SIZE * 1.15);
+    }
+  }
+  syncTerrainFogFromSceneFog(scene);
 }
 
 function updateChunkVisibility(): void {
@@ -2175,8 +2198,6 @@ function updateBlockBreakAndPlace(dt: number): void {
     const placeHit = placeHits[0];
     if (
       placeHit &&
-      placeHit.object instanceof THREE.InstancedMesh &&
-      placeHit.instanceId !== undefined &&
       placeHit.face
     ) {
       _direction
@@ -2254,51 +2275,94 @@ function updateBlockBreakAndPlace(dt: number): void {
     const hit = hits[0];
     if (
       hit &&
-      hit.object instanceof THREE.InstancedMesh &&
-      hit.instanceId !== undefined
+      hit.face
     ) {
-      const ud = hit.object.userData as {
-        chunkKeyNum: number;
-        blockType: BlockType;
-      };
-      const chunkKeyNum = ud.chunkKeyNum;
-      const blockType = ud.blockType;
-      const instanceId = hit.instanceId;
-      const pos = getBlockWorldPosition(chunkKeyNum, blockType, instanceId);
-      if (!pos) {
-        breakTarget = null;
-        breakProgress = 0;
-        const crackEl = document.getElementById("block-crack");
-        if (crackEl) crackEl.style.visibility = "hidden";
-      } else if (
-        breakTarget &&
-        breakTarget.chunkKeyNum === chunkKeyNum &&
-        breakTarget.blockType === blockType &&
-        breakTarget.x === pos.x &&
-        breakTarget.y === pos.y &&
-        breakTarget.z === pos.z
-      ) {
-        breakProgress += dt;
-        if (breakProgress >= BREAK_TIME) {
-          breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z);
+      _direction.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+
+      // Instanced path: resolve exact instance block position.
+      if (hit.object instanceof THREE.InstancedMesh && hit.instanceId !== undefined) {
+        const ud = hit.object.userData as {
+          chunkKeyNum: number;
+          blockType: BlockType;
+        };
+        const chunkKeyNum = ud.chunkKeyNum;
+        const blockType = ud.blockType;
+        const instanceId = hit.instanceId;
+        const pos = getBlockWorldPosition(chunkKeyNum, blockType, instanceId);
+        if (!pos) {
           breakTarget = null;
           breakProgress = 0;
           const crackEl = document.getElementById("block-crack");
           if (crackEl) crackEl.style.visibility = "hidden";
+        } else if (
+          breakTarget &&
+          breakTarget.chunkKeyNum === chunkKeyNum &&
+          breakTarget.blockType === blockType &&
+          breakTarget.x === pos.x &&
+          breakTarget.y === pos.y &&
+          breakTarget.z === pos.z
+        ) {
+          breakProgress += dt;
+          if (breakProgress >= BREAK_TIME) {
+            breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z);
+            breakTarget = null;
+            breakProgress = 0;
+            const crackEl = document.getElementById("block-crack");
+            if (crackEl) crackEl.style.visibility = "hidden";
+          }
+        } else {
+          if (!isUnbreakableBlock(blockType)) {
+            breakTarget = {
+              chunkKeyNum,
+              blockType,
+              x: pos.x,
+              y: pos.y,
+              z: pos.z,
+            };
+            breakProgress = dt;
+          } else {
+            breakTarget = null;
+            breakProgress = 0;
+          }
         }
       } else {
-        if (!isUnbreakableBlock(blockType)) {
-          breakTarget = {
-            chunkKeyNum,
-            blockType,
-            x: pos.x,
-            y: pos.y,
-            z: pos.z,
-          };
-          breakProgress = dt;
-        } else {
+        // Mesh path (worker geometry): derive the hit block coordinate from point and face normal.
+        const bx = Math.floor(hit.point.x - _direction.x * 0.01);
+        const by = Math.floor(hit.point.y - _direction.y * 0.01);
+        const bz = Math.floor(hit.point.z - _direction.z * 0.01);
+        const at = getBlockAt(bx, by, bz);
+        if (at === null || at === "air") {
           breakTarget = null;
           breakProgress = 0;
+        } else if (isUnbreakableBlock(at)) {
+          breakTarget = null;
+          breakProgress = 0;
+        } else {
+          const chunkKeyNum = chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE));
+          if (
+            breakTarget &&
+            breakTarget.chunkKeyNum === chunkKeyNum &&
+            breakTarget.blockType === at &&
+            breakTarget.x === bx &&
+            breakTarget.y === by &&
+            breakTarget.z === bz
+          ) {
+            breakProgress += dt;
+            if (breakProgress >= BREAK_TIME) {
+              breakBlock(chunkKeyNum, at, bx, by, bz);
+              breakTarget = null;
+              breakProgress = 0;
+            }
+          } else {
+            breakTarget = {
+              chunkKeyNum,
+              blockType: at,
+              x: bx,
+              y: by,
+              z: bz,
+            };
+            breakProgress = dt;
+          }
         }
       }
     } else {

@@ -15,8 +15,10 @@ Single source of truth for navigating the Voxely codebase (Vue 3 + TypeScript + 
 ## Game loop & chunks
 
 - **`src/game.ts`** – Core: rendering (Three.js), input, physics, chunk load/unload, block mining/placement, hotbar, world API. Imports chunk payload type from `terrain-core` and builds meshes from payloads.
-- **`src/chunk.worker.ts`** – Web Worker: generates chunk terrain data off the main thread. Receives `{ type: "init", seed }` then `{ type: "generate", chunkX, chunkZ, blockMods }`; sends back `ChunkDataPayload`. Uses **`terrain-core`** only (no direct `terrain/` import).
+- **`src/chunk.worker.ts`** – Web Worker: generates chunk terrain data off the main thread and can produce **geometry in the worker** via **`src/terrain/worker-geometry.ts`** (geometry layers + visible-block keys). Receives `{ type: "init", seed }` then `{ type: "generate", chunkX, chunkZ, blockMods, requestId? }`; sends back `ChunkDataPayload` with `buffer`, `heightmapBuffer`, and optionally `geometryLayers`, `visibleBlockKeysByType`, `requestId`. Uses **`terrain-core`** and **`terrain/worker-geometry`** (no other `terrain/` imports).
 - **`src/terrain-core.ts`** – Thin re-export of `terrain/index.ts`: `createChunkGenerator`, `ChunkDataPayload`, `BlockModEntry`. This is the **contract boundary**: the worker and `game.ts` depend on `terrain-core`, not on `terrain/` directly.
+
+**Chunk pipeline (main thread):** **`src/game/chunks/chunk-manager.ts`** – coordinates load/unload; **`src/game/chunks/chunk-planning.ts`** – `planChunksAroundPlayer` (toLoad / toUnload); **`src/game/chunks/chunk-apply.ts`** – turns payloads into meshes and registers chunk data; **`src/game/chunks/chunk-worker-client.ts`** – starts worker and sends requests. **`src/game/chunks/raycast-cache.ts`** and **`src/game/chunks/visible-blocks.ts`** – visibility and raycast/mining data.
 
 **Data flow:**
 
@@ -38,6 +40,8 @@ flowchart LR
   ChunkMgr --> Meshes
 ```
 
+The payload may include `geometryLayers` and `visibleBlockKeysByType` produced in the worker.
+
 ---
 
 ## Terrain pipeline
@@ -53,8 +57,23 @@ All **pure** terrain logic (no THREE, no DOM) lives under **`src/terrain/`**:
 | **`terrain/features/trees.ts`** | Tree placement and shape. |
 | **`terrain/block-ids.ts`** | Block type ↔ integer ID mapping (`typeToId`, `idToType`, `AIR_ID`, `CARVED_ID`, etc.). |
 | **`terrain/utils.ts`** | Shared helpers (e.g. `makeSeededRandom`, `smoothstep`, `clamp`). |
+| **`terrain/worker-geometry.ts`** | Worker-only: builds geometry layers and visible-block keys from the voxel buffer; used by `chunk.worker.ts`. |
 
 When adding or changing biomes, use **`.cursor/skills/biome-integration-assistant`** and **`.cursor/rules/terrain-biome-integrity.mdc`**.
+
+---
+
+## Fog & materials
+
+- **`src/terrain-fog.ts`** – Terrain fog state and `patchMaterialWithTerrainFog`. Used by **`src/game/init/materials.ts`** and **`src/game/chunks/chunk-apply.ts`**.
+
+---
+
+## Player, render, world interactions
+
+- **`src/game/player/`** – `player-mesh.ts`, `pending-spawn.ts`.
+- **`src/game/render/`** – `frustum-visibility.ts`.
+- **`src/game/world-interactions/`** – `mining.ts`, `drops.ts`, `torches.ts`.
 
 ---
 

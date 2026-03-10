@@ -51,9 +51,11 @@ npm install
 |---------------------|--------------------------------------------|
 | `npm run dev`       | Dev server (see terminal output for URL)   |
 | `npm run build`     | TypeScript check + production build        |
-| `npm run preview`   | Preview the build                           |
+| `npm run preview`   | Preview the build                          |
 | `npm run textures`  | Texture generation script                  |
 | `npm run server`    | Multiplayer server (http://localhost:3000) |
+| `npm run test`      | Run tests in watch mode                    |
+| `npm run test:run`  | Run tests once                             |
 
 ## Running the game
 
@@ -85,17 +87,34 @@ After clicking: left-click = mine block, right-click = place block.
 ```
 .
 ├── src/
-│   ├── game.ts          # Core: terrain, chunks, rendering, physics, input
-│   ├── terrain-core.ts  # Chunk generation, biomes, blocks
-│   ├── chunk.worker.ts  # Web Worker for chunk mesh
-│   ├── multiplayer.ts  # Socket.io client, player sync
+│   ├── game.ts              # Core: terrain, chunks, rendering, physics, input
+│   ├── terrain-core.ts      # Chunk generation, biomes, blocks (re-exports terrain/)
+│   ├── chunk.worker.ts      # Web Worker: terrain + optional geometry (worker-geometry)
+│   ├── chunk-runtime.ts     # Loaded chunk data, block modifications, world queries
+│   ├── game-terrain.ts      # Height/surface helpers (uses chunk-runtime)
+│   ├── game-collision.ts    # Voxel collision resolution
+│   ├── save.ts              # Player + world persistence
+│   ├── atmosphere.ts        # Day/night, sun direction
+│   ├── terrain-fog.ts       # Terrain fog state and material patching
+│   ├── multiplayer.ts       # Socket.io client, player sync
 │   ├── graphics-settings.ts
-│   ├── entities/        # Spawn, movement, AI, animation
-│   └── components/      # Vue: PauseMenu, Inventory, Chat, Menu
+│   ├── game-hotbar.ts       # Hotbar state and selection
+│   ├── hotbar-icons.ts      # Hotbar UI assets
+│   ├── resource-pack-settings.ts
+│   ├── key-settings.ts
+│   ├── game/
+│   │   ├── init/            # materials.ts, scene.ts
+│   │   ├── chunks/          # chunk-manager, chunk-planning, chunk-apply, chunk-worker-client, raycast-cache, visible-blocks
+│   │   ├── player/          # player-mesh, pending-spawn
+│   │   ├── render/          # frustum-visibility
+│   │   └── world-interactions/  # mining, drops, torches
+│   ├── terrain/             # Pure terrain pipeline, biomes, block-ids, worker-geometry
+│   ├── entities/            # Spawn, movement, AI, animation
+│   └── components/          # Vue: PauseMenu, Inventory, Chat, Menu
 ├── server/
-│   └── server.js        # Multiplayer server (Socket.io)
-├── public/assets/       # Minecraft-style assets (textures, models, etc.)
-├── public/packs/        # Resource packs (see docs/RESOURCE_PACKS.md)
+│   └── server.js            # Multiplayer server (Socket.io)
+├── public/assets/           # Minecraft-style assets (textures, models, etc.)
+├── public/packs/             # Resource packs (see docs/RESOURCE_PACKS.md)
 └── scripts/
     └── generate-textures.cjs
 ```

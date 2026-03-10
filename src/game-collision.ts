@@ -1,6 +1,9 @@
 /**
  * Voxel AABB collision: resolve player (or any AABB) against solid blocks.
  * Exports resolveVoxelCollisions, player AABB constants, and debug types.
+ *
+ * Block convention (must match rendering and worker geometry): a block at integer (bx, by, bz)
+ * occupies the world AABB [bx..bx+1], [by..by+1], [bz..bz+1] (corner-based, not center-based).
  */
 import {
   isSolidBlock as isSolidBlockRuntime,
@@ -34,7 +37,7 @@ let _aabbBlockCount = 0;
 
 /**
  * Fill _aabbBlockBuffer with solid block coordinates overlapping the given AABB; returns count.
- * Blocks are center-based: block at (bx, by, bz) has bounds [bx±0.5], [by±0.5], [bz±0.5].
+ * Blocks are corner-based: block at (bx, by, bz) has bounds [bx..bx+1], [by..by+1], [bz..bz+1].
  * AABB: center (px, py, pz), halfX/halfZ in XZ, height in Y (bottom py, top py+height).
  * treatUnloadedAsSolid: true = Y-pass (prevent falling through unloaded floor), false = X/Z-pass (no invisible wall).
  */
@@ -51,12 +54,12 @@ function fillBlocksInAABB(
     ? isSolidBlock
     : isSolidBlockLoadedOnlyForCollision;
   _aabbBlockCount = 0;
-  const minBx = Math.ceil(px - halfX - 0.5);
-  const maxBx = Math.floor(px + halfX + 0.5);
+  const minBx = Math.floor(px - halfX);
+  const maxBx = Math.floor(px + halfX);
   const minBy = Math.floor(py);
   const maxBy = Math.floor(py + height);
-  const minBz = Math.ceil(pz - halfZ - 0.5);
-  const maxBz = Math.floor(pz + halfZ + 0.5);
+  const minBz = Math.floor(pz - halfZ);
+  const maxBz = Math.floor(pz + halfZ);
   for (let bx = minBx; bx <= maxBx; bx++) {
     for (let by = minBy; by <= maxBy; by++) {
       for (let bz = minBz; bz <= maxBz; bz++) {
@@ -125,8 +128,8 @@ export function resolveVoxelCollisions(
   height: number,
   debug?: CollisionDebug
 ): CollisionResult {
-  const blockMin = (b: number) => b - 0.5;
-  const blockMax = (b: number) => b + 0.5;
+  const blockMin = (b: number) => b;
+  const blockMax = (b: number) => b + 1;
   const FLOOR_TOLERANCE = 0.05;
   const result: CollisionResult = {
     hitX: false,
@@ -151,9 +154,11 @@ export function resolveVoxelCollisions(
     let resolved = false;
     for (let i = 0; i < _aabbBlockCount; i++) {
       const { bx, by, bz } = _aabbBlockBuffer[i];
+      const blockMinZ = blockMin(bz);
+      const blockMaxZ = blockMax(bz);
       const zOvlp =
-        Math.min(position.z + halfZ, bz + 0.5) -
-        Math.max(position.z - halfZ, bz - 0.5);
+        Math.min(position.z + halfZ, blockMaxZ) -
+        Math.max(position.z - halfZ, blockMinZ);
       if (zOvlp <= 1e-4) continue;
       const blockMinX = blockMin(bx);
       const blockMaxX = blockMax(bx);
@@ -169,7 +174,7 @@ export function resolveVoxelCollisions(
       const fromX = position.x;
       if (velocity.x > 0) position.x = blockMinX - halfX;
       else if (velocity.x < 0) position.x = blockMaxX + halfX;
-      else position.x = position.x < bx ? blockMinX - halfX : blockMaxX + halfX;
+      else position.x = position.x < bx + 0.5 ? blockMinX - halfX : blockMaxX + halfX;
       debug?.snaps.push({
         axis: "x",
         reason: "wall",
@@ -199,9 +204,11 @@ export function resolveVoxelCollisions(
     let resolved = false;
     for (let i = 0; i < _aabbBlockCount; i++) {
       const { bx, by, bz } = _aabbBlockBuffer[i];
+      const blockMinX = blockMin(bx);
+      const blockMaxX = blockMax(bx);
       const xOvlp =
-        Math.min(position.x + halfX, bx + 0.5) -
-        Math.max(position.x - halfX, bx - 0.5);
+        Math.min(position.x + halfX, blockMaxX) -
+        Math.max(position.x - halfX, blockMinX);
       if (xOvlp <= 1e-4) continue;
       const blockMinZ = blockMin(bz);
       const blockMaxZ = blockMax(bz);
@@ -217,7 +224,7 @@ export function resolveVoxelCollisions(
       const fromZ = position.z;
       if (velocity.z > 0) position.z = blockMinZ - halfZ;
       else if (velocity.z < 0) position.z = blockMaxZ + halfZ;
-      else position.z = position.z < bz ? blockMinZ - halfZ : blockMaxZ + halfZ;
+      else position.z = position.z < bz + 0.5 ? blockMinZ - halfZ : blockMaxZ + halfZ;
       debug?.snaps.push({
         axis: "z",
         reason: "wall",
@@ -239,12 +246,16 @@ export function resolveVoxelCollisions(
     let bestBlock: { blockMinY: number; blockMaxY: number } | null = null;
     for (let i = 0; i < _aabbBlockCount; i++) {
       const { bx, by, bz } = _aabbBlockBuffer[i];
+      const blockMinX = blockMin(bx);
+      const blockMaxX = blockMax(bx);
+      const blockMinZ = blockMin(bz);
+      const blockMaxZ = blockMax(bz);
       const xOvlp =
-        Math.min(position.x + halfX, bx + 0.5) -
-        Math.max(position.x - halfX, bx - 0.5);
+        Math.min(position.x + halfX, blockMaxX) -
+        Math.max(position.x - halfX, blockMinX);
       const zOvlp =
-        Math.min(position.z + halfZ, bz + 0.5) -
-        Math.max(position.z - halfZ, bz - 0.5);
+        Math.min(position.z + halfZ, blockMaxZ) -
+        Math.max(position.z - halfZ, blockMinZ);
       if (xOvlp <= 0.001 || zOvlp <= 0.001) continue;
       const blockMinY = blockMin(by);
       const blockMaxY = blockMax(by);

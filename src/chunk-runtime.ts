@@ -54,6 +54,10 @@ export function invalidateColumnHeight(bx: number, bz: number): void {
   columnHeightCache.delete(columnCacheKey(bx, bz));
 }
 
+/**
+ * Block at integer cell (bx, by, bz) occupies world range [bx..bx+1], [by..by+1], [bz..bz+1].
+ * This convention is shared with collision and rendering (worker geometry, instancing).
+ */
 export function getBlockAt(
   bx: number,
   by: number,
