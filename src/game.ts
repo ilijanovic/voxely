@@ -14,7 +14,6 @@ import {
 import {
   getSelectedBlockType,
   setHotbarIndex,
-  addBlockToInventory,
   updateHotbarSelection,
   setOnHotbarChange,
   getSelectedHotbarIndex,
@@ -26,7 +25,6 @@ import {
   resolveVoxelCollisions,
   PLAYER_HALF,
   PLAYER_HEIGHT,
-  PLAYER_MESH_VISUAL_HEIGHT,
   DEBUG_COLLISION,
   type CollisionDebug,
 } from "./game-collision";
@@ -56,11 +54,7 @@ export {
   type CollisionDebug,
 } from "./game-collision";
 import {
-  getRenderDistance,
-  getRenderDistanceSq,
   getShadowsEnabled,
-  getTorchShadowsEnabled,
-  getAntialias,
   getFovNormal,
   getFovSprint,
   getPointerSpeed,
@@ -77,11 +71,7 @@ import {
 import { updateMovement } from "./entities/movement";
 import { updateAI } from "./entities/ai";
 import { updateAnimation } from "./entities/animation";
-import type { ChunkDataPayload } from "./terrain-core";
 import {
-  getAllBlockIds,
-  getBlockDefinition,
-  getBlockTextureNames,
   isSolidBlock as isBlockTypeSolid,
   isUnbreakableBlock,
 } from "./block-registry";
@@ -93,20 +83,15 @@ import {
   type SaveData,
 } from "./save";
 import {
-  loadTextureOptional,
-  createPBRMaterial,
-  setPixelFilter,
-  loadGrassColormapImageData,
-  loadFoliageColormapImageData,
-  sampleGrassColormap,
   setGrassInstanceColors,
   setFoliageInstanceColors,
   FOLIAGE_BLOCK_TYPES,
   sharedBlockGeometry,
   sharedTallGrassGeometry,
-  blockMaterialCache,
   getMaterialForBlockType,
 } from "./block-materials";
+import { initMaterialsAndColormaps as initMaterialsAndColormapsSystem } from "./game/init/materials";
+import { initSceneAndRenderer as initSceneAndRendererSystem } from "./game/init/scene";
 import {
   getDayTime,
   setDayTime,
@@ -129,6 +114,30 @@ import {
   getBlockAt,
   getBlockModsForChunk,
 } from "./chunk-runtime";
+import { filterVisibleBlocks as filterVisibleBlocksPure } from "./game/chunks/visible-blocks";
+import { isPendingSpawnReady } from "./game/player/pending-spawn";
+import { RaycastMeshCache } from "./game/chunks/raycast-cache";
+import { initChunkWorkerClient } from "./game/chunks/chunk-worker-client";
+import { applyChunkPayload as applyChunkPayloadToScene } from "./game/chunks/chunk-apply";
+import { updateChunks as updateChunksFromModule } from "./game/chunks/chunk-manager";
+import {
+  spawnDrop as spawnDropItem,
+  updateDropsAndPickup as updateDropsAndPickupSystem,
+  type Drop,
+} from "./game/world-interactions/drops";
+import {
+  placeTorch as placeTorchSystem,
+  createTorchGroup,
+  applyTorchShadowSettingsToPlacedTorches,
+  type PlacedTorch,
+} from "./game/world-interactions/torches";
+import { breakBlock as breakBlockSystem } from "./game/world-interactions/mining";
+import {
+  createPlayerMeshOnly,
+  createPOVShadowBody,
+} from "./game/player/player-mesh";
+export { createPlayerMeshOnly } from "./game/player/player-mesh";
+import { updateChunkFrustumVisibility } from "./game/render/frustum-visibility";
 
 /**
  * game.ts – Main game orchestration
@@ -299,24 +308,12 @@ let rightMouseJustPressed = false;
 let fKeyJustPressed = false;
 
 /** Schwebende Drop-Items nach Block-Abbau (werden aufgesammelt beim Durchlaufen). */
-interface Drop {
-  position: THREE.Vector3;
-  blockType: BlockType;
-  group: THREE.Group;
-  bobPhase: number;
-}
 const drops: Drop[] = [];
 const PICKUP_RADIUS = 1.4;
 const DROP_BOB_SPEED = 3;
 const DROP_BOB_HEIGHT = 0.08;
 
 /** Platziere Fackeln: Weltposition (Mitte der Fackel) + Group (Mesh + PointLight). */
-interface PlacedTorch {
-  x: number;
-  y: number;
-  z: number;
-  group: THREE.Group;
-}
 const placedTorches: PlacedTorch[] = [];
 const PLACE_DISTANCE = 5;
 
@@ -341,8 +338,7 @@ const _cameraOffset = new THREE.Vector3();
 
 // OPT-2: reusable AABB block buffer (avoids array/object allocs in resolveVoxelCollisions)
 // OPT-3: cache block meshes for raycasting; invalidated on chunk load/unload
-let _raycastMeshCache: THREE.InstancedMesh[] = [];
-let _raycastMeshDirty = true;
+const raycastMeshCache = new RaycastMeshCache();
 
 /**
  * Build one InstancedMesh for a list of world positions and add it to the group.
@@ -385,9 +381,13 @@ function hasVertexColorsEnabled(
   material: THREE.Material | THREE.Material[]
 ): boolean {
   if (Array.isArray(material)) {
-    return material.some((m) => m instanceof THREE.MeshStandardMaterial && m.vertexColors);
+    return material.some(
+      (m) => m instanceof THREE.MeshStandardMaterial && m.vertexColors
+    );
   }
-  return material instanceof THREE.MeshStandardMaterial && material.vertexColors;
+  return (
+    material instanceof THREE.MeshStandardMaterial && material.vertexColors
+  );
 }
 
 /**
@@ -637,7 +637,7 @@ function generateChunk(
     blockPositionsByType,
   };
   chunks.set(keyNum, data);
-  _raycastMeshDirty = true;
+  raycastMeshCache.markDirty();
   _frustumDirty = true;
   return data;
 }
@@ -695,7 +695,8 @@ function getTallGrassPositions(
       const keyAbove = localKey(lx, p.y + 1, lz);
       if (voxelMap.has(keyAbove)) continue;
       // Minecraft-like behavior: only some grass blocks receive tall grass.
-      if (pseudoRandomFromBlockPos(p.x, p.y, p.z) > TALL_GRASS_SPAWN_CHANCE) continue;
+      if (pseudoRandomFromBlockPos(p.x, p.y, p.z) > TALL_GRASS_SPAWN_CHANCE)
+        continue;
       out.push(p);
     }
   }
@@ -725,136 +726,21 @@ function addTallGrassLayer(
     mesh.setMatrixAt(i, _matrix);
   }
   mesh.instanceMatrix.needsUpdate = true;
-  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, positions.length);
+  ensureWhiteInstanceColorsForVertexColorMaterial(
+    mesh,
+    material,
+    positions.length
+  );
   mesh.castShadow = false;
   mesh.receiveShadow = true;
   group.add(mesh);
   return mesh;
 }
 
-/**
- * Apply chunk data from the Web Worker to the scene (build meshes, ChunkData, add to chunks/scene).
- * Called from worker onmessage.
- */
-function applyChunkPayload(
-  scene: THREE.Scene,
-  payload: ChunkDataPayload
-): void {
-  const keyNum = chunkKeyNumeric(payload.chunkX, payload.chunkZ);
-  if (chunks.has(keyNum)) return;
-  const worldX = payload.chunkX * CHUNK_SIZE;
-  const worldZ = payload.chunkZ * CHUNK_SIZE;
-  const group = new THREE.Group();
-  group.userData = {
-    chunkKeyNum: keyNum,
-    cx: payload.chunkX,
-    cz: payload.chunkZ,
-  };
-
-  const voxelMap = new Map<number, BlockType>();
-  for (const [k, t] of payload.voxelMapEntries) voxelMap.set(k, t);
-
-  const positionsByType = buildPositionsByType(
-    worldX,
-    worldZ,
-    payload.voxelMapEntries
-  );
-  const blockPositionsByType = new Map<BlockType, BlockPos[]>();
-  for (const [blockType, positions] of positionsByType) {
-    const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions);
-    blockPositionsByType.set(blockType, visible);
-    const mesh = addInstancedLayer(
-      group,
-      visible,
-      getMaterialForBlockType(blockType),
-      {
-        chunkKeyNum: keyNum,
-        blockType,
-      }
-    );
-    if (
-      mesh &&
-      (blockType === "grass" || blockType === "grass_savanna") &&
-      grassColormapData
-    ) {
-      setGrassInstanceColors(
-        mesh,
-        visible,
-        getResolvedBiome,
-        grassColormapData
-      );
-    }
-    if (
-      mesh &&
-      FOLIAGE_BLOCK_TYPES.includes(blockType) &&
-      foliageColormapData
-    ) {
-      setFoliageInstanceColors(
-        mesh,
-        visible,
-        getResolvedBiome,
-        foliageColormapData
-      );
-    }
-  }
-
-  const tallGrassPositions = getTallGrassPositions(
-    worldX,
-    worldZ,
-    voxelMap,
-    blockPositionsByType
-  );
-  if (tallGrassMaterial && tallGrassPositions.length > 0) {
-    const tallGrassMesh = addTallGrassLayer(
-      group,
-      tallGrassPositions,
-      tallGrassMaterial
-    );
-    if (tallGrassMesh && grassColormapData) {
-      setGrassInstanceColors(
-        tallGrassMesh,
-        tallGrassPositions,
-        getResolvedBiome,
-        grassColormapData
-      );
-    }
-  }
-
-  const waterGeo = buildChunkWaterGeometry(worldX, worldZ, payload.heightmap);
-  if (waterGeo) {
-    const waterMesh = new THREE.Mesh(
-      waterGeo,
-      getMaterialForBlockType("water")
-    );
-    waterMesh.castShadow = false;
-    waterMesh.receiveShadow = true;
-    waterMesh.renderOrder = 2;
-    waterMesh.frustumCulled = true;
-    group.add(waterMesh);
-  }
-
-  const data: ChunkData = {
-    group,
-    cx: payload.chunkX,
-    cz: payload.chunkZ,
-    voxelMap,
-    blockPositionsByType,
-  };
-  chunks.set(keyNum, data);
-  scene.add(group);
-  spawnEntitiesForChunk(scene, chunkKey(data.cx, data.cz), data.cx, data.cz);
-  _raycastMeshDirty = true;
-  _frustumDirty = true;
-  pendingChunkKeys.delete(keyNum);
-  applyPendingSpawnIfReady();
-}
-
 /** Setzt die Spawn-Position, sobald alle Chunks aus pendingSpawn geladen sind (nach Worker-Antwort). */
 function applyPendingSpawnIfReady(): void {
   if (!pendingSpawn || !player) return;
-  for (const keyNum of pendingSpawn.chunkKeys) {
-    if (!chunks.has(keyNum)) return;
-  }
+  if (!isPendingSpawnReady(pendingSpawn, (keyNum) => chunks.has(keyNum))) return;
   const y = getSurfaceY(pendingSpawn.spawnX, pendingSpawn.spawnZ);
   player.position.set(pendingSpawn.spawnX, y, pendingSpawn.spawnZ);
   velocityY = 0;
@@ -876,44 +762,16 @@ function filterVisibleBlocks(
   voxelMap: Map<number, BlockType>,
   positions: BlockPos[]
 ): BlockPos[] {
-  const out: BlockPos[] = [];
-  const dirs: [number, number, number][] = [
-    [1, 0, 0],
-    [-1, 0, 0],
-    [0, 1, 0],
-    [0, -1, 0],
-    [0, 0, 1],
-    [0, 0, -1],
-  ];
-  for (const pos of positions) {
-    const lx = pos.x - worldX;
-    const ly = pos.y;
-    const lz = pos.z - worldZ;
-    let visible = false;
-    for (const [dx, dy, dz] of dirs) {
-      const nx = lx + dx;
-      const ny = ly + dy;
-      const nz = lz + dz;
-      if (
-        nx < 0 ||
-        nx >= CHUNK_SIZE ||
-        ny < 0 ||
-        ny >= WORLD_HEIGHT ||
-        nz < 0 ||
-        nz >= CHUNK_SIZE
-      ) {
-        visible = true;
-        break;
-      }
-      const neighborType = voxelMap.get(localKey(nx, ny, nz));
-      if (!neighborType || !isBlockTypeSolid(neighborType)) {
-        visible = true;
-        break;
-      }
-    }
-    if (visible) out.push(pos);
-  }
-  return out;
+  return filterVisibleBlocksPure({
+    worldX,
+    worldZ,
+    chunkSize: CHUNK_SIZE,
+    worldHeight: WORLD_HEIGHT,
+    voxelMap,
+    positions,
+    localKey,
+    isSolidBlock: isBlockTypeSolid,
+  });
 }
 
 /** Get the positions array for a block type from ChunkData */
@@ -938,106 +796,19 @@ function getBlockWorldPosition(
   return positions[instanceId];
 }
 
-/** Einzelnes Material für Drop-Mesh (bei Arrays z. B. Top-Face). Fackel hat kein Voxel-Material → Fallback. */
-function getMaterialForDrop(blockType: BlockType): THREE.Material {
-  if (blockType === "torch") {
-    const w = getMaterialForBlockType("wood");
-    return Array.isArray(w) ? w[2] : w;
-  }
-  if (blockType === "bedrock") {
-    const b = getMaterialForBlockType("bedrock");
-    return Array.isArray(b) ? b[0] : b;
-  }
-  const m = getMaterialForBlockType(blockType);
-  return Array.isArray(m)
-    ? (m as THREE.MeshStandardMaterial[])[2]
-    : (m as THREE.MeshStandardMaterial);
+function spawnDrop(worldX: number, worldY: number, worldZ: number, blockType: BlockType): void {
+  spawnDropItem({ scene, drops, worldX, worldY, worldZ, blockType });
 }
 
-/** Erzeugt ein schwebendes Drop-Item an der Weltposition (Block-Mitte). */
-function spawnDrop(
-  worldX: number,
-  worldY: number,
-  worldZ: number,
-  blockType: BlockType
-): void {
-  const size = 0.35;
-  const geo = new THREE.BoxGeometry(size, size, size);
-  const mat = getMaterialForDrop(blockType);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  const group = new THREE.Group();
-  group.add(mesh);
-  group.position.set(worldX, worldY, worldZ);
-  scene.add(group);
-  drops.push({
-    position: new THREE.Vector3(worldX, worldY, worldZ),
-    blockType,
-    group,
-    bobPhase: Math.random() * Math.PI * 2,
-  });
-}
-
-/** Erzeugt eine Fackel (Stab + Flamme + PointLight) an der Weltposition (Mitte). */
-function createTorchGroup(
-  worldX: number,
-  worldY: number,
-  worldZ: number
-): THREE.Group {
-  const group = new THREE.Group();
-  group.position.set(worldX, worldY, worldZ);
-
-  const stickMat = new THREE.MeshStandardMaterial({
-    color: 0x4a3728,
-    roughness: 1,
-  });
-  const stickGeo = new THREE.BoxGeometry(0.12, 0.4, 0.12);
-  const stick = new THREE.Mesh(stickGeo, stickMat);
-  stick.position.y = 0.2;
-  stick.castShadow = true;
-  stick.receiveShadow = true;
-  group.add(stick);
-
-  const flameMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
-  const flameGeo = new THREE.BoxGeometry(0.2, 0.25, 0.2);
-  const flame = new THREE.Mesh(flameGeo, flameMat);
-  flame.position.y = 0.525;
-  group.add(flame);
-
-  const light = new THREE.PointLight(0xffaa44, 5, 40);
-  light.position.y = 0.5;
-  applyTorchShadowSetting(light);
-  group.add(light);
-
-  return group;
-}
-
-/** Apply torch shadow graphics setting to a torch PointLight (used when placing and when options change). */
-function applyTorchShadowSetting(light: THREE.PointLight): void {
-  const enabled = getShadowsEnabled() && getTorchShadowsEnabled();
-  light.castShadow = enabled;
-  if (enabled) {
-    light.shadow.mapSize.width = 256;
-    light.shadow.mapSize.height = 256;
-    light.shadow.camera.near = 0.5;
-    light.shadow.camera.far = 25;
-    light.shadow.bias = -0.0001;
-  }
-}
-
-/** Platziert eine Fackel an der angegebenen Weltposition (wenn möglich) und gibt true zurück. */
 function placeTorch(worldX: number, worldY: number, worldZ: number): boolean {
-  const keyNum = blockKeyNumeric(worldX, worldY, worldZ);
-  if (placedTorches.some((t) => blockKeyNumeric(t.x, t.y, t.z) === keyNum))
-    return false;
-  const group = createTorchGroup(worldX, worldY, worldZ);
-  if (typeof torchContainer !== "undefined") {
-    torchContainer.add(group);
-    placedTorches.push({ x: worldX, y: worldY, z: worldZ, group });
-    return true;
-  }
-  return false;
+  return placeTorchSystem({
+    worldX,
+    worldY,
+    worldZ,
+    torchContainer,
+    placedTorches,
+    blockKeyNumeric,
+  });
 }
 
 /** Remove the InstancedMesh for one block type from the chunk group and rebuild it with current positions. */
@@ -1122,7 +893,7 @@ function refreshChunkVisibleMeshes(data: ChunkData): void {
   for (const blockType of nextVisibleByType.keys()) {
     rebuildChunkLayer(data, blockType);
   }
-  _raycastMeshDirty = true;
+  raycastMeshCache.markDirty();
   _frustumDirty = true;
 }
 
@@ -1138,43 +909,25 @@ function breakBlock(
   worldY: number,
   worldZ: number
 ): void {
-  if (isUnbreakableBlock(blockType)) return;
-  const data = chunks.get(chunkKeyNum);
-  if (!data) return;
-  const positions = getLayerPositions(data, blockType);
-  if (!positions) return;
-  const instanceIndex = positions.findIndex(
-    (p) => p.x === worldX && p.y === worldY && p.z === worldZ
-  );
-  const pos =
-    instanceIndex >= 0
-      ? positions[instanceIndex]
-      : { x: worldX, y: worldY, z: worldZ };
-  blockModifications.set(blockKeyNumeric(pos.x, pos.y, pos.z), "air");
-  invalidateColumnHeight(pos.x, pos.z);
-  const lx = pos.x - data.cx * CHUNK_SIZE;
-  const lz = pos.z - data.cz * CHUNK_SIZE;
-  data.voxelMap.delete(localKey(lx, pos.y, lz));
-  if (instanceIndex === -1) {
-    refreshChunkVisibleMeshes(data);
-    return;
-  }
-
-  const cx = pos.x + 0.5;
-  const cz = pos.z + 0.5;
-  const dropSize = 0.35;
-  // Tatsächliche Bodenhöhe in dieser Säule (pos.x, pos.z): erstes festes Block von pos.y-1 abwärts
-  let groundY = pos.y - 1 + 0.5;
-  for (let by = pos.y - 1; by >= 0; by--) {
-    const t = getBlockAt(pos.x, by, pos.z);
-    if (t !== null && t !== "air" && isBlockTypeSolid(t as BlockType)) {
-      groundY = by + 0.5;
-      break;
-    }
-  }
-  const cy = groundY + dropSize * 0.5;
-  spawnDrop(cx, cy, cz, blockType);
-  refreshChunkVisibleMeshes(data);
+  breakBlockSystem({
+    chunkKeyNum,
+    blockType,
+    worldX,
+    worldY,
+    worldZ,
+    chunks,
+    getLayerPositions,
+    isUnbreakableBlock,
+    blockModifications,
+    blockKeyNumeric,
+    invalidateColumnHeight,
+    localKey,
+    chunkSize: CHUNK_SIZE,
+    isSolidBlock: isBlockTypeSolid,
+    getBlockAt,
+    refreshChunkVisibleMeshes,
+    spawnDrop,
+  });
 }
 
 /**
@@ -1197,7 +950,7 @@ function unloadChunk(scene: THREE.Scene, keyNum: number): void {
   });
   scene.remove(data.group);
   chunks.delete(keyNum);
-  _raycastMeshDirty = true;
+  raycastMeshCache.markDirty();
   _frustumDirty = true;
 }
 
@@ -1205,176 +958,12 @@ function unloadChunk(scene: THREE.Scene, keyNum: number): void {
 let lastPlayerChunkX: number | null = null;
 let lastPlayerChunkZ: number | null = null;
 
-/**
- * Ensure chunks around the player exist and unload chunks beyond render distance.
- * Uses circular distance (dx² + dz² <= R²) to load ~20% fewer chunks than a square.
- * When using the chunk worker and lookDirection is provided, requests chunks in front of the player first so the "void" fills in faster.
- */
-function updateChunks(
-  scene: THREE.Scene,
-  player: THREE.Group,
-  lookDirection?: { x: number; z: number }
-): void {
-  const chunkX = Math.floor(player.position.x / CHUNK_SIZE);
-  const chunkZ = Math.floor(player.position.z / CHUNK_SIZE);
-
-  const keysBefore = new Set(chunks.keys());
-
-  const rd = getRenderDistance();
-  const rdSq = getRenderDistanceSq();
-
-  const toLoad: Array<{ cx: number; cz: number }> = [];
-  for (let dx = -rd; dx <= rd; dx++) {
-    for (let dz = -rd; dz <= rd; dz++) {
-      if (dx * dx + dz * dz > rdSq) continue;
-      const cx = chunkX + dx;
-      const cz = chunkZ + dz;
-      const keyNum = chunkKeyNumeric(cx, cz);
-      if (chunks.has(keyNum)) continue;
-      if (chunkWorker) {
-        if (pendingChunkKeys.has(keyNum)) continue;
-        pendingChunkKeys.add(keyNum);
-        toLoad.push({ cx, cz });
-      } else {
-        generateChunk(scene, cx, cz);
-      }
-    }
-  }
-
-  if (chunkWorker && toLoad.length > 0) {
-    const lx = lookDirection?.x ?? 0;
-    const lz = lookDirection?.z ?? 0;
-    const hasLook = lx * lx + lz * lz > 0.01;
-    const px = player.position.x;
-    const pz = player.position.z;
-    if (hasLook) {
-      toLoad.sort((a, b) => {
-        const ax = a.cx * CHUNK_SIZE + CHUNK_SIZE / 2 - 0.5 - px;
-        const az = a.cz * CHUNK_SIZE + CHUNK_SIZE / 2 - 0.5 - pz;
-        const bx = b.cx * CHUNK_SIZE + CHUNK_SIZE / 2 - 0.5 - px;
-        const bz = b.cz * CHUNK_SIZE + CHUNK_SIZE / 2 - 0.5 - pz;
-        const dotA = ax * lx + az * lz;
-        const dotB = bx * lx + bz * lz;
-        return dotB - dotA;
-      });
-    }
-    for (const { cx, cz } of toLoad) {
-      chunkWorker.postMessage({
-        type: "generate",
-        chunkX: cx,
-        chunkZ: cz,
-        blockMods: getBlockModsForChunk(cx, cz),
-      });
-    }
-  }
-
-  const toUnload: number[] = [];
-  for (const [keyNum, data] of chunks) {
-    const distSq =
-      (data.cx - chunkX) * (data.cx - chunkX) +
-      (data.cz - chunkZ) * (data.cz - chunkZ);
-    if (distSq > rdSq) toUnload.push(keyNum);
-  }
-  for (const keyNum of toUnload) unloadChunk(scene, keyNum);
-
-  for (const [keyNum, data] of chunks) {
-    if (!keysBefore.has(keyNum)) {
-      spawnEntitiesForChunk(
-        scene,
-        chunkKey(data.cx, data.cz),
-        data.cx,
-        data.cz
-      );
-    }
-  }
-}
-
 /** OPT-3: Return cached list of block InstancedMeshes for raycasting; rebuild only when chunks changed. */
 function getRaycastMeshes(): THREE.InstancedMesh[] {
-  if (!_raycastMeshDirty) return _raycastMeshCache;
-  _raycastMeshCache = [];
-  for (const data of chunks.values()) {
-    for (const child of data.group.children) {
-      if (
-        child instanceof THREE.InstancedMesh &&
-        (child.userData as { blockType?: BlockType }).blockType
-      ) {
-        _raycastMeshCache.push(child);
-      }
-    }
-  }
-  _raycastMeshDirty = false;
-  return _raycastMeshCache;
+  return raycastMeshCache.get(chunks);
 }
 
 // ================= PLAYER =================
-
-/**
- * Creates only the player mesh group (head, body, legs, arms). Does not add to scene or set spawn.
- * Used for remote players in multiplayer; caller sets position/rotation and adds to scene.
- */
-export function createPlayerMeshOnly(): THREE.Group {
-  const player = new THREE.Group();
-
-  const matSkin = new THREE.MeshStandardMaterial({ color: 0xffdbac });
-  const matShirt = new THREE.MeshStandardMaterial({ color: 0x3366cc });
-  const matPants = new THREE.MeshStandardMaterial({ color: 0x2244aa });
-
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), matSkin);
-  head.position.y = 0.9;
-  head.castShadow = true;
-  head.receiveShadow = true;
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.2), matShirt);
-  body.position.y = 0.5;
-  body.castShadow = true;
-  body.receiveShadow = true;
-
-  const leg1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), matPants);
-  leg1.position.set(-0.08, 0.2, 0);
-  leg1.castShadow = true;
-  leg1.receiveShadow = true;
-
-  const leg2 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), matPants);
-  leg2.position.set(0.08, 0.2, 0);
-  leg2.castShadow = true;
-  leg2.receiveShadow = true;
-
-  const arm1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), matSkin);
-  arm1.position.set(-0.22, 0.5, 0);
-  arm1.castShadow = true;
-  arm1.receiveShadow = true;
-
-  const arm2 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), matSkin);
-  arm2.position.set(0.22, 0.5, 0);
-  arm2.castShadow = true;
-  arm2.receiveShadow = true;
-
-  const matFace = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
-  const eyeGeom = new THREE.BoxGeometry(0.08, 0.08, 0.02);
-  const mouthGeom = new THREE.BoxGeometry(0.1, 0.04, 0.02);
-  const leftEye = new THREE.Mesh(eyeGeom, matFace);
-  leftEye.position.set(-0.1, 0.02, 0.18);
-  const rightEye = new THREE.Mesh(eyeGeom, matFace);
-  rightEye.position.set(0.1, 0.02, 0.18);
-  const mouth = new THREE.Mesh(mouthGeom, matFace);
-  mouth.position.set(0, -0.1, 0.18);
-  head.add(leftEye);
-  head.add(rightEye);
-  head.add(mouth);
-
-  player.add(head);
-  player.add(body);
-  player.add(leg1);
-  player.add(leg2);
-  player.add(arm1);
-  player.add(arm2);
-
-  // Scale so visual height matches PLAYER_HEIGHT (Minecraft: 1.8 blocks).
-  player.scale.set(1, PLAYER_HEIGHT / PLAYER_MESH_VISUAL_HEIGHT, 1);
-
-  return player;
-}
 
 function createPlayer(scene: THREE.Scene) {
   const player = createPlayerMeshOnly();
@@ -1454,58 +1043,6 @@ function createPlayer(scene: THREE.Scene) {
   return { player, head, body, leg1, leg2, arm1, arm2 };
 }
 
-/**
- * Nur für Schatten in POV: unsichtbarer Körper mit gleicher Silhouette wie der Spieler.
- * Material mit colorWrite=false, depthWrite=false → in der Hauptansicht unsichtbar,
- * wirft aber in der Shadow-Pass weiterhin Schatten.
- */
-function createPOVShadowBody(): THREE.Group {
-  const group = new THREE.Group();
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0x000000,
-    colorWrite: false,
-    depthWrite: false,
-  });
-
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), mat);
-  head.position.y = 0.9;
-  head.castShadow = true;
-  head.receiveShadow = false;
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.2), mat);
-  body.position.y = 0.5;
-  body.castShadow = true;
-  body.receiveShadow = false;
-
-  const leg1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), mat);
-  leg1.position.set(-0.08, 0.2, 0);
-  leg1.castShadow = true;
-  leg1.receiveShadow = false;
-
-  const leg2 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.4, 0.15), mat);
-  leg2.position.set(0.08, 0.2, 0);
-  leg2.castShadow = true;
-  leg2.receiveShadow = false;
-
-  const arm1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), mat);
-  arm1.position.set(-0.22, 0.5, 0);
-  arm1.castShadow = true;
-  arm1.receiveShadow = false;
-
-  const arm2 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), mat);
-  arm2.position.set(0.22, 0.5, 0);
-  arm2.castShadow = true;
-  arm2.receiveShadow = false;
-
-  group.add(head);
-  group.add(body);
-  group.add(leg1);
-  group.add(leg2);
-  group.add(arm1);
-  group.add(arm2);
-  return group;
-}
-
 // ================= POV HAND =================
 
 function createPOVHands(camera: THREE.PerspectiveCamera) {
@@ -1583,6 +1120,12 @@ let povHandAnimY = 0;
 let povHandAnimZ = 0;
 const POV_HAND_LERP = 0.22; // wie schnell Richtung Ziel (0 = neutral, 1 = sofort)
 
+// Camera head bobbing (first-person): phase + smoothed offsets to avoid jitter.
+let cameraBobPhase = 0;
+let cameraBobX = 0;
+let cameraBobY = 0;
+let cameraBobStrength = 0;
+
 // Mining: Arm schwingt beim Halten auf Block (Abbauen)
 let miningSwingPhase = 0;
 const POV_ARM_BASE_ROTATION_X = THREE.MathUtils.degToRad(-25);
@@ -1618,175 +1161,20 @@ async function init(container?: HTMLElement): Promise<void> {
   initControlsAndInput();
 }
 
-/** Set to true to log grass/foliage colormap and tint state to console (debug black ground). */
-const DEBUG_GRASS_TINT =
-  typeof window !== "undefined" &&
-  (window.location.search.includes("debug_grass=1") ||
-    (window as unknown as { __DEBUG_GRASS_TINT?: boolean }).__DEBUG_GRASS_TINT);
-
-let _debugGrassMaterialLogged = false;
-
 async function initMaterialsAndColormaps(): Promise<void> {
-  grassColormapData = await loadGrassColormapImageData();
-  foliageColormapData = await loadFoliageColormapImageData();
-  if (DEBUG_GRASS_TINT) {
-    if (!grassColormapData) {
-      console.warn(
-        "[grass tint] Grass colormap failed to load – using fallback solid green. Check colormap/grass.png."
-      );
-    } else {
-      const c = sampleGrassColormap(grassColormapData, 0.5, 0.5);
-      console.log(
-        "[grass tint] Colormap loaded, sample (0.5,0.5):",
-        "#" + c.getHexString()
-      );
-    }
-  }
-
-  await Promise.all(
-    getAllBlockIds().map(async (blockId) => {
-      if (blockId === "water") {
-        blockMaterialCache.set(
-          blockId,
-          new THREE.MeshStandardMaterial({
-            color: 0x3366aa,
-            roughness: 0.2,
-            metalness: 0.1,
-            transparent: true,
-            opacity: 0.85,
-            depthWrite: true,
-            depthTest: true,
-            side: THREE.DoubleSide,
-            polygonOffset: true,
-            polygonOffsetUnits: 1,
-            polygonOffsetFactor: 1,
-          })
-        );
-        return;
-      }
-      const def = getBlockDefinition(blockId)!;
-      const names = getBlockTextureNames(blockId);
-      // Skip normal maps for terrain surface blocks: many packs encode these maps differently,
-      // which can produce very dark/black horizontal surfaces under PBR lighting.
-      const skipNormalMapForTerrain =
-        blockId === "dirt" ||
-        blockId === "stone" ||
-        blockId === "sand" ||
-        blockId === "snow" ||
-        blockId === "grass" ||
-        blockId === "grass_snow" ||
-        blockId === "grass_savanna" ||
-        blockId === "bedrock";
-      // Disable "_s" roughness/spec map for biome-tinted grass tops: dark grayscale albedo + roughness map
-      // often looks almost black under shadows.
-      const skipSpecularMapForGrass =
-        blockId === "grass" || blockId === "grass_savanna";
-      // Keep grass blocks on plain texture color (same logic as sand/gravel): no biome tint, no vertex colors.
-      const grassMaterialOpts: { color?: number; vertexColors?: boolean } = {};
-      if (DEBUG_GRASS_TINT && (blockId === "grass" || blockId === "grass_savanna")) {
-        console.log("[grass tint] material opts", {
-          blockId,
-          grassMaterialOpts,
-          skipNormalMapForTerrain,
-          textureNames: names,
-        });
-      }
-      // Leaves should use the plain texture color (same behavior as most full-cube blocks).
-      const leafMaterialOpts: { color?: number; vertexColors?: boolean } = {};
-      if (names.length === 1) {
-        const mat = await createPBRMaterial(names[0], {
-          transparent: def.transparent === true,
-          alphaTest: def.transparent ? 0.1 : undefined,
-          enableNormalMap: !skipNormalMapForTerrain,
-          enableSpecularMap: !skipSpecularMapForGrass,
-          ...grassMaterialOpts,
-          ...leafMaterialOpts,
-        });
-        blockMaterialCache.set(blockId, mat);
-        if (
-          DEBUG_GRASS_TINT &&
-          (blockId === "grass" || blockId === "grass_savanna") &&
-          !_debugGrassMaterialLogged
-        ) {
-          console.log("[grass tint] single material maps", {
-            blockId,
-            vertexColors: mat.vertexColors,
-            hasNormalMap: !!mat.normalMap,
-            hasRoughnessMap: !!mat.roughnessMap,
-            color: "#" + mat.color.getHexString(),
-          });
-          _debugGrassMaterialLogged = true;
-        }
-      } else {
-        const mats = await Promise.all(
-          names.map((name) =>
-            createPBRMaterial(name, {
-              transparent: def.transparent === true,
-              alphaTest: def.transparent ? 0.1 : undefined,
-              enableNormalMap: !skipNormalMapForTerrain,
-              enableSpecularMap: !skipSpecularMapForGrass,
-              ...grassMaterialOpts,
-              ...leafMaterialOpts,
-            })
-          )
-        ) as THREE.MeshStandardMaterial[];
-        blockMaterialCache.set(blockId, mats);
-        if (
-          DEBUG_GRASS_TINT &&
-          (blockId === "grass" || blockId === "grass_savanna") &&
-          !_debugGrassMaterialLogged
-        ) {
-          console.log(
-            "[grass tint] six-face material maps",
-            mats.map((m, i) => ({
-              face: i,
-              vertexColors: m.vertexColors,
-              hasNormalMap: !!m.normalMap,
-              hasRoughnessMap: !!m.roughnessMap,
-              color: "#" + m.color.getHexString(),
-            }))
-          );
-          _debugGrassMaterialLogged = true;
-        }
-      }
-    })
-  );
-
-  const tallGrassTex = await loadTextureOptional("tall_grass");
-  if (tallGrassTex) {
-    setPixelFilter(tallGrassTex);
-    tallGrassMaterial = new THREE.MeshStandardMaterial({
-      map: tallGrassTex,
-      roughness: 1,
-      transparent: true,
-      alphaTest: 0.1,
-      side: THREE.DoubleSide,
-      color: 0xffffff,
-      vertexColors: true,
-    });
-  }
+  const res = await initMaterialsAndColormapsSystem();
+  grassColormapData = res.grassColormapData;
+  foliageColormapData = res.foliageColormapData;
+  tallGrassMaterial = res.tallGrassMaterial;
 }
 
 function initSceneAndRenderer(container?: HTMLElement): void {
-  scene = new THREE.Scene();
-  torchContainer = new THREE.Group();
-  scene.add(torchContainer);
-  scene.fog = new THREE.Fog(0x87ceeb, 80, 280);
-
-  camera = new THREE.PerspectiveCamera(
-    getFovNormal(),
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
-  scene.add(camera);
-
-  renderer = new THREE.WebGLRenderer({ antialias: getAntialias() });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = getShadowsEnabled();
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  (container ?? document.body).appendChild(renderer.domElement);
-  fpsEl = document.getElementById("fps");
+  const res = initSceneAndRendererSystem(container);
+  scene = res.scene;
+  torchContainer = res.torchContainer;
+  camera = res.camera;
+  renderer = res.renderer;
+  fpsEl = res.fpsEl;
   createTerrainDebugOverlay();
 }
 
@@ -1955,24 +1343,45 @@ function initLightsAndSky(): void {
 }
 
 function initChunkWorker(): void {
-  if (typeof Worker !== "undefined") {
-    try {
-      chunkWorker = new Worker(new URL("./chunk.worker.ts", import.meta.url), {
-        type: "module",
-      });
-      chunkWorker.postMessage({ type: "init", seed: WORLD_SEED });
-      chunkWorker.onmessage = (e: MessageEvent<ChunkDataPayload>) => {
-        applyChunkPayload(scene, e.data);
-      };
-      chunkWorker.onerror = (event: ErrorEvent) => {
-        console.error("[terrain] chunk worker failed, falling back to main thread generation", event.message);
-        chunkWorker = null;
-      };
-    } catch (error) {
-      console.error("[terrain] chunk worker initialization failed, falling back to main thread generation", error);
+  const client = initChunkWorkerClient({
+    seed: WORLD_SEED,
+    onPayload: (payload) =>
+      applyChunkPayloadToScene(
+        scene,
+        payload,
+        {
+          chunks,
+          pendingChunkKeys,
+          grassColormapData,
+          foliageColormapData,
+          tallGrassMaterial,
+          getResolvedBiome,
+          onChunkAdded: (data) => {
+            spawnEntitiesForChunk(
+              scene,
+              chunkKey(data.cx, data.cz),
+              data.cx,
+              data.cz
+            );
+          },
+          onChunkChanged: () => {
+            raycastMeshCache.markDirty();
+            _frustumDirty = true;
+            applyPendingSpawnIfReady();
+          },
+        },
+        WORLD_SEED
+      ),
+    onError: (message, error) => {
+      console.error(
+        "[terrain] chunk worker failed, falling back to main thread generation",
+        message,
+        error
+      );
       chunkWorker = null;
-    }
-  }
+    },
+  });
+  chunkWorker = client?.worker ?? null;
 }
 
 function initPlayerAndWorldApi(): void {
@@ -1994,7 +1403,14 @@ function initPlayerAndWorldApi(): void {
 
   loadGame();
 
-  updateChunks(scene, player);
+  updateChunksFromModule({
+    scene,
+    player,
+    chunkWorker,
+    pendingChunkKeys,
+    generateChunkSync: generateChunk,
+    unloadChunk,
+  });
   lastPlayerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
   lastPlayerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
 
@@ -2390,7 +1806,15 @@ function updateChunkVisibility(): void {
   _direction.y = 0;
   if (_direction.lengthSq() > 0) _direction.normalize();
   if (lastPlayerChunkX !== playerChunkX || lastPlayerChunkZ !== playerChunkZ) {
-    updateChunks(scene, player, { x: _direction.x, z: _direction.z });
+    updateChunksFromModule({
+      scene,
+      player,
+      lookDirection: { x: _direction.x, z: _direction.z },
+      chunkWorker,
+      pendingChunkKeys,
+      generateChunkSync: generateChunk,
+      unloadChunk,
+    });
     lastPlayerChunkX = playerChunkX;
     lastPlayerChunkZ = playerChunkZ;
   }
@@ -2623,7 +2047,34 @@ function updateCameraAndViewMode(time: number, dt: number): void {
       povHands.rotation.z = 0;
     }
 
-    _cameraOffset.set(0, eyeHeight, 0);
+    // Camera head bobbing (Minecraft-like): based on actual horizontal speed and grounded state.
+    const horizSpeed = Math.sqrt(velocityX * velocityX + velocityZ * velocityZ);
+    const denom = sneakKeyHeld
+      ? horizontalMaxSpeedSneak
+      : isSprinting
+      ? horizontalMaxSpeedSprint
+      : horizontalMaxSpeed;
+    const speedFactor =
+      denom > 1e-6 ? THREE.MathUtils.clamp(horizSpeed / denom, 0, 1) : 0;
+    const airFactor = playerGrounded ? 1 : 0.12;
+    const targetStrength = speedFactor > 0.02 ? speedFactor * airFactor : 0;
+    const strengthLerp = 1 - Math.exp(-14 * dt);
+    cameraBobStrength += (targetStrength - cameraBobStrength) * strengthLerp;
+
+    const sprintMul = isSprinting ? 1.15 : 1;
+    const sneakMul = sneakKeyHeld ? 0.85 : 1;
+    const bobSpeed = (4 + 7 * cameraBobStrength) * sprintMul * sneakMul;
+    cameraBobPhase += dt * bobSpeed;
+
+    const ampY = 0.095 * sprintMul;
+    const ampX = 0.155 * sprintMul;
+    const targetBobY = Math.sin(cameraBobPhase * 2) * ampY * cameraBobStrength;
+    const targetBobX = Math.cos(cameraBobPhase) * ampX * cameraBobStrength;
+    const bobLerp = 1 - Math.exp(-18 * dt);
+    cameraBobX += (targetBobX - cameraBobX) * bobLerp;
+    cameraBobY += (targetBobY - cameraBobY) * bobLerp;
+
+    _cameraOffset.set(cameraBobX, eyeHeight + cameraBobY, 0);
     camera.position.copy(player.position).add(_cameraOffset);
   } else {
     head.visible = true;
@@ -2690,30 +2141,19 @@ function updateCameraAndViewMode(time: number, dt: number): void {
 }
 
 function updateDropsAndPickup(time: number): void {
-  const cx = player.position.x;
-  const cy = player.position.y + PLAYER_HEIGHT * 0.5;
-  const cz = player.position.z;
-  for (let i = drops.length - 1; i >= 0; i--) {
-    const d = drops[i];
-    // Nur nach oben bobbend, damit die Unterseite auf dem Boden bleibt (kein Schweben)
-    const bob =
-      Math.max(0, Math.sin(time * DROP_BOB_SPEED + d.bobPhase)) *
-      DROP_BOB_HEIGHT;
-    d.group.position.y = d.position.y + bob;
-    d.group.rotation.y = time * 0.8 + d.bobPhase * 0.5;
-    const dx = d.position.x - cx;
-    const dy = d.position.y - cy;
-    const dz = d.position.z - cz;
-    const distSq = dx * dx + dy * dy + dz * dz;
-    if (distSq < PICKUP_RADIUS * PICKUP_RADIUS) {
-      addBlockToInventory(d.blockType);
-      scene.remove(d.group);
-      d.group.traverse((obj) => {
-        if (obj instanceof THREE.Mesh && obj.geometry) obj.geometry.dispose();
-      });
-      drops.splice(i, 1);
-    }
-  }
+  updateDropsAndPickupSystem({
+    scene,
+    drops,
+    playerX: player.position.x,
+    playerY: player.position.y + PLAYER_HEIGHT * 0.5,
+    playerZ: player.position.z,
+    time,
+    config: {
+      pickupRadius: PICKUP_RADIUS,
+      bobSpeed: DROP_BOB_SPEED,
+      bobHeight: DROP_BOB_HEIGHT,
+    },
+  });
 }
 
 function updateBlockBreakAndPlace(dt: number): void {
@@ -2788,7 +2228,8 @@ function updateBlockBreakAndPlace(dt: number): void {
             const ckx = Math.floor(adjX / CHUNK_SIZE);
             const ckz = Math.floor(adjZ / CHUNK_SIZE);
             chunks.delete(chunkKeyNumeric(ckx, ckz));
-            _raycastMeshDirty = true;
+            raycastMeshCache.markDirty();
+            _frustumDirty = true;
             consumeOneFromSelectedSlot();
           }
         }
@@ -2896,19 +2337,15 @@ function updateShadowAndRender(dt: number): void {
   }
   if (_frustumDirty) {
     _frustumDirty = false;
-    _projScreenMatrix.multiplyMatrices(
-      camera.projectionMatrix,
-      camera.matrixWorldInverse
-    );
-    _frustum.setFromProjectionMatrix(_projScreenMatrix);
-    for (const data of chunks.values()) {
-      const worldX = data.cx * CHUNK_SIZE;
-      const worldZ = data.cz * CHUNK_SIZE;
-      _chunkBoxMin.set(worldX, 0, worldZ);
-      _chunkBoxMax.set(worldX + CHUNK_SIZE, WORLD_HEIGHT, worldZ + CHUNK_SIZE);
-      _chunkBox.set(_chunkBoxMin, _chunkBoxMax);
-      data.group.visible = _frustum.intersectsBox(_chunkBox);
-    }
+    updateChunkFrustumVisibility({
+      camera,
+      chunks,
+      frustum: _frustum,
+      projScreenMatrix: _projScreenMatrix,
+      chunkBox: _chunkBox,
+      chunkBoxMin: _chunkBoxMin,
+      chunkBoxMax: _chunkBoxMax,
+    });
   }
 
   if (multiplayerEnabled) updateMultiplayer(dt);
@@ -2962,9 +2399,5 @@ export function applyGraphicsSettings(): void {
   sunLight.shadow.camera.bottom = -SHADOW_RADIUS;
   sunLight.shadow.camera.updateProjectionMatrix();
 
-  // Update torch lights (stick=0, flame=1, light=2 in each group)
-  for (const t of placedTorches) {
-    const child = t.group.children[2];
-    if (child instanceof THREE.PointLight) applyTorchShadowSetting(child);
-  }
+  applyTorchShadowSettingsToPlacedTorches(placedTorches);
 }

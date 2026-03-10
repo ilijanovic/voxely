@@ -24,4 +24,22 @@ export const mountainDefinition: BiomeDefinition = {
   },
   terrainParams: mountainTerrain,
   climate: { tempMin: 0.25, tempMax: 0.5, humidityMin: 0.2, humidityMax: 0.55 },
+  multiNoise: {
+    center: {
+      continentalness: 0.78,
+      erosion: -0.28,
+      temperature: -0.25,
+      humidity: -0.25,
+      weirdness: 0.2,
+      y: 0.55,
+    },
+    weights: {
+      y: 2,
+      continentalness: 1.6,
+      erosion: 1.8,
+      weirdness: 1.2,
+      temperature: 1.4,
+      humidity: 1.2,
+    },
+  },
 };

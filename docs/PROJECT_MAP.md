@@ -71,8 +71,6 @@ When adding or changing biomes, use **`.cursor/skills/biome-integration-assistan
 - **`src/block-materials.ts`** – Three.js materials, texture loading, grass/foliage colormap sampling, shared geometries.
 - **`src/terrain/block-ids.ts`** – Terrain-side block ID mapping (used inside the pipeline; aligns with `BlockType`).
 
-Colormap assets: **`public/assets/minecraft/textures/colormap/`** (see `public/assets/minecraft/textures/colormap/README.md`).
-
 ---
 
 ## Entities
@@ -89,9 +87,9 @@ Colormap assets: **`public/assets/minecraft/textures/colormap/`** (see `public/a
 
 ## Assets
 
-- **`public/textures/`** – Default block textures (dirt, grass, stone, etc.).
-- **`public/assets/minecraft/`** – Minecraft-style layout: `textures/block/`, `textures/entity/`, `textures/colormap/`, optifine, models.
+- **`public/assets/minecraft/`** – Minecraft-style layout: `textures/block/`, `textures/entity/`, optifine, models.
 - **`public/packs/`** – Resource packs; selection and paths described in **`docs/RESOURCE_PACKS.md`**.
+- **`public/textures/preview.html`** – Local texture preview page (dev aid).
 
 ---
 

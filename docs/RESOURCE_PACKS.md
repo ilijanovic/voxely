@@ -28,8 +28,8 @@ Packs like **Alacrity** follow this layout (e.g. `assets/minecraft/models/block/
 ## Choosing a pack in the app
 
 - **Default**: The default is the built-in **assets** (`/assets/minecraft/textures/block`, i.e. `public/assets/minecraft/textures/block/`). If a texture is missing, the game uses a grey fallback.
-- **Options (Pause → Options → Graphics)**: The **Resource pack** dropdown shows the list from `public/packs/index.json` (or a fallback). Changing the selection saves your choice and reloads the game.
-- **URL**: Use `?resource_pack=/packs/<name>` to load a specific pack; the URL overrides the saved selection.
+- **Options (Pause → Options → Graphics)**: The **Resource pack** dropdown is populated from `/packs/index.json` (or a fallback). Changing the selection saves your choice and reloads the game.
+- **URL**: Use `?resource_pack=/packs/<name>` to load a specific pack; the URL overrides the saved selection (a leading `/` is optional).
 
 ## Making this app compatible
 

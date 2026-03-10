@@ -14,6 +14,7 @@ import {
 } from "./chunk-runtime";
 import { isSolidBlock as isBlockTypeSolid } from "./block-registry";
 import { createTerrainSampling } from "./terrain-sampling";
+import { BIOME_REGISTRY } from "./terrain/biomes";
 
 export type { Biome };
 
@@ -45,6 +46,7 @@ const terrainSampling = createTerrainSampling(WORLD_SEED);
 /** Noise for tree generation only (forest density + placement). */
 const forestDensityNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 777));
 const treePlacementNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 888));
+const detailNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 456));
 
 /** Biomes that can be chosen for spawn; each has equal probability (deterministic per WORLD_SEED). */
 export const SPAWNABLE_BIOMES: Biome[] = [
@@ -153,6 +155,93 @@ const SPAWN_BIOME_MIN_RADIUS = 2 * CHUNK_SIZE;
 const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38;
 export const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26;
 export const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16;
+
+function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
+  const def = BIOME_REGISTRY[biome];
+  const surface = def.blocks.surface as BlockType;
+
+  const getMaxSlopeDelta = (x: number, z: number): number => {
+    const h = getHeight(x, z);
+    const dN = Math.abs(getHeight(x, z - 1) - h);
+    const dS = Math.abs(getHeight(x, z + 1) - h);
+    const dW = Math.abs(getHeight(x - 1, z) - h);
+    const dE = Math.abs(getHeight(x + 1, z) - h);
+    return Math.max(dN, dS, dW, dE);
+  };
+
+  if (topY < WATER_LEVEL) return def.blocks.underwater as BlockType;
+  if (topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1) return def.blocks.shore as BlockType;
+
+  const blend = terrainSampling.getBiomeBlend(wx, wz);
+  if (blend.primary === "ocean" && blend.secondary !== "ocean") {
+    const landSurface = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType;
+    const n = (detailNoise2D(wx * 0.11 + 19.3, wz * 0.11 - 71.7) + 1) * 0.5;
+    return n < blend.t ? landSurface : "sand";
+  }
+
+  if (
+    blend.primary !== blend.secondary &&
+    blend.primary !== "ocean" &&
+    blend.secondary !== "ocean"
+  ) {
+    const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType;
+    const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType;
+    if (a !== b && blend.t > 0.1 && blend.t < 0.9) {
+      const n = (detailNoise2D(wx * 0.13 - 33.1, wz * 0.13 + 5.7) + 1) * 0.5;
+      return n < blend.t ? b : a;
+    }
+  }
+
+  if (
+    (biome === "mountain" || biome === "windswept_hills" || biome === "windswept_forest") &&
+    topY >= MOUNTAIN_STONE_SURFACE_HEIGHT
+  )
+    return "stone";
+  if (biome === "meadow" && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return "stone";
+  if (topY >= SURFACE_STONE_HEIGHT && biome !== "frozen_peaks" && biome !== "jagged_peaks")
+    return "stone";
+
+  if (biome === "frozen_peaks") {
+    const slope = getMaxSlopeDelta(wx, wz);
+    const steep = slope >= 6;
+    const verySteep = slope >= 9;
+    const high = topY >= WATER_LEVEL + 30;
+    const n = (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5;
+    const blob = (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5;
+    if (high && (verySteep || (steep && n < 0.62))) return "packed_ice";
+    if (high && steep && blob < 0.12) return "ice";
+    return "snow";
+  }
+
+  if (
+    topY >= WATER_LEVEL + 20 &&
+    biome !== "desert" &&
+    biome !== "savanna" &&
+    biome !== "mountain" &&
+    biome !== "jungle" &&
+    biome !== "cherry_grove" &&
+    biome !== "windswept_forest" &&
+    biome !== "meadow" &&
+    biome !== "plains"
+  )
+    return "grass_snow";
+
+  if (surface === "snow") return "grass_snow";
+  if (biome === "savanna" && surface === "grass") return "grass_savanna";
+
+  if (surface === "grass") {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (dx === 0 && dz === 0) continue;
+        const n = getResolvedBiome(wx + dx, wz + dz);
+        if (n === "snow" || n === "grove" || n === "snowy_slopes" || n === "frozen_peaks")
+          return "grass_snow";
+      }
+    }
+  }
+
+  return surface;
+}
 
 /** Check that all 4 cardinal points 1 chunk away are also in the target biome. */
 function isBiomeSolid(wx: number, wz: number, biome: Biome): boolean {
@@ -476,6 +565,7 @@ export function shouldPlaceTree(
 ): boolean {
   const biome = getResolvedBiome(wx, wz);
   if (biome === "desert") return false;
+  if (biome === "snow" || biome === "grove") return false;
   const topY = getHeight(wx, wz);
   if (topY < WATER_LEVEL) return false;
   if (biome === "mountain" && topY >= WATER_LEVEL + 18) return false;
@@ -488,8 +578,13 @@ export function shouldPlaceTree(
     biome === "windswept_gravelly_hills"
   )
     return false;
-  const surfaceType = terrainSampling.getBlockTypeAt(biome, topY, topY);
-  if (surfaceType !== "grass" && surfaceType !== "grass_snow" && surfaceType !== "grass_savanna")
+  const surfaceType = getSurfaceBlockAt(wx, wz, biome, topY);
+  if (
+    surfaceType !== "grass" &&
+    surfaceType !== "grass_snow" &&
+    surfaceType !== "grass_savanna" &&
+    surfaceType !== "dirt"
+  )
     return false;
   if (!isTerrainFlatEnough(wx, wz)) return false;
   if (!getTreePlacementPass(wx, wz, biome, caches)) return false;

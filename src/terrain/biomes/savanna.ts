@@ -24,4 +24,20 @@ export const savannaDefinition: BiomeDefinition = {
   },
   terrainParams: savannaTerrain,
   climate: { tempMin: 0.55, tempMax: 0.75, humidityMin: 0.35, humidityMax: 0.55 },
+  multiNoise: {
+    center: {
+      continentalness: 0.68,
+      erosion: 0.12,
+      temperature: 0.3,
+      humidity: -0.1,
+      weirdness: 0.05,
+      y: 0.25,
+    },
+    weights: {
+      temperature: 2,
+      humidity: 2,
+      continentalness: 1.3,
+      erosion: 1.1,
+    },
+  },
 };

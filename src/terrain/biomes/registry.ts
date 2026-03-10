@@ -115,6 +115,46 @@ export function getLandBiomeByClimate(temp: number, humidity: number): Biome {
   return best;
 }
 
+export interface LandBiomeBlend {
+  primary: Biome;
+  secondary: Biome;
+  /** Weight for secondary biome in [0,1]. */
+  t: number;
+}
+
+/**
+ * Return the two closest land biomes in climate space plus a blend weight.
+ * This is meant to soften biome transitions (avoid hard edges).
+ */
+export function getLandBiomeBlendByClimate(temp: number, humidity: number): LandBiomeBlend {
+  let best: Biome = "plains";
+  let bestD = Infinity;
+  let second: Biome = "plains";
+  let secondD = Infinity;
+
+  for (const b of BASE_LAND_BIOMES) {
+    const def = BIOME_REGISTRY[b];
+    if (!def.climate) continue;
+    const d = distSq(temp, humidity, def.climate);
+    if (d < bestD) {
+      second = best;
+      secondD = bestD;
+      best = b;
+      bestD = d;
+    } else if (d < secondD) {
+      second = b;
+      secondD = d;
+    }
+  }
+
+  // Convert distances to a stable, bounded secondary weight.
+  // Far from any boundary: bestD << secondD => t ~ 0.
+  // Exactly between: bestD == secondD => t = 0.5.
+  const denom = bestD + secondD;
+  const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0;
+  return { primary: best, secondary: second, t };
+}
+
 /**
  * Backward-compatible alias kept for existing call sites/tests.
  * Returns land biomes only.

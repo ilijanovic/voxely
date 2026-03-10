@@ -24,4 +24,20 @@ export const forestDefinition: BiomeDefinition = {
   },
   terrainParams: forestTerrain,
   climate: { tempMin: 0.3, tempMax: 0.55, humidityMin: 0.5, humidityMax: 0.8 },
+  multiNoise: {
+    center: {
+      continentalness: 0.72,
+      erosion: -0.05,
+      temperature: -0.15,
+      humidity: 0.3,
+      weirdness: 0.0,
+      y: 0.3,
+    },
+    weights: {
+      temperature: 2,
+      humidity: 2,
+      continentalness: 1.3,
+      erosion: 1.2,
+    },
+  },
 };

@@ -24,4 +24,20 @@ export const plainsDefinition: BiomeDefinition = {
   },
   terrainParams: plainsTerrain,
   climate: { tempMin: 0.45, tempMax: 0.7, humidityMin: 0.25, humidityMax: 0.5 },
+  multiNoise: {
+    center: {
+      continentalness: 0.68,
+      erosion: 0.05,
+      temperature: 0.15,
+      humidity: -0.25,
+      weirdness: 0.0,
+      y: 0.25,
+    },
+    weights: {
+      temperature: 2,
+      humidity: 2,
+      continentalness: 1.5,
+      erosion: 1.2,
+    },
+  },
 };

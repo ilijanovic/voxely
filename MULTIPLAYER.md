@@ -2,7 +2,7 @@
 
 ## 1. Start the server
 
-In the project folder (vite-project):
+In the project folder:
 
 ```bash
 npm run server
@@ -24,7 +24,7 @@ In a **second** terminal:
 npm run dev
 ```
 
-Open the browser at **http://localhost:5173** (or the port shown, e.g. 5174).
+Open the browser at **http://localhost:5173** (or the port shown by Vite).
 
 ## 3. Open two windows
 

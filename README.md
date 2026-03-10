@@ -2,6 +2,10 @@
 
 A browser-based voxel game – procedurally generated worlds, mine and place blocks, multiplayer, and third-person controls.
 
+## Gameplay mechanics (LLM-friendly)
+
+- See `docs/GAMEPLAY_LLM.md` for a **current behavior vs target spec** breakdown designed for LLMs.
+
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)
 ![Vue 3](https://img.shields.io/badge/Vue-3.5-42b883)
 ![Three.js](https://img.shields.io/badge/Three.js-0.183-black)
@@ -9,7 +13,9 @@ A browser-based voxel game – procedurally generated worlds, mine and place blo
 
 ## Features
 
-- **Procedural world** – Simplex noise terrain with biomes (Plains, Desert, Forest, Jungle, Mountain, Snow)
+- **Procedural world** – Simplex noise terrain with multiple biomes:
+  - Base: Plains, Ocean, Desert, Savanna, Forest, Jungle, Mountain, Snow
+  - Highland variants: Meadow, Grove, Snowy Slopes, Stony Peaks, Frozen Peaks, Jagged Peaks, Cherry Grove, Windswept Hills, Windswept Gravelly Hills, Windswept Forest
 - **Blocks** – Grass, dirt, stone, sand, snow, wood, leaves, torch, bedrock; mine (left-click) and place (right-click)
 - **Water** – Global water level, surface rendering
 - **Hotbar** – 9 slots (keys 1–9 / scroll wheel), block selection
@@ -36,7 +42,6 @@ A browser-based voxel game – procedurally generated worlds, mine and place blo
 ## Installation
 
 ```bash
-cd vite-project
 npm install
 ```
 
@@ -44,7 +49,7 @@ npm install
 
 | Command             | Description                                |
 |---------------------|--------------------------------------------|
-| `npm run dev`       | Dev server (e.g. http://localhost:5173)   |
+| `npm run dev`       | Dev server (see terminal output for URL)   |
 | `npm run build`     | TypeScript check + production build        |
 | `npm run preview`   | Preview the build                           |
 | `npm run textures`  | Texture generation script                  |
@@ -53,7 +58,7 @@ npm install
 ## Running the game
 
 1. **Singleplayer only:**  
-   Run `npm run dev` → open the shown URL in your browser (e.g. http://localhost:5173).
+   Run `npm run dev` → open the shown URL in your browser (usually `http://localhost:5173`).
 
 2. **With multiplayer:**  
    Start `npm run server` first, then in a second terminal run `npm run dev`. Open two browser tabs/windows with the same URL for two players in one world.  
@@ -78,7 +83,7 @@ After clicking: left-click = mine block, right-click = place block.
 ## Project structure (overview)
 
 ```
-vite-project/
+.
 ├── src/
 │   ├── game.ts          # Core: terrain, chunks, rendering, physics, input
 │   ├── terrain-core.ts  # Chunk generation, biomes, blocks
@@ -89,7 +94,8 @@ vite-project/
 │   └── components/      # Vue: PauseMenu, Inventory, Chat, Menu
 ├── server/
 │   └── server.js        # Multiplayer server (Socket.io)
-├── public/textures/     # Block textures
+├── public/assets/       # Minecraft-style assets (textures, models, etc.)
+├── public/packs/        # Resource packs (see docs/RESOURCE_PACKS.md)
 └── scripts/
     └── generate-textures.cjs
 ```
