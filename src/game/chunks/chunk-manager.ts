@@ -3,12 +3,13 @@ import { chunks, chunkKey, chunkKeyNumeric, getBlockModsForChunk } from "../../c
 import { getRenderDistance, getRenderDistanceSq } from "../../graphics-settings";
 import { spawnEntitiesForChunk } from "../../entities/spawn";
 import { planChunksAroundPlayer } from "./chunk-planning";
+import type { ChunkWorkerClient } from "./chunk-worker-client";
 
 export function updateChunks(params: {
   scene: THREE.Scene;
   player: THREE.Group;
   lookDirection?: { x: number; z: number };
-  chunkWorker: Worker | null;
+  chunkWorker: ChunkWorkerClient | null;
   pendingChunkKeys: Set<number>;
   generateChunkSync: (scene: THREE.Scene, cx: number, cz: number) => void;
   unloadChunk: (scene: THREE.Scene, keyNum: number) => void;
@@ -40,8 +41,7 @@ export function updateChunks(params: {
     for (const { cx, cz } of toLoad) {
       const keyNum = chunkKeyNumeric(cx, cz);
       params.pendingChunkKeys.add(keyNum);
-      params.chunkWorker!.postMessage({
-        type: "generate",
+      params.chunkWorker!.requestChunk({
         chunkX: cx,
         chunkZ: cz,
         blockMods: getBlockModsForChunk(cx, cz),

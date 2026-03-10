@@ -30,6 +30,11 @@ export interface ChunkDataPayload {
   chunkZ: number;
   heightmap: number[][];
   voxelMapEntries: Array<[number, BlockType]>;
+  /**
+   * Optional request identifier used by the main thread to discard stale worker responses.
+   * When present, this must be propagated unchanged from the worker request.
+   */
+  requestId?: number;
 }
 
 export function createChunkGenerator(seed: number) {

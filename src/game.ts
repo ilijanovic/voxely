@@ -117,7 +117,7 @@ import {
 import { filterVisibleBlocks as filterVisibleBlocksPure } from "./game/chunks/visible-blocks";
 import { isPendingSpawnReady } from "./game/player/pending-spawn";
 import { RaycastMeshCache } from "./game/chunks/raycast-cache";
-import { initChunkWorkerClient } from "./game/chunks/chunk-worker-client";
+import { initChunkWorkerClient, type ChunkWorkerClient } from "./game/chunks/chunk-worker-client";
 import { applyChunkPayload as applyChunkPayloadToScene } from "./game/chunks/chunk-apply";
 import { updateChunks as updateChunksFromModule } from "./game/chunks/chunk-manager";
 import {
@@ -272,8 +272,8 @@ function loadGame(): boolean {
   return true;
 }
 
-/** Web Worker for async chunk generation (avoids main-thread stutter). */
-let chunkWorker: Worker | null = null;
+/** Worker pool client for async chunk generation (avoids main-thread stutter). */
+let chunkWorker: ChunkWorkerClient | null = null;
 /** Chunk key numbers we've requested from the worker but not yet received. */
 const pendingChunkKeys = new Set<number>();
 /** Wenn gesetzt: Spawn-Position erst setzen, wenn alle benötigten Chunks geladen sind (Worker-Lieferung abwarten). */
@@ -1009,15 +1009,14 @@ function createPlayer(scene: THREE.Scene) {
   }
 
   if (chunkWorker) {
-    // Chunks vom Worker anfordern; Position erst setzen, wenn alle da sind (applyPendingSpawnIfReady).
+    // Chunks vom Worker-Pool anfordern; Position erst setzen, wenn alle da sind (applyPendingSpawnIfReady).
     for (let cx = minCx; cx <= maxCx; cx++) {
       for (let cz = minCz; cz <= maxCz; cz++) {
         const keyNum = chunkKeyNumeric(cx, cz);
         if (chunks.has(keyNum)) continue;
         if (pendingChunkKeys.has(keyNum)) continue;
         pendingChunkKeys.add(keyNum);
-        chunkWorker.postMessage({
-          type: "generate",
+        chunkWorker.requestChunk({
           chunkX: cx,
           chunkZ: cz,
           blockMods: getBlockModsForChunk(cx, cz),
@@ -1345,6 +1344,8 @@ function initLightsAndSky(): void {
 function initChunkWorker(): void {
   const client = initChunkWorkerClient({
     seed: WORLD_SEED,
+    // Cap worker pool size (default is 4; this makes it easy to wire into settings later).
+    maxWorkers: 4,
     onPayload: (payload) =>
       applyChunkPayloadToScene(
         scene,
@@ -1381,7 +1382,7 @@ function initChunkWorker(): void {
       chunkWorker = null;
     },
   });
-  chunkWorker = client?.worker ?? null;
+  chunkWorker = client ?? null;
 }
 
 function initPlayerAndWorldApi(): void {
