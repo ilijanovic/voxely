@@ -10,17 +10,17 @@ export const mountainTerrain: TerrainParams = {
 
 export const mountainLayers: LayerConfig = {
   surface: "grass",
-  subsurface: "dirt",
-  subsurfaceDepth: 2,
+  subsurface: "stone",
+  subsurfaceDepth: 3,
 };
 
 export const mountainDefinition: BiomeDefinition = {
   blocks: {
     surface: "grass",
-    subsurface: "dirt",
-    subsurfaceDepth: 2,
-    shore: "sand",
-    underwater: "sand",
+    subsurface: "stone",
+    subsurfaceDepth: 3,
+    shore: "gravel",
+    underwater: "gravel",
   },
   terrainParams: mountainTerrain,
   climate: { tempMin: 0.25, tempMax: 0.5, humidityMin: 0.2, humidityMax: 0.55 },

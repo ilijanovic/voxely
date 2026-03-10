@@ -11,14 +11,14 @@ export const cherryGroveTerrain: TerrainParams = {
 export const cherryGroveLayers: LayerConfig = {
   surface: "grass",
   subsurface: "dirt",
-  subsurfaceDepth: 2,
+  subsurfaceDepth: 3,
 };
 
 export const cherryGroveDefinition: BiomeDefinition = {
   blocks: {
     surface: "grass",
     subsurface: "dirt",
-    subsurfaceDepth: 2,
+    subsurfaceDepth: 3,
     shore: "sand",
     underwater: "sand",
   },

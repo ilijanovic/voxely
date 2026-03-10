@@ -11,14 +11,14 @@ export const groveTerrain: TerrainParams = {
 export const groveLayers: LayerConfig = {
   surface: "snow",
   subsurface: "dirt",
-  subsurfaceDepth: 2,
+  subsurfaceDepth: 3,
 };
 
 export const groveDefinition: BiomeDefinition = {
   blocks: {
     surface: "snow",
     subsurface: "dirt",
-    subsurfaceDepth: 2,
+    subsurfaceDepth: 3,
     shore: "sand",
     underwater: "sand",
   },

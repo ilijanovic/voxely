@@ -10,17 +10,17 @@ export const windsweptHillsTerrain: TerrainParams = {
 
 export const windsweptHillsLayers: LayerConfig = {
   surface: "grass",
-  subsurface: "dirt",
-  subsurfaceDepth: 2,
+  subsurface: "stone",
+  subsurfaceDepth: 3,
 };
 
 export const windsweptHillsDefinition: BiomeDefinition = {
   blocks: {
     surface: "grass",
-    subsurface: "dirt",
-    subsurfaceDepth: 2,
-    shore: "sand",
-    underwater: "sand",
+    subsurface: "stone",
+    subsurfaceDepth: 3,
+    shore: "gravel",
+    underwater: "gravel",
   },
   terrainParams: windsweptHillsTerrain,
 };

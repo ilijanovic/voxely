@@ -11,14 +11,14 @@ export const meadowTerrain: TerrainParams = {
 export const meadowLayers: LayerConfig = {
   surface: "grass",
   subsurface: "dirt",
-  subsurfaceDepth: 2,
+  subsurfaceDepth: 3,
 };
 
 export const meadowDefinition: BiomeDefinition = {
   blocks: {
     surface: "grass",
     subsurface: "dirt",
-    subsurfaceDepth: 2,
+    subsurfaceDepth: 3,
     shore: "sand",
     underwater: "sand",
   },

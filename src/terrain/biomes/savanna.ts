@@ -9,7 +9,7 @@ export const savannaTerrain: TerrainParams = {
 };
 
 export const savannaLayers: LayerConfig = {
-  surface: "grass",
+  surface: "grass_savanna",
   subsurface: "dirt",
   subsurfaceDepth: 2,
 };

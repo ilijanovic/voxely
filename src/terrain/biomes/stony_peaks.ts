@@ -19,8 +19,8 @@ export const stonyPeaksDefinition: BiomeDefinition = {
     surface: "stone",
     subsurface: "stone",
     subsurfaceDepth: 3,
-    shore: "sand",
-    underwater: "sand",
+    shore: "gravel",
+    underwater: "gravel",
   },
   terrainParams: stonyPeaksTerrain,
   multiNoise: {

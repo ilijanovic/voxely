@@ -11,14 +11,14 @@ export const plainsTerrain: TerrainParams = {
 export const plainsLayers: LayerConfig = {
   surface: "grass",
   subsurface: "dirt",
-  subsurfaceDepth: 2,
+  subsurfaceDepth: 3,
 };
 
 export const plainsDefinition: BiomeDefinition = {
   blocks: {
     surface: "grass",
     subsurface: "dirt",
-    subsurfaceDepth: 2,
+    subsurfaceDepth: 3,
     shore: "sand",
     underwater: "sand",
   },

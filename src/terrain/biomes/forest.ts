@@ -11,14 +11,14 @@ export const forestTerrain: TerrainParams = {
 export const forestLayers: LayerConfig = {
   surface: "grass",
   subsurface: "dirt",
-  subsurfaceDepth: 2,
+  subsurfaceDepth: 3,
 };
 
 export const forestDefinition: BiomeDefinition = {
   blocks: {
     surface: "grass",
     subsurface: "dirt",
-    subsurfaceDepth: 2,
+    subsurfaceDepth: 3,
     shore: "sand",
     underwater: "sand",
   },

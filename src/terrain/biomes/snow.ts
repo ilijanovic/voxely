@@ -11,14 +11,14 @@ export const snowTerrain: TerrainParams = {
 export const snowLayers: LayerConfig = {
   surface: "snow",
   subsurface: "dirt",
-  subsurfaceDepth: 2,
+  subsurfaceDepth: 3,
 };
 
 export const snowDefinition: BiomeDefinition = {
   blocks: {
     surface: "snow",
     subsurface: "dirt",
-    subsurfaceDepth: 2,
+    subsurfaceDepth: 3,
     shore: "sand",
     underwater: "sand",
   },

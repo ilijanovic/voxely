@@ -20,8 +20,8 @@ export const frozenPeaksDefinition: BiomeDefinition = {
     surface: "snow",
     subsurface: "stone",
     subsurfaceDepth: 3,
-    shore: "sand",
-    underwater: "sand",
+    shore: "snow",
+    underwater: "stone",
   },
   terrainParams: frozenPeaksTerrain,
   multiNoise: {

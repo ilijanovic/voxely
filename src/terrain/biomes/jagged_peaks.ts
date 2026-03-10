@@ -19,8 +19,8 @@ export const jaggedPeaksDefinition: BiomeDefinition = {
     surface: "snow",
     subsurface: "stone",
     subsurfaceDepth: 4,
-    shore: "sand",
-    underwater: "sand",
+    shore: "gravel",
+    underwater: "stone",
   },
   terrainParams: jaggedPeaksTerrain,
   multiNoise: {

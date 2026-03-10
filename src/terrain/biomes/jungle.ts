@@ -11,14 +11,14 @@ export const jungleTerrain: TerrainParams = {
 export const jungleLayers: LayerConfig = {
   surface: "grass",
   subsurface: "dirt",
-  subsurfaceDepth: 3,
+  subsurfaceDepth: 4,
 };
 
 export const jungleDefinition: BiomeDefinition = {
   blocks: {
     surface: "grass",
     subsurface: "dirt",
-    subsurfaceDepth: 3,
+    subsurfaceDepth: 4,
     shore: "sand",
     underwater: "sand",
   },
