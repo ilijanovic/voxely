@@ -7,7 +7,7 @@ import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants";
 import type { BlockModEntry } from "./terrain-core";
 
 export const chunks = new Map<number, ChunkData>();
-export const blockModifications = new Map<number, BlockType | "air">();
+export const blockModifications = new Map<string, BlockType | "air">();
 export const columnHeightCache = new Map<number, number>();
 
 export function chunkKey(cx: number, cz: number): string {
@@ -50,6 +50,10 @@ export function blockKeyFromNumeric(k: number): { bx: number; by: number; bz: nu
   return { bx, by, bz };
 }
 
+export function blockKeyString(bx: number, by: number, bz: number): string {
+  return `${Math.floor(bx)},${Math.floor(by)},${Math.floor(bz)}`;
+}
+
 export function invalidateColumnHeight(bx: number, bz: number): void {
   columnHeightCache.delete(columnCacheKey(bx, bz));
 }
@@ -67,7 +71,7 @@ export function getBlockAt(
   const iy = Math.floor(by);
   const iz = Math.floor(bz);
   if (iy < 0 || iy >= WORLD_HEIGHT) return "air";
-  const mod = blockModifications.get(blockKeyNumeric(ix, iy, iz));
+  const mod = blockModifications.get(blockKeyString(ix, iy, iz));
   if (mod !== undefined) return mod;
   const cx = Math.floor(ix / CHUNK_SIZE);
   const cz = Math.floor(iz / CHUNK_SIZE);
@@ -104,8 +108,11 @@ export function isSolidBlockLoadedOnly(
 
 export function getBlockModsForChunk(chunkX: number, chunkZ: number): BlockModEntry[] {
   const entries: BlockModEntry[] = [];
-  for (const [numKey, value] of blockModifications) {
-    const { bx, by, bz } = blockKeyFromNumeric(numKey);
+  for (const [strKey, value] of blockModifications) {
+    const parts = strKey.split(",");
+    const bx = Number(parts[0]);
+    const by = Number(parts[1]);
+    const bz = Number(parts[2]);
     if (Math.floor(bx / CHUNK_SIZE) !== chunkX || Math.floor(bz / CHUNK_SIZE) !== chunkZ)
       continue;
     entries.push({ bx, by, bz, value });

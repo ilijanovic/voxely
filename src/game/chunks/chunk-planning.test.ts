@@ -9,17 +9,17 @@ function key(cx: number, cz: number): number {
 describe("sortChunksByLookPriority", () => {
   it("prioritizes chunks in front of look direction", () => {
     const chunks = [
-      { cx: -1, cz: 0, lod: "full" as const },
-      { cx: 1, cz: 0, lod: "full" as const },
+      { cx: -1, cz: 0 },
+      { cx: 1, cz: 0 },
     ];
     const sorted = sortChunksByLookPriority(chunks, 0, 0, { x: 1, z: 0 });
-    expect(sorted[0]).toEqual({ cx: 1, cz: 0, lod: "full" });
+    expect(sorted[0]).toEqual({ cx: 1, cz: 0 });
   });
 
   it("keeps order when look direction is near zero", () => {
     const chunks = [
-      { cx: -1, cz: 0, lod: "full" as const },
-      { cx: 1, cz: 0, lod: "full" as const },
+      { cx: -1, cz: 0 },
+      { cx: 1, cz: 0 },
     ];
     const sorted = sortChunksByLookPriority(chunks, 0, 0, { x: 0, z: 0 });
     expect(sorted).toEqual(chunks);

@@ -1,16 +1,13 @@
 import { CHUNK_SIZE } from "../../constants";
 
 export type ChunkCoord = { cx: number; cz: number };
-export type ChunkLod = "full" | "far";
-export type PlannedChunk = { cx: number; cz: number; lod: ChunkLod };
 
 export type ChunkPlanningInput = {
   playerX: number;
   playerZ: number;
   renderDistance: number;
   renderDistanceSq: number;
-  farLodStartDistance?: number;
-  existingChunks: Array<{ keyNum: number; cx: number; cz: number; lod?: ChunkLod }>;
+  existingChunks: Array<{ keyNum: number; cx: number; cz: number }>;
   pendingChunkKeys: Set<number>;
   useWorker: boolean;
   lookDirection?: { x: number; z: number };
@@ -18,7 +15,7 @@ export type ChunkPlanningInput = {
 };
 
 export type ChunkPlanningOutput = {
-  toLoad: PlannedChunk[];
+  toLoad: ChunkCoord[];
   toUnload: number[];
 };
 
@@ -33,11 +30,11 @@ function hasLookDirection(lookDirection?: { x: number; z: number }): boolean {
  * Uses dot product with look direction (larger dot = more in front).
  */
 export function sortChunksByLookPriority(
-  chunks: PlannedChunk[],
+  chunks: ChunkCoord[],
   playerX: number,
   playerZ: number,
   lookDirection?: { x: number; z: number }
-): PlannedChunk[] {
+): ChunkCoord[] {
   if (!hasLookDirection(lookDirection)) return chunks;
   const lx = lookDirection!.x;
   const lz = lookDirection!.z;
@@ -56,13 +53,10 @@ export function planChunksAroundPlayer(input: ChunkPlanningInput): ChunkPlanning
   const chunkX = Math.floor(input.playerX / CHUNK_SIZE);
   const chunkZ = Math.floor(input.playerZ / CHUNK_SIZE);
 
-  const existingChunkByKey = new Map<number, { cx: number; cz: number; lod?: ChunkLod }>();
-  for (const c of input.existingChunks) existingChunkByKey.set(c.keyNum, c);
+  const existingChunkByKey = new Set<number>();
+  for (const c of input.existingChunks) existingChunkByKey.add(c.keyNum);
 
-  const farStart = Math.max(2, Math.min(input.renderDistance, Math.floor(input.farLodStartDistance ?? input.renderDistance - 2)));
-  const farStartSq = farStart * farStart;
-
-  const toLoad: PlannedChunk[] = [];
+  const toLoad: ChunkCoord[] = [];
   const toUnload: number[] = [];
   for (let dx = -input.renderDistance; dx <= input.renderDistance; dx++) {
     for (let dz = -input.renderDistance; dz <= input.renderDistance; dz++) {
@@ -70,27 +64,12 @@ export function planChunksAroundPlayer(input: ChunkPlanningInput): ChunkPlanning
       const cx = chunkX + dx;
       const cz = chunkZ + dz;
       const keyNum = input.chunkKeyNumeric(cx, cz);
-      const desiredLod: ChunkLod = dx * dx + dz * dz > farStartSq ? "far" : "full";
-      const existing = existingChunkByKey.get(keyNum);
-      if (existing) {
-        const existingLod = existing.lod ?? "full";
-        if (existingLod !== desiredLod) {
-          // Upgrade/downgrade: unload current representation and request desired LOD.
-          toUnload.push(keyNum);
-          if (input.useWorker) {
-            if (!input.pendingChunkKeys.has(keyNum)) toLoad.push({ cx, cz, lod: desiredLod });
-          } else {
-            toLoad.push({ cx, cz, lod: desiredLod });
-          }
-        }
-        continue;
-      }
+      if (existingChunkByKey.has(keyNum)) continue;
       if (input.useWorker) {
         if (input.pendingChunkKeys.has(keyNum)) continue;
-        toLoad.push({ cx, cz, lod: desiredLod });
+        toLoad.push({ cx, cz });
       } else {
-        // Without worker, caller will synchronously generate missing chunks.
-        toLoad.push({ cx, cz, lod: desiredLod });
+        toLoad.push({ cx, cz });
       }
     }
   }
@@ -106,4 +85,3 @@ export function planChunksAroundPlayer(input: ChunkPlanningInput): ChunkPlanning
 
   return { toLoad: sortedToLoad, toUnload };
 }
-

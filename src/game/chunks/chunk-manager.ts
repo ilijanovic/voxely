@@ -22,7 +22,6 @@ export function updateChunks(params: {
     keyNum,
     cx: data.cx,
     cz: data.cz,
-    lod: data.lod,
   }));
 
   const useWorker = !!params.chunkWorker;
@@ -38,28 +37,21 @@ export function updateChunks(params: {
     chunkKeyNumeric,
   });
 
-  // Unload first so LOD replacements can be applied by incoming payloads.
   for (const keyNum of toUnload) params.unloadChunk(params.scene, keyNum);
 
   if (useWorker) {
-    for (const { cx, cz, lod } of toLoad) {
+    for (const { cx, cz } of toLoad) {
       const keyNum = chunkKeyNumeric(cx, cz);
       params.pendingChunkKeys.add(keyNum);
       params.chunkWorker!.requestChunk({
         chunkX: cx,
         chunkZ: cz,
-        lod,
         blockMods: getBlockModsForChunk(cx, cz),
       });
     }
   } else {
-    for (const { cx, cz, lod } of toLoad) {
-      if (lod === "far") {
-        // Sync fallback does not support far LOD; generate full chunk.
-        params.generateChunkSync(params.scene, cx, cz);
-      } else {
-        params.generateChunkSync(params.scene, cx, cz);
-      }
+    for (const { cx, cz } of toLoad) {
+      params.generateChunkSync(params.scene, cx, cz);
     }
   }
 
@@ -69,4 +61,3 @@ export function updateChunks(params: {
     }
   }
 }
-

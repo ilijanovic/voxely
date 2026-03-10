@@ -33,8 +33,6 @@ export interface ChunkData {
   /** Chunk coordinates (for frustum/iteration without parsing key). */
   cx: number;
   cz: number;
-  /** Rendering LOD currently used for this chunk. */
-  lod?: "full" | "far";
   /** O(1) block lookup by local key (localKey(lx, ly, lz)). Used for voxel collision. */
   voxelMap: Map<number, BlockType>;
   /** Visible block positions per block type (for raycast/mining). */

@@ -5,7 +5,7 @@ export type ChunkWorkerClient = {
   /**
    * Enqueue a chunk generation job. The pool will schedule it on the next available worker.
    */
-  requestChunk: (options: { chunkX: number; chunkZ: number; blockMods: BlockModEntry[]; lod?: "full" | "far" }) => void;
+  requestChunk: (options: { chunkX: number; chunkZ: number; blockMods: BlockModEntry[] }) => void;
   /**
    * Terminate all underlying workers.
    */
@@ -17,7 +17,6 @@ type InternalJob = {
   chunkX: number;
   chunkZ: number;
   blockMods: BlockModEntry[];
-  lod?: "full" | "far";
 };
 
 type WorkerState = {
@@ -65,7 +64,6 @@ export function initChunkWorkerClient(options: {
         chunkX: job.chunkX,
         chunkZ: job.chunkZ,
         blockMods: job.blockMods,
-        lod: job.lod,
         requestId: job.requestId,
       });
     }
@@ -117,12 +115,12 @@ export function initChunkWorkerClient(options: {
   }
 
   const client: ChunkWorkerClient = {
-    requestChunk: ({ chunkX, chunkZ, blockMods, lod }) => {
+    requestChunk: ({ chunkX, chunkZ, blockMods }) => {
       if (initializationFailed) return;
       const keyNum = chunkKeyNumeric(chunkX, chunkZ);
       const requestId = nextRequestId++;
       latestRequestIdByChunkKey.set(keyNum, requestId);
-      jobQueue.push({ requestId, chunkX, chunkZ, blockMods, lod });
+      jobQueue.push({ requestId, chunkX, chunkZ, blockMods });
       flushQueue();
     },
     terminate: () => {

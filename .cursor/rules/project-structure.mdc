@@ -1,6 +1,6 @@
 ---
 description: Where to find things in the codebase
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Project structure
@@ -10,13 +10,18 @@ For detailed "where to find X?" information, see **docs/PROJECT_MAP.md**.
 ## Quick reference
 
 - **Entry:** `src/main.ts` → `App.vue`; game logic in **`src/game.ts`** (not in main).
-- **Terrain:** Pure logic in **`src/terrain/`** (no THREE/DOM). Chunk contract: **`terrain-core.ts`** ↔ **`chunk.worker.ts`** ↔ **`game.ts`** (`ChunkDataPayload`, `BlockModEntry`).
+- **Terrain:** Pure logic in **`src/terrain/`** (no THREE/DOM). Stages in `terrain/stages/`, features in `terrain/features/`, structures in `terrain/structures/`, biomes in `terrain/biomes/` (18 biomes). Chunk contract: **`terrain-core.ts`** ↔ **`chunk-worker-handler.ts`** ↔ **`chunk.worker.ts`** ↔ **`game.ts`** (`ChunkDataPayload`, `BlockModEntry`).
+- **Chunk runtime:** **`src/chunk-runtime.ts`** – loaded chunk data, block modifications, block lookup helpers.
+- **Game subsystems:** **`atmosphere.ts`** (day/night), **`game-collision.ts`** (AABB), **`game-terrain.ts`** (main-thread terrain/biome), **`game-hotbar.ts`** (hotbar), **`save.ts`** (save/load), **`terrain-sampling.ts`** (pure sampling).
+- **Settings:** **`graphics-settings.ts`**, **`key-settings.ts`**, **`resource-pack-settings.ts`**.
 - **Types & constants:** **`src/types.ts`**, **`src/constants.ts`**.
 - **Blocks:** **`block-registry.ts`**, **`block-materials.ts`**; terrain block IDs in **`terrain/block-ids.ts`**.
+- **Init:** **`game/init/scene.ts`** (scene/renderer), **`game/init/materials.ts`**, **`game/init/lights-sky.ts`**.
 - **Entities:** **`src/entities/`** (spawn, movement, AI, animation, meshes).
 - **UI:** **`src/components/`** (Vue: PauseMenu, Inventory, Chat, Menu).
 - **Assets:** **`public/textures/`**, **`public/assets/minecraft/`**, **`public/packs/`**; see docs/RESOURCE_PACKS.md.
 - **Server:** **`server/server.js`** (Socket.io); client in **`src/multiplayer.ts`**, **`src/world-api.ts`**.
 - **Tests:** **`src/**/*.test.ts`** (Vitest); `npm run test:run`.
+- **CI:** **`.github/workflows/test.yml`**.
 
 For **biome** changes, use **.cursor/skills/biome-integration-assistant** and **.cursor/rules/terrain-biome-integrity.mdc**.

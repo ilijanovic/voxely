@@ -109,7 +109,6 @@ Chunk streaming is coordinated by `src/game/chunks/chunk-manager.ts`:
 - Uses the planner in `src/game/chunks/chunk-planning.ts` (`planChunksAroundPlayer`) to compute:
   - `toLoad`: chunks inside render distance not yet loaded/pending
   - `toUnload`: chunks outside render distance
-- The planner can take `farLodStartDistance` for LOD (e.g. far chunks with reduced detail)
 - Tracks `pendingChunkKeys` to avoid duplicate in-flight requests
 
 ### Worker vs sync fallback
@@ -142,7 +141,6 @@ The worker lives at `src/chunk.worker.ts` and speaks a minimal message protocol:
 - `chunkX`, `chunkZ`
 - `heightmap: number[][]`, `heightmapBuffer?: Float32Array` (transferable; prefer on main thread)
 - `buffer: Uint8Array` (flat voxel buffer; transferable)
-- `lod?: "full" | "far"`
 - `geometryLayers?` – optional worker-built geometry (position, normal, uv, faceVertexCounts per block type id)
 - `visibleBlockKeysByType?` – optional visible block local keys per block type (for raycast/mining/tall grass)
 - `requestId?` – optional; propagated back for stale-response filtering on the main thread

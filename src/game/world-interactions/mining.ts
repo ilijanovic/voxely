@@ -9,8 +9,8 @@ export function breakBlock(params: {
   chunks: Map<number, ChunkData>;
   getLayerPositions: (data: ChunkData, blockType: BlockType) => BlockPos[] | null;
   isUnbreakableBlock: (blockType: BlockType) => boolean;
-  blockModifications: Map<number, BlockType | "air">;
-  blockKeyNumeric: (x: number, y: number, z: number) => number;
+  blockModifications: Map<string, BlockType | "air">;
+  blockKeyString: (x: number, y: number, z: number) => string;
   invalidateColumnHeight: (x: number, z: number) => void;
   localKey: (lx: number, ly: number, lz: number) => number;
   chunkSize: number;
@@ -36,7 +36,7 @@ export function breakBlock(params: {
       : { x: params.worldX, y: params.worldY, z: params.worldZ };
 
   params.blockModifications.set(
-    params.blockKeyNumeric(pos.x, pos.y, pos.z),
+    params.blockKeyString(pos.x, pos.y, pos.z),
     "air"
   );
   params.invalidateColumnHeight(pos.x, pos.z);

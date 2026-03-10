@@ -36,8 +36,6 @@ export interface ChunkDataPayload {
   heightmapBuffer?: Float32Array;
   /** Flat voxel buffer (CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE bytes). Transferable. */
   buffer: Uint8Array;
-  /** Optional LOD hint for the renderer. */
-  lod?: "full" | "far";
   /**
    * Optional worker-generated geometry for rendering.
    * When present, the main thread can build BufferGeometries directly from these arrays.
@@ -809,24 +807,6 @@ export function createChunkGenerator(seed: number) {
 
   const stages = [stage1, stage2, stage3, stage4];
 
-  function generateChunkHeightmap(chunkX: number, chunkZ: number): Pick<ChunkDataPayload, "chunkX" | "chunkZ" | "heightmap" | "heightmapBuffer" | "buffer"> {
-    const ctx = createChunkContext(chunkX, chunkZ, []);
-    stage1(ctx);
-    const heightmapBuffer = new Float32Array(CHUNK_SIZE * CHUNK_SIZE);
-    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        heightmapBuffer[lx + lz * CHUNK_SIZE] = ctx.heightmap[lx][lz];
-      }
-    }
-    return {
-      chunkX: ctx.chunkX,
-      chunkZ: ctx.chunkZ,
-      heightmap: ctx.heightmap,
-      heightmapBuffer,
-      buffer: new Uint8Array(0),
-    };
-  }
-
   function generateChunkData(chunkX: number, chunkZ: number, blockMods: BlockModEntry[]): ChunkDataPayload {
     const ctx = createChunkContext(chunkX, chunkZ, blockMods);
     runPipeline(ctx, stages);
@@ -858,7 +838,6 @@ export function createChunkGenerator(seed: number) {
 
   return {
     generateChunkData,
-    generateChunkHeightmap,
     getHeight: getHeightUncached,
     getResolvedBiome,
   };

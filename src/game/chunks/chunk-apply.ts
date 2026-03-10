@@ -8,7 +8,6 @@ import { sharedBlockGeometry, sharedTallGrassGeometry, FOLIAGE_BLOCK_TYPES, getM
 import { isSolidBlock as isBlockTypeSolid } from "../../block-registry";
 import { filterVisibleBlocks } from "./visible-blocks";
 import type { Biome } from "../../game-terrain";
-import { patchMaterialWithTerrainFog } from "../../terrain-fog";
 
 export type ChunkApplyDeps = {
   chunks: Map<number, ChunkData>;
@@ -23,13 +22,6 @@ export type ChunkApplyDeps = {
 
 const _matrix = new THREE.Matrix4();
 const _position = new THREE.Vector3();
-
-const farLodMaterial = new THREE.MeshStandardMaterial({
-  color: 0x4b8f3a,
-  roughness: 1.0,
-  metalness: 0.0,
-});
-patchMaterialWithTerrainFog(farLodMaterial);
 
 function hasVertexColorsEnabled(material: THREE.Material | THREE.Material[]): boolean {
   if (Array.isArray(material)) {
@@ -80,7 +72,7 @@ function addInstancedLayer(
 }
 
 /** Decode flat voxel buffer into voxelMap (skips air and carved). */
-function buildVoxelMapFromBuffer(buffer: Uint8Array): Map<number, BlockType> {
+export function buildVoxelMapFromBuffer(buffer: Uint8Array): Map<number, BlockType> {
   const voxelMap = new Map<number, BlockType>();
   for (let i = 0; i < buffer.length; i++) {
     const blockID = buffer[i];
@@ -96,7 +88,7 @@ function buildVoxelMapFromBuffer(buffer: Uint8Array): Map<number, BlockType> {
   return voxelMap;
 }
 
-function buildPositionsByTypeFromVisibleKeys(
+export function buildPositionsByTypeFromVisibleKeys(
   visible: NonNullable<ChunkDataPayload["visibleBlockKeysByType"]>,
   worldX: number,
   worldZ: number
@@ -161,7 +153,7 @@ function pseudoRandomFromBlockPos(seed: number, x: number, y: number, z: number)
   return ((h >>> 0) & 0xffffffff) / 0x100000000;
 }
 
-function getTallGrassPositions(
+export function getTallGrassPositions(
   seed: number,
   worldX: number,
   worldZ: number,
@@ -179,6 +171,12 @@ function getTallGrassPositions(
       if (voxelMap.has(keyAbove)) continue;
       if (pseudoRandomFromBlockPos(seed, p.x, p.y, p.z) > TALL_GRASS_SPAWN_CHANCE) continue;
       out.push(p);
+    }
+  }
+  const workerGrass = positionsByType.get("tall_grass" as BlockType);
+  if (workerGrass) {
+    for (const p of workerGrass) {
+      out.push({ x: p.x, y: p.y - 1, z: p.z });
     }
   }
   return out;
@@ -206,7 +204,7 @@ function addTallGrassLayer(
   return mesh;
 }
 
-function buildChunkWaterGeometry(
+export function buildChunkWaterGeometry(
   worldX: number,
   worldZ: number,
   heightmap: number[][] | Float32Array
@@ -262,46 +260,6 @@ export function applyChunkPayload(
   const worldZ = payload.chunkZ * CHUNK_SIZE;
   const group = new THREE.Group();
   group.userData = { chunkKeyNum: keyNum, cx: payload.chunkX, cz: payload.chunkZ };
-
-  if (payload.lod === "far" && payload.heightmapBuffer) {
-    const segments = CHUNK_SIZE;
-    const geo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, segments, segments);
-    geo.rotateX(-Math.PI / 2);
-    // Displace vertices by heightmap (nearest sampling).
-    const posAttr = geo.getAttribute("position") as THREE.BufferAttribute;
-    const arr = posAttr.array as Float32Array;
-    const grid = CHUNK_SIZE + 1;
-    for (let i = 0; i < grid * grid; i++) {
-      const lx = i % grid;
-      const lz = Math.floor(i / grid);
-      const hx = Math.min(lx, CHUNK_SIZE - 1);
-      const hz = Math.min(lz, CHUNK_SIZE - 1);
-      const h = payload.heightmapBuffer[hx + hz * CHUNK_SIZE];
-      arr[i * 3 + 1] = h;
-    }
-    posAttr.needsUpdate = true;
-    geo.computeVertexNormals();
-    geo.translate(worldX + CHUNK_SIZE / 2, 0, worldZ + CHUNK_SIZE / 2);
-    const mesh = new THREE.Mesh(geo, farLodMaterial);
-    mesh.castShadow = false;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-
-    const data: ChunkData = {
-      group,
-      cx: payload.chunkX,
-      cz: payload.chunkZ,
-      lod: "far",
-      voxelMap: new Map(),
-      blockPositionsByType: new Map(),
-    };
-    deps.chunks.set(keyNum, data);
-    scene.add(group);
-    deps.onChunkAdded?.(data);
-    deps.pendingChunkKeys.delete(keyNum);
-    deps.onChunkChanged?.();
-    return;
-  }
 
   const voxelMap = buildVoxelMapFromBuffer(payload.buffer);
 
@@ -413,7 +371,6 @@ export function applyChunkPayload(
     group,
     cx: payload.chunkX,
     cz: payload.chunkZ,
-    lod: payload.lod ?? "full",
     voxelMap,
     blockPositionsByType,
   };
