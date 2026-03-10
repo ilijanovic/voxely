@@ -93,4 +93,138 @@ describe("resolveVoxelCollisions", () => {
     expect(position.y).toBe(63);
     expect(velocity.y).toBe(-1);
   });
+
+  it("pushes player down from ceiling (hitYUp)", () => {
+    const voxel = new Map<number, string>();
+    voxel.set(localKey(5, 8, 5), "stone");
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel));
+
+    const position = { x: 5.5, y: 6.0, z: 5.5 };
+    const velocity = { x: 0, y: 1, z: 0 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      1,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    expect(result.hitYUp).toBe(true);
+    expect(velocity.y).toBe(0);
+    expect(position.y).toBeLessThanOrEqual(8 - PLAYER_HEIGHT + 0.001);
+  });
+
+  it("resolves X-axis wall collision", () => {
+    const voxel = new Map<number, string>();
+    voxel.set(localKey(5, 5, 5), "stone");
+    voxel.set(localKey(5, 6, 5), "stone");
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel));
+
+    const position = { x: 4.0, y: 5.0, z: 5.5 };
+    const velocity = { x: 1, y: 0, z: 0 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      1,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    expect(result.hitX).toBe(true);
+    expect(velocity.x).toBe(0);
+    expect(position.x).toBeLessThanOrEqual(5 - PLAYER_HALF + 0.001);
+  });
+
+  it("resolves Z-axis wall collision", () => {
+    const voxel = new Map<number, string>();
+    voxel.set(localKey(5, 5, 5), "stone");
+    voxel.set(localKey(5, 6, 5), "stone");
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel));
+
+    const position = { x: 5.5, y: 5.0, z: 4.0 };
+    const velocity = { x: 0, y: 0, z: 1 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      1,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    expect(result.hitZ).toBe(true);
+    expect(velocity.z).toBe(0);
+    expect(position.z).toBeLessThanOrEqual(5 - PLAYER_HALF + 0.001);
+  });
+
+  it("resolves simultaneous X and Z wall collision (L-shaped corner)", () => {
+    const voxel = new Map<number, string>();
+    for (let y = 5; y <= 7; y++) {
+      voxel.set(localKey(7, y, 5), "stone");
+      voxel.set(localKey(7, y, 6), "stone");
+      voxel.set(localKey(5, y, 7), "stone");
+      voxel.set(localKey(6, y, 7), "stone");
+    }
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel));
+
+    const position = { x: 6.0, y: 5.0, z: 6.0 };
+    const velocity = { x: 1, y: 0, z: 1 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      1,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    const hitWall = result.hitX || result.hitZ;
+    expect(hitWall).toBe(true);
+  });
+
+  it("handles floor block at chunk boundary (chunk 0 next to chunk 1)", () => {
+    const voxel0 = new Map<number, string>();
+    voxel0.set(localKey(15, 4, 5), "stone");
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel0));
+
+    const voxel1 = new Map<number, string>();
+    voxel1.set(localKey(0, 4, 5), "stone");
+    chunks.set(chunkKeyNumeric(1, 0), makeChunkData(1, 0, voxel1));
+
+    const position = { x: 15.8, y: 5.5, z: 5.5 };
+    const velocity = { x: 0, y: -1, z: 0 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      1,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    expect(result.hitYDown).toBe(true);
+    expect(position.y).toBe(5);
+  });
+
+  it("player stands on ground without falling through (grounded stability)", () => {
+    const voxel = new Map<number, string>();
+    voxel.set(localKey(5, 4, 5), "stone");
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel));
+
+    const position = { x: 5.5, y: 5.0, z: 5.5 };
+    const velocity = { x: 0, y: -0.01, z: 0 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      0.016,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    expect(result.grounded).toBe(true);
+    expect(position.y).toBe(5);
+  });
 });

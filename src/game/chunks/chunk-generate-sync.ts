@@ -338,13 +338,17 @@ export function rebuildChunkLayer(
 
   for (let i = data.group.children.length - 1; i >= 0; i--) {
     const child = data.group.children[i];
+    const ud = child.userData as { blockType?: BlockType };
     if (
-      child instanceof THREE.InstancedMesh &&
-      (child.userData as { blockType?: BlockType }).blockType === blockType
+      ud.blockType === blockType &&
+      (child instanceof THREE.InstancedMesh || child instanceof THREE.Mesh)
     ) {
       data.group.remove(child);
-      child.dispose();
-      break;
+      if (child instanceof THREE.InstancedMesh) {
+        child.dispose();
+      } else if (child.geometry && child.geometry !== sharedBlockGeometry) {
+        child.geometry.dispose();
+      }
     }
   }
 

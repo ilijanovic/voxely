@@ -36,6 +36,30 @@ describe("buildVoxelMapFromBuffer", () => {
     expect(voxelMap.size).toBe(1);
     expect(voxelMap.get(localKey(2, 0, 0))).toBe("stone");
   });
+
+  it("produces keys deletable via chunk-runtime localKey (mining compat)", () => {
+    const coords: [number, number, number][] = [
+      [0, 0, 0],
+      [15, 127, 15],
+      [7, 64, 3],
+      [0, 127, 0],
+      [15, 0, 15],
+    ];
+    const buffer = new Uint8Array(BUFFER_LENGTH);
+    for (const [lx, ly, lz] of coords) {
+      buffer[localKey(lx, ly, lz)] = 2; // stone
+    }
+    const voxelMap = buildVoxelMapFromBuffer(buffer);
+    expect(voxelMap.size).toBe(coords.length);
+
+    for (const [lx, ly, lz] of coords) {
+      const key = localKey(lx, ly, lz);
+      expect(voxelMap.has(key)).toBe(true);
+      voxelMap.delete(key);
+      expect(voxelMap.has(key)).toBe(false);
+    }
+    expect(voxelMap.size).toBe(0);
+  });
 });
 
 describe("buildPositionsByTypeFromVisibleKeys", () => {
