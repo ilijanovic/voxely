@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.0.4
+
+[compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.3...v0.0.4)
+
+### 🚀 Enhancements
+
+- **atmosphere:** Add raining weather with biome rules and tuning ([07881da2](https://github.com/ilijanovic/voxely/commit/07881da2))
+
+### ❤️ Contributors
+
+- Ilijanovic <ilija.marijanovic@gmx.at>
+
 ## v0.0.3
 
 [compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.2...v0.0.3)
