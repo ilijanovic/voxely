@@ -172,6 +172,11 @@ const AUTOSAVE_INTERVAL_MS = 10000
 let loadedRotationY: number | null = null
 let loadedLookPitch: number | null = null
 
+/**
+ * Builds the player slice of SaveData from current position and look angles.
+ * Used by saveGame and by multiplayer state sync.
+ * @returns Player position (x,y,z), rotationY (yaw), and lookPitch
+ */
 function getPlayerState(): SaveData['player'] {
   return {
     x: player.position.x,
@@ -182,6 +187,10 @@ function getPlayerState(): SaveData['player'] {
   }
 }
 
+/**
+ * Serializes current world and player state to localStorage (block mods, torches, day time, snow override).
+ * No-op if scene or player not yet initialized.
+ */
 function saveGame(): void {
   if (!scene || !player) return
   const removedBlocks: Array<{ x: number; y: number; z: number }> = []
@@ -212,6 +221,11 @@ function saveGame(): void {
   saveToStorage(state)
 }
 
+/**
+ * Loads save from localStorage and applies it: block mods, torches, player position/rotation, day time, snow.
+ * Only applies if world seed matches; preloads chunks around saved player position before placing player.
+ * @returns true if a valid save was loaded and applied, false otherwise
+ */
 function loadGame(): boolean {
   const data = loadFromStorage()
   if (!data) return false
@@ -238,7 +252,7 @@ function loadGame(): boolean {
     }
   }
 
-  // Alle Chunks im Fußabdruck der gespeicherten Position laden (wie beim Spawn).
+  // Preload chunks in the footprint around the saved player position (same logic as initial spawn).
   if (typeof scene !== 'undefined') {
     const px = data.player.x
     const pz = data.player.z
@@ -342,6 +356,10 @@ const raycastMeshCache = new RaycastMeshCache()
 
 // ================= CHUNK SYNC CONTEXT =================
 
+/**
+ * Builds the shared context passed to sync chunk helpers (materials, caches, scene, drops, torches).
+ * Used by generateChunk, breakBlock, placeTorch, and refreshChunkVisibleMeshes.
+ */
 function getChunkSyncCtx(): ChunkSyncContext {
   return {
     grassColormapData,
@@ -356,10 +374,18 @@ function getChunkSyncCtx(): ChunkSyncContext {
   }
 }
 
+/**
+ * Copies frustum dirty flag back from sync context so main loop knows when to recompute chunk visibility.
+ */
 function syncFrustumDirty(ctx: ChunkSyncContext): void {
   _frustumDirty = ctx.frustumDirty
 }
 
+/**
+ * Applies a single block change to loaded chunk data: updates voxel map, invalidates height cache,
+ * refreshes visible meshes for the chunk and affected neighbors. Optionally requests worker to re-generate chunk.
+ * @param params - World block coords (bx,by,bz), new block type or 'air', and optional requestWorkerChunk flag
+ */
 function applyBlockChangeToLoadedChunk(params: {
   bx: number
   by: number
@@ -415,6 +441,13 @@ function applyBlockChangeToLoadedChunk(params: {
   }
 }
 
+/**
+ * Generates chunk data and meshes for the given chunk (sync path). Uses getChunkSyncCtx and syncs frustum dirty flag.
+ * @param _scene - Scene (used by sync generator; not retained)
+ * @param chunkX - Chunk X index
+ * @param chunkZ - Chunk Z index
+ * @returns ChunkData for the generated chunk
+ */
 function generateChunk(_scene: THREE.Scene, chunkX: number, chunkZ: number): ChunkData {
   const ctx = getChunkSyncCtx()
   const result = generateChunkSync(ctx, chunkX, chunkZ)
@@ -422,6 +455,9 @@ function generateChunk(_scene: THREE.Scene, chunkX: number, chunkZ: number): Chu
   return result
 }
 
+/**
+ * Breaks a block at the given world position: updates chunk voxel data, drops, meshes; optionally requests worker chunk.
+ */
 function breakBlock(
   chunkKeyNum: number,
   blockType: BlockType,
@@ -446,15 +482,25 @@ function breakBlock(
   syncFrustumDirty(ctx)
 }
 
+/**
+ * Unloads a chunk from the scene and runtime: removes meshes, clears chunk data, invalidates raycast cache.
+ */
 function unloadChunk(scene: THREE.Scene, keyNum: number): void {
   const result = unloadChunkSync(scene, keyNum, raycastMeshCache)
   if (result.frustumDirty) _frustumDirty = true
 }
 
+/**
+ * Places a torch at the given world position if the block is valid and within range. Adds mesh and light to torchContainer.
+ * @returns true if placement succeeded
+ */
 function placeTorch(worldX: number, worldY: number, worldZ: number): boolean {
   return placeTorchSync(getChunkSyncCtx(), worldX, worldY, worldZ)
 }
 
+/**
+ * If spawn was deferred until worker chunks arrived, checks that all required chunks are loaded and then sets player position and clears pendingSpawn.
+ */
 function applyPendingSpawnIfReady(): void {
   if (!pendingSpawn || !player) return
   if (!isPendingSpawnReady(pendingSpawn, (keyNum) => chunks.has(keyNum))) return
@@ -468,6 +514,9 @@ function applyPendingSpawnIfReady(): void {
   pendingSpawn = null
 }
 
+/**
+ * Resolves an instanced block (chunkKeyNum, blockType, instanceId) to world coordinates for raycast/mining.
+ */
 function getBlockWorldPosition(
   chunkKeyNum: number,
   blockType: BlockType,
@@ -476,6 +525,9 @@ function getBlockWorldPosition(
   return getBlockWorldPositionSync(chunkKeyNum, blockType, instanceId)
 }
 
+/**
+ * Returns all meshes used for block raycasting (mining/placement). Invalidated when chunks load/unload.
+ */
 function getRaycastMeshes(): Array<THREE.InstancedMesh | THREE.Mesh> {
   return getRaycastMeshesSync(raycastMeshCache)
 }
@@ -486,6 +538,10 @@ let lastPlayerChunkZ: number | null = null
 
 // ================= PLAYER =================
 
+/**
+ * Creates the player mesh, finds spawn (biome-based with fallbacks), preloads spawn footprint chunks (worker or sync), adds player to scene.
+ * When using chunk worker, spawn position is applied later via applyPendingSpawnIfReady once chunks are loaded.
+ */
 function createPlayer(scene: THREE.Scene) {
   const player = createPlayerMeshOnly()
   const head = player.children[0] as THREE.Mesh
@@ -565,6 +621,9 @@ function createPlayer(scene: THREE.Scene) {
 
 // ================= POV HAND =================
 
+/**
+ * Creates the first-person arm/hand group attached to the camera (skin material, fixed offset). Used for mining swing and movement bob.
+ */
 function createPOVHands(camera: THREE.PerspectiveCamera) {
   const hands = new THREE.Group()
   hands.renderOrder = 999
@@ -612,11 +671,17 @@ let player: THREE.Group
 /** Shadow frustum radius around player (better texel density, less flicker). */
 const SHADOW_RADIUS = 60
 
+/**
+ * Smooth Hermite interpolation between 0 and 1. Used for bloom daylight transitions to avoid harsh edges.
+ */
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
   return t * t * (3 - 2 * t)
 }
 
+/**
+ * Returns 0–1 factor for how much the sun is above the horizon; used to scale bloom by time of day.
+ */
 function getBloomDaylight01(): number {
   const dayTime = getDayTime()
   const sunAngle = dayTime * Math.PI * 2
@@ -626,13 +691,17 @@ function getBloomDaylight01(): number {
   return smoothstep(-0.25, 0.25, sunHeight)
 }
 
-/** Scale for bloom strength by time of day (1 at night, ~0.04 at noon) to avoid overpowering bloom in daylight. */
+/**
+ * Scale for bloom strength by time of day (1 at night, ~0.04 at noon) to avoid overpowering bloom in daylight.
+ */
 function getBloomDayScale(): number {
   const daylight01 = getBloomDaylight01()
   return 1 - 0.96 * daylight01
 }
 
-/** Bloom threshold is raised during day so only the brightest pixels bloom; at night use settings value. */
+/**
+ * Bloom threshold is raised during day so only the brightest pixels bloom; at night uses settings value.
+ */
 function getBloomThresholdForTimeOfDay(): number {
   const daylight01 = getBloomDaylight01()
   const base = getBloomThreshold()
@@ -691,7 +760,11 @@ const HEAD_PITCH_MAX = THREE.MathUtils.degToRad(65) // vertikale Kopfbegrenzung
 /** Ob Multiplayer aktiv ist (nur dann verbinden wir mit dem Server). */
 let multiplayerEnabled = false
 
-/** Wird von der Vue-App mit dem Canvas-Container aufgerufen (nach Mount). */
+/**
+ * Entry point called by the Vue app with the canvas container (after mount). Initializes materials, scene, chunks, player, controls, then starts animate loop.
+ * @param container - Optional DOM element for the WebGL canvas
+ * @param options - multiplayer flag and optional onHotbarChange callback for UI sync
+ */
 export async function initGame(
   container?: HTMLElement,
   options?: {
@@ -704,6 +777,9 @@ export async function initGame(
   await init(container)
 }
 
+/**
+ * Runs full init sequence: materials, scene/renderer, lights/sky, post-processing, chunk worker, player/world API, controls, debug commands.
+ */
 async function init(container?: HTMLElement): Promise<void> {
   await initMaterialsAndColormaps()
   initSceneAndRenderer(container)
@@ -715,6 +791,9 @@ async function init(container?: HTMLElement): Promise<void> {
   registerDebugCommands()
 }
 
+/**
+ * Registers debug console commands: /snow (start|end|auto), /rain (stub), /time (day|night).
+ */
 function registerDebugCommands(): void {
   registerCommand('snow', (args) => {
     const sub = (args[0] ?? '').toLowerCase()
@@ -752,6 +831,9 @@ function registerDebugCommands(): void {
   })
 }
 
+/**
+ * Loads block materials and grass/foliage colormaps; stores results in module-level variables for chunk generation.
+ */
 async function initMaterialsAndColormaps(): Promise<void> {
   const res = await initMaterialsAndColormapsSystem()
   grassColormapData = res.grassColormapData
@@ -759,6 +841,9 @@ async function initMaterialsAndColormaps(): Promise<void> {
   tallGrassMaterial = res.tallGrassMaterial
 }
 
+/**
+ * Creates scene, camera, renderer, torch container, FPS overlay; wires terrain debug overlay.
+ */
 function initSceneAndRenderer(container?: HTMLElement): void {
   const res = initSceneAndRendererSystem(container)
   scene = res.scene
@@ -769,6 +854,9 @@ function initSceneAndRenderer(container?: HTMLElement): void {
   createTerrainDebugOverlaySystem(terrainDebug)
 }
 
+/**
+ * Creates sun, moon, sky, clouds, stars, ambient/hemi lights, snow effect; applies pending snow override from loadGame if set.
+ */
 function initLightsAndSky(): void {
   const result = initLightsAndSkySystem(scene, SHADOW_RADIUS)
   sunLight = result.sunLight
@@ -787,6 +875,9 @@ function initLightsAndSky(): void {
   }
 }
 
+/**
+ * Sets up EffectComposer with RenderPass and UnrealBloomPass; bloom params read from graphics settings.
+ */
 function initPostProcessing(): void {
   if (!scene || !camera || !renderer) return
   const w = renderer.domElement.width
@@ -804,11 +895,13 @@ function initPostProcessing(): void {
   bloomPass = bloom
 }
 
+/**
+ * Initializes chunk worker client; wires onPayload to applyChunkPayloadToScene and entity spawn, onError to fallback to main-thread generation.
+ */
 function initChunkWorker(): void {
   const client = initChunkWorkerClient({
     seed: WORLD_SEED,
-    // Cap worker pool size (default is 4; this makes it easy to wire into settings later).
-    maxWorkers: 8,
+    maxWorkers: Infinity,
     onPayload: (payload) =>
       applyChunkPayloadToScene(
         scene,
@@ -843,6 +936,9 @@ function initChunkWorker(): void {
   chunkWorker = client ?? null
 }
 
+/**
+ * Creates player mesh and spawn logic, registers world API (getBlock, getBiome, getSurfaceY, etc.), creates POV hands and shadow body.
+ */
 function initPlayerAndWorldApi(): void {
   const created = createPlayer(scene)
   player = created.player
@@ -888,6 +984,9 @@ function initPlayerAndWorldApi(): void {
   }
 }
 
+/**
+ * Sets up pointer lock, POV hands, shadow body, mouse/keyboard listeners, hotbar wheel, autosave interval and beforeunload save; starts animate loop.
+ */
 function initControlsAndInput(): void {
   povHands = createPOVHands(camera)
 
@@ -946,11 +1045,11 @@ function initControlsAndInput(): void {
     }
   })
 
-  // Hotbar: Auswahl beim Start anzeigen + UI einmal mit aktuellem Stand füttern
+  // Hotbar: show initial selection and notify UI once with current state
   updateHotbarSelection()
   notifyHotbarChange()
 
-  // Mausrad: Hotbar-Slot wechseln (wie in Minecraft)
+  // Mouse wheel: cycle hotbar slot (Minecraft-style)
   document.addEventListener(
     'wheel',
     (e) => {
@@ -1005,7 +1104,9 @@ let viewMode: 'first' | 'third' = 'first'
 
 // ================= INPUT =================
 
-/** Wenn der Fokus in einem Eingabefeld liegt (z. B. Chat), keine Spiel-Shortcuts ausführen. */
+/**
+ * True when focus is in an input field (e.g. chat); used to avoid triggering game shortcuts.
+ */
 function isTypingFocus(): boolean {
   const el = document.activeElement
   if (!el || !(el instanceof HTMLElement)) return false
@@ -1099,17 +1200,10 @@ document.addEventListener('keyup', (e) => {
   if (code === getKeyBinding('jump')) jumpRequested = false
 })
 
-// ================= SHADOW CAMERA (pro Frame, nach Bewegung) =================
+// ================= SHADOW CAMERA (per frame, after movement) =================
 
 /**
- * Richtet die DirectionalLight-Shadow-Camera auf die aktuelle Spielerposition aus.
- * Muss NACH der Bewegungslogik, direkt vor renderer.render(), aufgerufen werden.
- * So bleibt der Schatten-Frustum um den Spieler zentriert und Schatten werden nicht geclippt.
- *
- * Wichtig für Spieler-Schatten:
- * - Target in Spieler-Mitte (y + Körperhöhe/2), damit die Ortho-View den Avatar gut erfasst.
- * - Light und Target sofort mit updateMatrixWorld() aktualisieren, damit die Shadow-Pass
- *   die richtigen Positionen nutzt (wird sonst evtl. erst im nächsten Frame übernommen).
+ * Aligns the directional light shadow camera to the current player position. Must be called after movement and before render so the shadow frustum stays centered and shadows are not clipped. Target is at player center (y + half height) for a good ortho view; light and target are updated with updateMatrixWorld so the shadow pass uses correct positions this frame.
  */
 function updateShadowCameraForPlayer(
   light: THREE.DirectionalLight,
@@ -1137,6 +1231,9 @@ let fpsLastTime = performance.now()
 let fpsEl: HTMLElement | null = null
 const terrainDebug: TerrainDebugState = createTerrainDebugState()
 
+/**
+ * Applies pending spawn when worker chunks are ready, updates terrain debug overlay, and refreshes FPS display every 500 ms.
+ */
 function updateFPSAndSpawn(time: number): void {
   applyPendingSpawnIfReady()
   updateTerrainDebugOverlaySystem(terrainDebug, time, player)
@@ -1150,6 +1247,9 @@ function updateFPSAndSpawn(time: number): void {
   }
 }
 
+/**
+ * Updates snow effect, atmosphere (sun/moon/sky/fog), terrain fog sync, and optional snow accumulation; tunes scene fog to render distance.
+ */
 function updateDayCycleAndAtmosphere(dt: number): void {
   const eyeY = player.position.y + (viewMode === 'first' ? eyeHeight : cameraHeight)
   const snowCtx = {
@@ -1206,6 +1306,9 @@ function updateDayCycleAndAtmosphere(dt: number): void {
   syncTerrainFogFromSceneFog(scene)
 }
 
+/**
+ * When player moves to a new chunk, triggers chunk manager to load/unload chunks and updates lastPlayerChunkX/Z; precomputes right vector for movement.
+ */
 function updateChunkVisibility(): void {
   const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE)
   const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE)
@@ -1229,6 +1332,9 @@ function updateChunkVisibility(): void {
   _right.crossVectors(_direction, camera.up).normalize()
 }
 
+/**
+ * Applies movement (walk/sprint/sneak), FOV/pointer speed lerp, jump buffer, gravity, voxel collision; updates entity AI, movement, and animation.
+ */
 function updateMovementAndCollision(dt: number, time: number): void {
   isSprinting = moveState.forward && !sneakKeyHeld && (sprintKeyHeld || doubleTapSprint)
   const speed = sneakKeyHeld ? sneakSpeed : isSprinting ? sprintSpeed : moveSpeed
@@ -1360,6 +1466,9 @@ function updateMovementAndCollision(dt: number, time: number): void {
   updateAnimation(time)
 }
 
+/**
+ * Updates look yaw/pitch, first/third person visibility and camera position (POV hands, head bob, third-person orbit), and limb swing animations.
+ */
 function updateCameraAndViewMode(time: number, dt: number): void {
   controls.getDirection(_lookDir)
 
@@ -1509,6 +1618,9 @@ function updateCameraAndViewMode(time: number, dt: number): void {
   }
 }
 
+/**
+ * Updates drop item physics (bob, gravity), pickup detection within PICKUP_RADIUS, and removes collected drops from scene.
+ */
 function updateDropsAndPickup(time: number): void {
   updateDropsAndPickupSystem({
     scene,
@@ -1525,6 +1637,9 @@ function updateDropsAndPickup(time: number): void {
   })
 }
 
+/**
+ * Runs periodic block updates (e.g. crop growth) at BLOCK_TICK_INTERVAL; currently drives wheat growth probability.
+ */
 function runBlockTick(time: number): void {
   if (time - lastBlockTickTime < BLOCK_TICK_INTERVAL) return
   lastBlockTickTime = time
@@ -1562,8 +1677,11 @@ function runBlockTick(time: number): void {
   }
 }
 
+/**
+ * Handles block break (hold-to-mine with progress, raycast to block), block/torch place (right-click or F), and block-crack overlay updates.
+ */
 function updateBlockBreakAndPlace(dt: number): void {
-  // Platzieren (Rechtsklick oder F): Fackel oder Block (F works without pointer lock)
+  // Place (right-click or F): torch or block; F works without pointer lock
   const placeRequested =
     (rightMouseJustPressed && document.pointerLockElement === renderer.domElement) ||
     fKeyJustPressed
@@ -1805,6 +1923,9 @@ function updateBlockBreakAndPlace(dt: number): void {
   }
 }
 
+/**
+ * Updates shadow camera to player, recomputes chunk frustum visibility when camera or chunks changed, applies bloom params from time of day, then renders (with or without post-processing).
+ */
 function updateShadowAndRender(dt: number): void {
   updateShadowCameraForPlayer(sunLight, player.position, getSunDirection(), SUN_DISTANCE)
 
@@ -1836,6 +1957,9 @@ function updateShadowAndRender(dt: number): void {
   }
 }
 
+/**
+ * Main game loop: runs per-frame updates (FPS/spawn, day/atmosphere, chunks, movement/collision, camera, drops, block break/place, multiplayer, shadow/render) and schedules next frame.
+ */
 function animate(): void {
   requestAnimationFrame(animate)
   const dt = Math.min(clock.getDelta(), 0.1)
@@ -1866,7 +1990,9 @@ window.addEventListener('resize', () => {
 
 // ================= GRAFIK-OPTIONEN (zur Laufzeit) =================
 
-/** Wird vom Optionen-Menü aufgerufen, wenn Grafik-Einstellungen geändert wurden. */
+/**
+ * Called by the options menu when graphics settings change. Applies tone mapping, exposure, shadows, FOV, render distance, bloom, and terrain fog to the current renderer and scene.
+ */
 export function applyGraphicsSettings(): void {
   if (!renderer || !sunLight) return
   renderer.toneMapping = getToneMappingEnabled() ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping

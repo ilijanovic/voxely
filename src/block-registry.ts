@@ -512,10 +512,12 @@ for (const def of [...LEGACY_BLOCKS, ...CURATED_BLOCKS]) {
   REGISTRY.set(def.id, def)
 }
 
+/** Returns the block definition for a given id, or undefined if not registered. */
 export function getBlockDefinition(id: string): BlockDefinition | undefined {
   return REGISTRY.get(id)
 }
 
+/** Returns all registered block type ids (for save validation, hotbar icons, etc.). */
 export function getAllBlockIds(): string[] {
   return Array.from(REGISTRY.keys())
 }
@@ -528,6 +530,7 @@ export function getPlaceableBlockIds(): string[] {
   })
 }
 
+/** True if the block type is solid for collision and raycast. */
 export function isSolidBlock(id: string): boolean {
   const def = REGISTRY.get(id)
   return def ? def.solid !== false : false
@@ -540,11 +543,13 @@ export function getBlockHeight(blockType: string): number {
   return 1
 }
 
+/** True if the block cannot be broken by the player (e.g. bedrock). */
 export function isUnbreakableBlock(id: string): boolean {
   const def = REGISTRY.get(id)
   return def ? def.unbreakable === true : false
 }
 
+/** Display name for UI (tooltips, inventory). Falls back to id if not registered. */
 export function getBlockDisplayName(id: string): string {
   const def = REGISTRY.get(id)
   return def ? def.displayName : id

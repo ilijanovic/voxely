@@ -1,3 +1,6 @@
+/**
+ * Drop items: spawn after block break, bob and rotate in place, pickup when player is within radius (adds to hotbar and removes from scene).
+ */
 import * as THREE from 'three'
 import type { BlockType } from '../../types'
 import { getMaterialForBlockType } from '../../block-materials'
@@ -16,6 +19,7 @@ export type DropsConfig = {
   bobHeight: number
 }
 
+/** Returns the material used for a drop mesh (block-type-specific; torch/bedrock use fallbacks). */
 export function getMaterialForDrop(blockType: BlockType): THREE.Material {
   if (blockType === 'torch') {
     const w = getMaterialForBlockType('wood')
@@ -31,6 +35,7 @@ export function getMaterialForDrop(blockType: BlockType): THREE.Material {
     : (m as THREE.MeshStandardMaterial)
 }
 
+/** Creates a drop mesh at world position, adds it to the scene and to the drops array for updateDropsAndPickup. */
 export function spawnDrop(params: {
   scene: THREE.Scene
   drops: Drop[]
@@ -57,6 +62,7 @@ export function spawnDrop(params: {
   })
 }
 
+/** Updates drop bobbing/rotation and removes drops picked up within config.pickupRadius (adds block to hotbar, disposes mesh). */
 export function updateDropsAndPickup(params: {
   scene: THREE.Scene
   drops: Drop[]

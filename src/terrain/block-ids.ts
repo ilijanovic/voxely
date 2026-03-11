@@ -52,12 +52,14 @@ export const ID_TO_TYPE: (BlockType | 'air')[] = [...TERRAIN_BLOCK_TYPES]
 const TYPE_TO_ID_MAP = new Map<BlockType | 'air', number>()
 TERRAIN_BLOCK_TYPES.forEach((t, i) => TYPE_TO_ID_MAP.set(t, i))
 
+/** Converts BlockType or 'air' to pipeline voxel buffer id. Unknown types map to AIR_ID. */
 export function typeToId(type: BlockType | 'air'): number {
   const id = TYPE_TO_ID_MAP.get(type)
   if (id !== undefined) return id
   return AIR_ID
 }
 
+/** Converts pipeline voxel id to BlockType or 'air'. CARVED_ID and 0 return 'air'. */
 export function idToType(id: number): BlockType | 'air' {
   if (id === 0 || id === CARVED_ID) return 'air'
   const t = TERRAIN_BLOCK_TYPES[id]

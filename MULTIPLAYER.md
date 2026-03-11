@@ -16,6 +16,12 @@ node server/server.js
 
 The console should show: `Server running at http://localhost:3000`
 
+## Backends / Transport
+
+- The game client uses `src/multiplayer.ts` as a facade.
+- Today it talks to the local Socket.IO server via the `SocketMultiplayerTransport` implementation.
+- There is a placeholder `SupabaseMultiplayerTransport` which will later use Supabase Realtime (channels + presence) for player state and chat, and optionally Supabase Auth/Database for persistent users and world edits.
+
 ## 2. Start the game
 
 In a **second** terminal:

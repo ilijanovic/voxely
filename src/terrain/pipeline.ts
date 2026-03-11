@@ -7,10 +7,12 @@ import { VOXEL_BUFFER_LENGTH, AIR_ID } from './block-ids'
 import type { ChunkContext, PipelineStage } from './pipeline-types'
 import type { Biome } from '../types'
 
+/** Runs all pipeline stages in order over the chunk context (mutates ctx). */
 export function runPipeline(ctx: ChunkContext, stages: PipelineStage[]): void {
   for (const stage of stages) stage(ctx)
 }
 
+/** Allocates a chunk context (heightmap, biomeMap, voxel buffer, blockMods) for the given chunk coordinates. */
 export function createChunkContext(
   chunkX: number,
   chunkZ: number,

@@ -29,6 +29,7 @@ export function getSelectedBlockType(): BlockType {
   return HOTBAR_BLOCKS[selectedHotbarIndex]
 }
 
+/** Index of the currently selected hotbar slot (0–8). */
 export function getSelectedHotbarIndex(): number {
   return selectedHotbarIndex
 }
@@ -41,6 +42,7 @@ export function updateHotbarSelection(): void {
   })
 }
 
+/** Sets the selected hotbar slot by index (wraps 0–8) and updates DOM selection state. */
 export function setHotbarIndex(index: number): void {
   selectedHotbarIndex = ((index % HOTBAR_SLOTS) + HOTBAR_SLOTS) % HOTBAR_SLOTS
   updateHotbarSelection()
@@ -49,6 +51,7 @@ export function setHotbarIndex(index: number): void {
 /** Callback when hotbar changes (for UI sync). */
 let onHotbarChange: ((blocks: BlockType[], counts: number[]) => void) | null = null
 
+/** Registers or clears the callback invoked whenever hotbar blocks/counts or selection change. */
 export function setOnHotbarChange(
   cb: ((blocks: BlockType[], counts: number[]) => void) | null,
 ): void {

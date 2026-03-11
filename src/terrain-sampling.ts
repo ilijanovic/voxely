@@ -47,6 +47,7 @@ const HEIGHT_TRANSITION_AMPLITUDE = 4.5
 
 export type GetHeightFn = (x: number, z: number) => number
 
+/** Creates a 2D simplex noise function with the given seed. */
 function createNoise(seed: number) {
   return createNoise2D(makeSeededRandom(seed))
 }
@@ -64,10 +65,15 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
+/** 5-tap smoothing filter (center + N/S/E/W) for height blending. */
 function smooth5tap(center: number, n: number, s: number, e: number, w: number): number {
   return center * 0.5 + (n + s + e + w) * 0.125
 }
 
+/**
+ * Creates the main-thread terrain sampling API: getResolvedBiome, getSmoothedHeight, getBlockTypeAt, getBiomeBlend.
+ * Uses same formulas as terrain/ pipeline; getHeight is injected so game can pass its cached column height.
+ */
 export function createTerrainSampling(seed: number) {
   const temperatureNoise2D = createNoise(seed + 500)
   const humidityNoise2D = createNoise(seed + 600)

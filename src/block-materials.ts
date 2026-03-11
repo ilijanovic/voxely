@@ -15,6 +15,7 @@ let _debugGrassInstanceLogged = false
 
 let fallbackTexture: THREE.Texture | null = null
 
+/** Sets texture to pixel-art style (nearest filter, no mipmaps, repeat wrap, sRGB). */
 export function setPixelFilter(tex: THREE.Texture): void {
   tex.magFilter = THREE.NearestFilter
   tex.minFilter = THREE.NearestFilter
@@ -64,6 +65,7 @@ function getTextureUrls(textureName: string): { primaryUrl: string; fallbackUrl:
   }
 }
 
+/** Loads a texture by name (primary path, then fallback); never rejects, returns fallback canvas texture on failure. */
 export function loadTextureSafe(textureName: string): Promise<THREE.Texture> {
   const { primaryUrl, fallbackUrl } = getTextureUrls(textureName)
   return textureLoader
@@ -72,6 +74,7 @@ export function loadTextureSafe(textureName: string): Promise<THREE.Texture> {
     .catch(() => getFallbackTexture())
 }
 
+/** Loads a texture by name; returns null on failure (does not use fallback texture). */
 export function loadTextureOptional(textureName: string): Promise<THREE.Texture | null> {
   const { primaryUrl, fallbackUrl } = getTextureUrls(textureName)
   return textureLoader

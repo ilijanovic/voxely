@@ -25,7 +25,7 @@ A browser-based voxel game – procedurally generated worlds, mine and place blo
 - **Water** – Global water level, surface rendering
 - **Hotbar** – 9 slots (keys 1–9 / scroll wheel), block selection
 - **Third-person** – Toggle camera (key **V**)
-- **Multiplayer** – Multiple players in the same world (Socket.io), chat (key **T**)
+- **Multiplayer** – Multiple players in the same world (Socket.io transport), chat (key **T**)
 - **Graphics options** – Render distance (2–12 chunks), shadows, antialiasing; settings persisted in localStorage
 
 ## Tech stack
@@ -59,8 +59,16 @@ npm install
 | `npm run preview`  | Preview the build                          |
 | `npm run textures` | Texture generation script                  |
 | `npm run server`   | Multiplayer server (http://localhost:3000) |
+| `npm run typecheck`| Type-check only (no emit)                  |
+| `npm run lint`     | Lint `src/**/*.{ts,vue}`                   |
+| `npm run format`   | Format with Prettier (writes files)        |
+| `npm run format:check` | Check formatting (no writes)           |
+| `npm run bench`    | Run Vitest benchmarks                       |
 | `npm run test`     | Run tests in watch mode                    |
 | `npm run test:run` | Run tests once                             |
+| `npm run changelog`| Generate changelog (changelogen)           |
+| `npm run release`  | Create a release (changelogen)             |
+| `npm run release:dry` | Dry-run release (changelogen)          |
 
 ## Running the game
 
@@ -101,7 +109,10 @@ After clicking: left-click = mine block, right-click = place block.
 │   ├── save.ts              # Player + world persistence
 │   ├── atmosphere.ts        # Day/night, sun direction
 │   ├── terrain-fog.ts       # Terrain fog state and material patching
-│   ├── multiplayer.ts       # Socket.io client, player sync
+│   ├── multiplayer.ts       # Legacy Socket.io client, player sync
+│   ├── multiplayer/         # Multiplayer transport abstraction (Socket transport implemented)
+│   │   ├── types.ts         # Transport contracts and payload shapes
+│   │   └── transports/      # socket.ts (implemented), supabase.ts (placeholder)
 │   ├── graphics-settings.ts
 │   ├── game-hotbar.ts       # Hotbar state and selection
 │   ├── hotbar-icons.ts      # Hotbar UI assets
@@ -119,7 +130,7 @@ After clicking: left-click = mine block, right-click = place block.
 ├── server/
 │   └── server.js            # Multiplayer server (Socket.io)
 ├── public/assets/           # Minecraft-style assets (textures, models, etc.)
-├── public/packs/             # Resource packs (see docs/RESOURCE_PACKS.md)
+├── public/packs/            # Resource packs (see docs/RESOURCE_PACKS.md)
 └── scripts/
     └── generate-textures.cjs
 ```

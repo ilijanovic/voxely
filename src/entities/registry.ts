@@ -36,10 +36,12 @@ export function removeEntity(id: string): THREE.Group | undefined {
   return mesh
 }
 
+/** Returns the entity by id, or undefined if not found. */
 export function getEntity(id: string): Entity | undefined {
   return entities.get(id)
 }
 
+/** Returns the mesh group for an entity, or undefined if not set or cleared. */
 export function getEntityMesh(id: string): THREE.Group | undefined {
   return entityMeshes.get(id)
 }

@@ -25,6 +25,7 @@ const pauseMenuOpen = ref(false)
 const connectionStatus = ref<ConnectionStatus>({ connected: false, playerCount: 0 })
 const hintVisible = ref(true)
 
+/** Toggles inventory overlay; exits pointer lock when opening so user can interact with UI. */
 function toggleInventory() {
   const willOpen = !inventoryOpen.value
   if (willOpen) {
@@ -33,11 +34,13 @@ function toggleInventory() {
   inventoryOpen.value = willOpen
 }
 
+/** Hides the controls hint when the user first presses WASD. */
 function hideHintOnFirstMove(e: KeyboardEvent) {
   if (gameMode.value === null) return
-  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) hintVisible.value = false
+  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code))   hintVisible.value = false
 }
 
+/** Global key handler: I = inventory, O = pause menu, Escape = close overlay or open pause. Skips when chat has focus. */
 function onKeyDown(e: KeyboardEvent) {
   hideHintOnFirstMove(e)
   if (e.code === 'KeyI') {
@@ -86,6 +89,7 @@ const hotbarState = ref<{ blocks: BlockType[]; counts: number[] }>({
   counts: [],
 })
 
+/** Called by game when hotbar selection or slot counts change; keeps hotbarState in sync for HUD and Inventory. */
 function onHotbarChange(blocks: BlockType[], counts: number[]) {
   hotbarState.value = { blocks: [...blocks], counts: [...counts] }
 }

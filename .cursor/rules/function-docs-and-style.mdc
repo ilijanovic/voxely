@@ -1,0 +1,28 @@
+---
+description: Require brief English JSDoc for all functions and prefer simple, idiomatic code with inferred return types where appropriate
+alwaysApply: true
+---
+
+# Functions: JSDoc and style
+
+- **JSDoc for every function:** Every function (including methods, callbacks, and Vue component methods) should have a brief JSDoc block directly above it.
+  - Keep descriptions short and focused on intent, not implementation details.
+  - Write all descriptions and tags in English.
+  - Use `@param`, `@returns`, and `@throws` (or `@deprecated`) where they add clarity.
+
+- **Prefer inferred types for returns:** Let TypeScript infer return types when they are obvious from the implementation and call sites.
+  - Do **not** redundantly annotate return types that TypeScript can clearly infer and that do not improve readability.
+  - Use explicit return types for public APIs, complex logic, or when it significantly improves understanding.
+
+- **Readable and idiomatic code:** Code should be easy to read and follow common idioms of the language and framework.
+  - Favour clear, descriptive names over abbreviations.
+  - Prefer small, focused functions over deeply nested logic.
+  - Avoid premature abstraction; extract helpers only when they have a clear, repeated purpose.
+
+- **Avoid magic numbers:** Do not inline unexplained numeric literals in logic.
+  - Extract meaningful numeric values (durations, speeds, thresholds, scales, etc.) into named constants or enums.
+  - Place shared constants in appropriate modules (e.g. `constants.ts`) so their intent is clear and they can be reused or tuned.
+  - Very obvious, language-level values (e.g. `0`, `1`, `-1`, array lengths) may stay inline where they do not harm readability.
+
+- **Scope:** Apply these rules to all TypeScript/JavaScript code in this project, including standalone functions, class methods, and functions defined inside Vue single-file components.
+

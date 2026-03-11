@@ -1,5 +1,9 @@
 import type { TerrainParams, BiomeDefinition } from './types'
 
+/**
+ * Plains biome: flat, temperate grassland. Low erosion and high flatness for smooth terrain.
+ * Grass over dirt surface; sand at shore/underwater. See docs/PLAINS_BIOME.md for full spec.
+ */
 export const plainsTerrain: TerrainParams = {
   baseOffset: 0,
   detailAmp: 1.3,
@@ -8,6 +12,7 @@ export const plainsTerrain: TerrainParams = {
   mountainAllowed: false,
 }
 
+/** Plains biome definition: blocks (surface/subsurface/shore), terrain params, and climate/multiNoise for selection. */
 export const plainsDefinition: BiomeDefinition = {
   blocks: {
     surface: 'grass',

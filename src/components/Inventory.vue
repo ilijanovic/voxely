@@ -1,4 +1,8 @@
 <script setup lang="ts">
+/**
+ * Inventory overlay: Minecraft-style layout (armor, 2×2 crafting + result, 3×9 inventory, 1×9 hotbar).
+ * Currently UI-only; slot data is placeholder. Hotbar blocks/counts are passed from App for display.
+ */
 import type { BlockType } from '../types'
 import { BLOCK_ICON, BLOCK_LABEL } from '../hotbar-icons'
 
@@ -23,10 +27,10 @@ const armorSlots = [
   { id: 'boots', label: 'Boots' },
 ]
 
-/** 2×2 crafting + 1 result */
+/** 2×2 crafting grid + 1 result slot (Minecraft-style). */
 const craftingSlots = 4
 
-/** 3 rows × 9 (same as in-game) */
+/** Inventory grid: 3 rows × 9 columns, same as in-game. */
 const inventoryRows = 3
 const inventoryCols = 9
 const inventorySlotCount = inventoryRows * inventoryCols

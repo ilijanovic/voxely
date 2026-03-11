@@ -77,6 +77,9 @@ export interface ChunkDataPayload {
   requestId?: number
 }
 
+/**
+ * Creates the chunk generator for a given seed. Returns a function that runs the full pipeline (heightmap/biome, carve, stratigraphy, features) and produces a ChunkDataPayload. Options can tune snow accumulation height.
+ */
 export function createChunkGenerator(seed: number, options?: { snowAccumulationHeight?: number }) {
   const snowAccumulationHeight = clamp(options?.snowAccumulationHeight ?? 1, 0, 8)
   const temperatureNoise2D = createNoise2D(makeSeededRandom(seed + 500))

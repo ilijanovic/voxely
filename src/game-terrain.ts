@@ -14,7 +14,7 @@ import { BIOME_REGISTRY } from './terrain/biomes'
 
 export type { Biome }
 
-/** Seeded RNG for deterministic noise (same seed = same world). */
+/** Returns a deterministic RNG in [0,1); same seed yields same sequence (used for world and tree noise). */
 function makeSeededRandom(seed: number) {
   return function () {
     seed = (seed * 1103515245 + 12345) & 0x7fffffff
@@ -23,6 +23,8 @@ function makeSeededRandom(seed: number) {
 }
 
 const WORLD_SEED_KEY = 'voxel-world-seed'
+
+/** Reads world seed from localStorage or generates and persists a new one so reloads keep the same terrain. */
 function getOrCreateWorldSeed(): number {
   const stored = localStorage.getItem(WORLD_SEED_KEY)
   if (stored != null) {
@@ -123,7 +125,7 @@ function getSurfaceYVoxel(px: number, pz: number, searchMaxY: number): number {
 }
 
 /**
- * World Y of the top face of solid terrain at (x, z). Only for spawn – do not use for physics/grounded/jump.
+ * World Y of the top face of solid terrain at (x, z). Uses foot-area expansion for spawn; do not use for physics/grounded/jump.
  */
 export function getSurfaceY(x: number, z: number): number {
   return getSurfaceYVoxel(x, z, WORLD_HEIGHT)
@@ -148,6 +150,7 @@ const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
 export const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26
 export const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16
 
+/** Surface block type at (wx, wz) given biome and topY; handles shore, underwater, stone layers, snow/grass variants. */
 function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
   const def = BIOME_REGISTRY[biome]
   const surface = def.blocks.surface as BlockType

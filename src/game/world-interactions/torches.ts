@@ -1,3 +1,6 @@
+/**
+ * Torch placement: mesh + point light, optional shadow; stored in torchContainer and placedTorches for save/load and shadow settings.
+ */
 import * as THREE from 'three'
 import { getShadowsEnabled, getTorchShadowsEnabled } from '../../graphics-settings'
 
@@ -8,6 +11,7 @@ export type PlacedTorch = {
   group: THREE.Group
 }
 
+/** Creates a torch group (stick mesh, flame mesh, point light) at the given world position; shadow follows graphics settings. */
 export function createTorchGroup(worldX: number, worldY: number, worldZ: number): THREE.Group {
   const group = new THREE.Group()
   group.position.set(worldX, worldY, worldZ)
@@ -34,6 +38,7 @@ export function createTorchGroup(worldX: number, worldY: number, worldZ: number)
   return group
 }
 
+/** Applies current shadow settings to a torch point light (castShadow, map size, camera near/far, bias). */
 export function applyTorchShadowSetting(light: THREE.PointLight): void {
   const enabled = getShadowsEnabled() && getTorchShadowsEnabled()
   light.castShadow = enabled
@@ -46,6 +51,7 @@ export function applyTorchShadowSetting(light: THREE.PointLight): void {
   }
 }
 
+/** Places a torch at world position if not already placed; adds group to torchContainer and appends to placedTorches. Returns true if placed. */
 export function placeTorch(params: {
   worldX: number
   worldY: number
@@ -72,6 +78,7 @@ export function placeTorch(params: {
   return false
 }
 
+/** Applies current torch shadow setting to all placed torch lights (e.g. after options change). */
 export function applyTorchShadowSettingsToPlacedTorches(placedTorches: PlacedTorch[]): void {
   for (const t of placedTorches) {
     const child = t.group.children[2]

@@ -1,3 +1,7 @@
+/**
+ * Hotbar icon and label lookup: builds BLOCK_ICON and BLOCK_LABEL from the block registry at load time.
+ * Used by the HUD, Inventory overlay, and block selection UI.
+ */
 import type { BlockType } from './types'
 import { getBlockTexturePath } from './constants'
 import { getAllBlockIds, getBlockDisplayName, getBlockTextureNames } from './block-registry'

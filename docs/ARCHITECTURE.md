@@ -257,13 +257,15 @@ On load, block modifications are restored and relevant nearby chunks are generat
 
 ## Multiplayer (Optional)
 
-Multiplayer is implemented in `src/multiplayer.ts` using Socket.IO:
+Multiplayer is implemented in `src/multiplayer.ts` as a facade over a transport layer:
 
-- Connects to a server (`SERVER_URL`)
-- Sends local player movement at a rate limit (threshold + max send rate)
-- Receives remote states and interpolates them for smooth motion
-- Spawns remote player meshes in the local scene (requires `createPlayerMesh` callback)
-- Exposes subscriptions for connection status and chat events
+- Default transport is Socket.IO via `SocketMultiplayerTransport` (connects to a server using `MULTIPLAYER_SERVER_URL`).
+- A placeholder `SupabaseMultiplayerTransport` exists for a future Supabase Realtime backend (channels + presence, optional Auth/DB).
+- The facade:
+  - Sends local player movement at a rate limit (threshold + max send rate).
+  - Receives remote states and interpolates them for smooth motion.
+  - Spawns remote player meshes in the local scene (requires `createPlayerMesh` callback).
+  - Exposes subscriptions for connection status and chat events.
 
 The multiplayer layer is currently **state replication for player transforms** + chat; it does not (yet) synchronize world edits.
 

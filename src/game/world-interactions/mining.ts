@@ -1,5 +1,9 @@
 import type { BlockPos, BlockType, ChunkData } from '../../types'
 
+/**
+ * Breaks one block at the given world position: updates block mods, chunk voxel map, height cache; optionally refreshes meshes and spawns drop.
+ * When skipRefresh is true, caller is responsible for re-requesting the chunk from the worker.
+ */
 export function breakBlock(params: {
   chunkKeyNum: number
   blockType: BlockType

@@ -64,6 +64,7 @@ const bloomThreshold = ref(getGraphicsState().bloomThreshold)
 const keyBindings = ref<Record<KeyAction, string>>(getKeyBindings())
 const rebindingAction = ref<KeyAction | null>(null)
 
+/** Syncs graphics refs to graphics-settings and applies them to the renderer; any change to a ref triggers applyGraphicsSettings(). */
 watch(
   [
     renderDistance,
@@ -105,6 +106,7 @@ watch(
   { deep: true },
 )
 
+/** Switches to options view, loads resource pack list, and syncs all option refs from current graphics/key settings. */
 function openOptions() {
   view.value = 'options'
   optionsTab.value = 'graphics'
@@ -130,15 +132,18 @@ function openOptions() {
   rebindingAction.value = null
 }
 
+/** Returns to main pause view and clears any active key rebind. */
 function back() {
   view.value = 'main'
   rebindingAction.value = null
 }
 
+/** Enters rebind mode for the given action; next keydown (captured in onRebindKey) will set the binding. */
 function startRebind(action: KeyAction) {
   rebindingAction.value = action
 }
 
+/** Handles keydown during rebind: sets the binding for rebindingAction and clears rebind mode. Called from a capture-phase listener in onMounted. */
 function onRebindKey(e: KeyboardEvent) {
   if (rebindingAction.value == null) return
   e.preventDefault()
@@ -148,6 +153,7 @@ function onRebindKey(e: KeyboardEvent) {
   rebindingAction.value = null
 }
 
+/** Restores all key bindings to defaults and refreshes keyBindings ref. */
 function resetKeys() {
   resetKeyBindingsToDefaults()
   keyBindings.value = getKeyBindings()
@@ -163,6 +169,7 @@ const shadowMapSizeOptions = [
 const packOptions = ref<PackOption[]>([])
 const selectedResourcePack = ref(getSelectedResourcePack())
 
+/** Fetches available resource packs and updates packOptions; also syncs selectedResourcePack from settings. */
 function loadPackOptions() {
   getAvailablePacks().then((list) => {
     packOptions.value = list
@@ -170,6 +177,7 @@ function loadPackOptions() {
   })
 }
 
+/** Persists the selected pack path and reloads the page so new textures are applied. */
 function onResourcePackChange(newPath: string) {
   setSelectedResourcePack(newPath)
   selectedResourcePack.value = newPath

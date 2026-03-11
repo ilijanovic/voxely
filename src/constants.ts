@@ -55,3 +55,6 @@ export const SNOW_GROWTH_INTERVAL_SEC = 12
 export const SNOW_GROWTH_RADIUS = 10
 /** Number of positions to try per interval (snow forms in parallel in the area). */
 export const SNOW_GROWTH_CANDIDATES_PER_INTERVAL = 24
+
+/** Default URL for the multiplayer server (Socket.IO backend). */
+export const MULTIPLAYER_SERVER_URL = 'http://localhost:3000'

@@ -19,12 +19,12 @@ export const PLAYER_HEIGHT = 1.8
 /** Unscaled height of the player mesh (head top y); scale.y makes total height match PLAYER_HEIGHT. */
 export const PLAYER_MESH_VISUAL_HEIGHT = 1.075
 
-/** Solid only if chunk loaded (X/Z pass). */
+/** Solid only when chunk is loaded; used for X/Z pass to avoid pushing into unloaded chunks. */
 function isSolidBlockLoadedOnlyForCollision(bx: number, by: number, bz: number): boolean {
   return isSolidBlockLoadedOnly(bx, by, bz, isBlockTypeSolid)
 }
 
-/** Wrapper for collision: unloaded = solid (avoid falling through). */
+/** Solid if block type is solid; unloaded chunks count as solid to prevent falling through. */
 function isSolidBlock(bx: number, by: number, bz: number): boolean {
   return isSolidBlockRuntime(bx, by, bz, isBlockTypeSolid)
 }

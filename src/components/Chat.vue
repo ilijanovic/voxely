@@ -1,4 +1,7 @@
 <script setup lang="ts">
+/**
+ * Chat panel: T/Enter to open, Escape to close. Subscribes to multiplayer chat (join/leave/chat/system); lines starting with / run debug commands.
+ */
 import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import { subscribeChat, sendChat, type ChatMessage } from '../multiplayer'
 import { runCommand } from '../debug-commands'
@@ -13,6 +16,7 @@ const unsubscribe = ref<(() => void) | null>(null)
 
 const emit = defineEmits<{ open: []; close: [] }>()
 
+/** T/Enter opens chat and exits pointer lock; Escape closes. Capture-phase so it runs before game input. */
 function onKeyDown(e: KeyboardEvent) {
   if (e.code === 'KeyT' || e.key === 'Enter') {
     if (!open.value) {
@@ -50,15 +54,18 @@ onUnmounted(() => {
   unsubscribe.value?.()
 })
 
+/** Opens chat panel and releases pointer lock so user can type. */
 function openChat() {
   open.value = true
   document.exitPointerLock()
 }
 
+/** Closes chat panel. */
 function closeChat() {
   open.value = false
 }
 
+/** Sends input as chat (or runs /command if line starts with /). Clears input after send. */
 function submit() {
   const t = input.value.trim()
   if (!t) return
@@ -76,6 +83,7 @@ function submit() {
   input.value = ''
 }
 
+/** Renders a chat message as a single line (join/leave/chat/system). */
 function formatMessage(msg: ChatMessage): string {
   switch (msg.type) {
     case 'join':
@@ -91,6 +99,7 @@ function formatMessage(msg: ChatMessage): string {
   }
 }
 
+/** Returns Tailwind class for message color by type (join/leave green, system gray, chat white). */
 function messageClass(msg: ChatMessage): string {
   switch (msg.type) {
     case 'join':
