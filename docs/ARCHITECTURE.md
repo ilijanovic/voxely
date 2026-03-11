@@ -82,7 +82,7 @@ The world you see is the combination of:
 The authoritative runtime state lives in `src/chunk-runtime.ts`:
 
 - `chunks: Map<number, ChunkData>`: loaded chunk data indexed by `chunkKeyNumeric(cx, cz)`.
-- `blockModifications: Map<number, BlockType | "air">`: overrides indexed by `blockKeyNumeric(bx, by, bz)`.
+- `blockModifications: Map<string, BlockType | "air">`: overrides keyed by `blockKeyString(bx, by, bz)`.
 - `getBlockAt(bx, by, bz)`: returns `"air"`/a block type when loaded, `null` if the chunk is not loaded.
 
 This setup is critical because **collisions, mining, and placement** need fast queries that reflect player edits, even though chunk generation is deterministic.

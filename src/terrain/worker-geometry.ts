@@ -1,5 +1,9 @@
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../constants'
-import { CARVED_ID, getBlockHeightById } from './block-ids'
+import { CARVED_ID, getBlockHeightById, WATER_SOURCE_ID } from './block-ids'
+
+function isWaterBlockId(id: number): boolean {
+  return WATER_SOURCE_ID >= 0 && id >= WATER_SOURCE_ID && id < WATER_SOURCE_ID + 8
+}
 
 // Face order matches Three.js BoxGeometry material indices: [right, left, top, bottom, front, back].
 type FaceIndex = 0 | 1 | 2 | 3 | 4 | 5
@@ -362,6 +366,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const i = lx + ly * STRIDE_Y + lz * STRIDE_Z
         const id = buffer[i]
         if (isEmpty(id)) continue
+        if (isWaterBlockId(id)) continue
         const nid = lx + 1 < CHUNK_SIZE ? buffer[i + 1] : 0
         if (!isEmpty(nid)) continue
         const bh = getBlockHeightById(id)
@@ -389,6 +394,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const i = lx + ly * STRIDE_Y + lz * STRIDE_Z
         const id = buffer[i]
         if (isEmpty(id)) continue
+        if (isWaterBlockId(id)) continue
         const nid = lx - 1 >= 0 ? buffer[i - 1] : 0
         if (!isEmpty(nid)) continue
         const bh = getBlockHeightById(id)
@@ -419,6 +425,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const i = lx + ly * STRIDE_Y + lz * STRIDE_Z
         const id = buffer[i]
         if (isEmpty(id)) continue
+        if (isWaterBlockId(id)) continue
         const nid = ly + 1 < WORLD_HEIGHT ? buffer[i + STRIDE_Y] : 0
         if (!isEmpty(nid)) continue
         const bh = getBlockHeightById(id)
@@ -446,6 +453,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const i = lx + ly * STRIDE_Y + lz * STRIDE_Z
         const id = buffer[i]
         if (isEmpty(id)) continue
+        if (isWaterBlockId(id)) continue
         const nid = ly - 1 >= 0 ? buffer[i - STRIDE_Y] : 0
         if (!isEmpty(nid)) continue
         const bh = getBlockHeightById(id)
@@ -476,6 +484,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const i = lx + ly * STRIDE_Y + lz * STRIDE_Z
         const id = buffer[i]
         if (isEmpty(id)) continue
+        if (isWaterBlockId(id)) continue
         const nid = lz + 1 < CHUNK_SIZE ? buffer[i + STRIDE_Z] : 0
         if (!isEmpty(nid)) continue
         const bh = getBlockHeightById(id)
@@ -503,6 +512,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const i = lx + ly * STRIDE_Y + lz * STRIDE_Z
         const id = buffer[i]
         if (isEmpty(id)) continue
+        if (isWaterBlockId(id)) continue
         const nid = lz - 1 >= 0 ? buffer[i - STRIDE_Z] : 0
         if (!isEmpty(nid)) continue
         const bh = getBlockHeightById(id)

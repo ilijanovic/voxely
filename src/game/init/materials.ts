@@ -11,6 +11,17 @@ import {
 } from '../../block-materials'
 import { patchMaterialWithTerrainFog } from '../../terrain-fog'
 
+/** Block IDs that use cross geometry (flowers, fern, tall grass); need DoubleSide for correct rendering. */
+const CROSS_GEOMETRY_BLOCK_IDS = new Set([
+  'dandelion',
+  'poppy',
+  'tulip_red',
+  'oxeye_daisy',
+  'blue_orchid',
+  'fern',
+  'tall_grass',
+])
+
 export type MaterialsInitResult = {
   grassColormapData: ImageData | null
   foliageColormapData: ImageData | null
@@ -56,6 +67,9 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
         })
         patchMaterialWithTerrainFog(mat)
         blockMaterialCache.set(blockId, mat)
+        // Reuse same material for flowing water block types (source + flowing 1..7)
+        blockMaterialCache.set('water_source', mat)
+        for (let k = 1; k <= 7; k++) blockMaterialCache.set(`water_flowing_${k}`, mat)
         return
       }
       const def = getBlockDefinition(blockId)!
@@ -91,6 +105,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
           ...grassMaterialOpts,
           ...leafMaterialOpts,
         })
+        if (CROSS_GEOMETRY_BLOCK_IDS.has(blockId)) mat.side = THREE.DoubleSide
         patchMaterialWithTerrainFog(mat)
         blockMaterialCache.set(blockId, mat)
         if (

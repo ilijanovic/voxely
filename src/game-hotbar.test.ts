@@ -4,6 +4,7 @@ vi.stubGlobal('document', {
   querySelectorAll: () => ({ forEach: () => {} }),
 })
 
+import { initDefaultInventory } from './inventory'
 import {
   getSelectedBlockType,
   getSelectedHotbarIndex,
@@ -13,11 +14,14 @@ import {
   getSelectedSlotCount,
   setOnHotbarChange,
   notifyHotbarChange,
+  attachHotbarToInventory,
 } from './game-hotbar'
 
 describe('game-hotbar', () => {
   beforeEach(() => {
     setOnHotbarChange(null)
+    initDefaultInventory()
+    attachHotbarToInventory()
     setHotbarIndex(0)
   })
 
@@ -45,8 +49,8 @@ describe('game-hotbar', () => {
   describe('getSelectedBlockType', () => {
     it('returns block type at selected index', () => {
       setHotbarIndex(0)
-      expect(getSelectedBlockType()).toBe('grass')
-      setHotbarIndex(2)
+      expect(getSelectedBlockType()).toBe('wood_sword')
+      setHotbarIndex(3)
       expect(getSelectedBlockType()).toBe('stone')
     })
   })
@@ -55,7 +59,7 @@ describe('game-hotbar', () => {
     it('stacks onto existing slot with same block type', () => {
       const cb = vi.fn()
       setOnHotbarChange(cb)
-      setHotbarIndex(2)
+      setHotbarIndex(3)
       const countBefore = getSelectedSlotCount()
       addBlockToInventory('stone')
       expect(getSelectedSlotCount()).toBe(countBefore + 1)

@@ -1,32 +1,23 @@
 /**
  * Hotbar (Minecraft-style block selection): 9 slots, selection index, inventory add.
- * Used by game.ts for placement, pickups, and UI sync.
+ * Thin facade over inventory slots 0–8. Used by game.ts for placement, pickups, and UI sync.
  */
 import type { BlockType } from './types'
-import { MAX_STACK_SIZE } from './constants'
-
-/** Block types in the 9 hotbar slots (left to right). */
-const HOTBAR_BLOCKS: BlockType[] = [
-  'grass',
-  'dirt',
-  'stone',
-  'sand',
-  'snow',
-  'wood',
-  'leaves',
-  'grass',
-  'torch',
-]
-
-/** Count per hotbar slot (index matches HOTBAR_BLOCKS). */
-const HOTBAR_COUNTS = [1, 1, 1, 1, 1, 1, 1, 1, 5] // Torch (slot 8) starts with 5
+import {
+  getSlot,
+  addItem,
+  consumeFromSlot,
+  HOTBAR_START,
+  setOnInventoryChange,
+} from './inventory'
 
 const HOTBAR_SLOTS = 9
 let selectedHotbarIndex = 0
 
-/** Currently selected block type (for placement/building). */
+/** Currently selected block type (for placement/building). Empty slot returns ''. */
 export function getSelectedBlockType(): BlockType {
-  return HOTBAR_BLOCKS[selectedHotbarIndex]
+  const slot = getSlot(HOTBAR_START + selectedHotbarIndex)
+  return slot.type ?? ''
 }
 
 /** Index of the currently selected hotbar slot (0–8). */
@@ -36,8 +27,8 @@ export function getSelectedHotbarIndex(): number {
 
 /** Update DOM slot selection state. */
 export function updateHotbarSelection(): void {
-  const slots = document.querySelectorAll('#hotbar .slot')
-  slots.forEach((el, i) => {
+  const slotEls = document.querySelectorAll('#hotbar .slot')
+  slotEls.forEach((el, i) => {
     el.classList.toggle('selected', i === selectedHotbarIndex)
   })
 }
@@ -48,8 +39,19 @@ export function setHotbarIndex(index: number): void {
   updateHotbarSelection()
 }
 
-/** Callback when hotbar changes (for UI sync). */
+/** Callback when hotbar changes (for UI sync). Receives blocks and counts for slots 0–8. */
 let onHotbarChange: ((blocks: BlockType[], counts: number[]) => void) | null = null
+
+function emitHotbarChange(): void {
+  const blocks: BlockType[] = []
+  const counts: number[] = []
+  for (let i = 0; i < HOTBAR_SLOTS; i++) {
+    const s = getSlot(HOTBAR_START + i)
+    blocks.push(s.type ?? '')
+    counts.push(s.count)
+  }
+  onHotbarChange?.(blocks, counts)
+}
 
 /** Registers or clears the callback invoked whenever hotbar blocks/counts or selection change. */
 export function setOnHotbarChange(
@@ -58,38 +60,28 @@ export function setOnHotbarChange(
   onHotbarChange = cb
 }
 
-/** Add a picked-up block to the hotbar. Stacks up to MAX_STACK_SIZE (64), then uses next empty slot. */
+/** Wires inventory change to hotbar callback so UI stays in sync. Call once at game init. */
+export function attachHotbarToInventory(): void {
+  setOnInventoryChange(emitHotbarChange)
+}
+
+/** Add a picked-up block to inventory (hotbar first, then main). Stacks up to MAX_STACK_SIZE. */
 export function addBlockToInventory(blockType: BlockType): void {
-  for (let i = 0; i < HOTBAR_SLOTS; i++) {
-    if (HOTBAR_BLOCKS[i] === blockType && (HOTBAR_COUNTS[i] ?? 0) < MAX_STACK_SIZE) {
-      HOTBAR_COUNTS[i]++
-      onHotbarChange?.(HOTBAR_BLOCKS.slice(), HOTBAR_COUNTS.slice())
-      return
-    }
-  }
-  const empty = HOTBAR_COUNTS.findIndex((c) => c <= 0)
-  if (empty >= 0) {
-    HOTBAR_BLOCKS[empty] = blockType
-    HOTBAR_COUNTS[empty] = 1
-    onHotbarChange?.(HOTBAR_BLOCKS.slice(), HOTBAR_COUNTS.slice())
-  }
+  addItem(blockType, 1)
 }
 
 /** Notify UI of current hotbar state (e.g. after init or block place). */
 export function notifyHotbarChange(): void {
-  onHotbarChange?.(HOTBAR_BLOCKS.slice(), HOTBAR_COUNTS.slice())
+  emitHotbarChange()
 }
 
 /** Current count in the selected slot. */
 export function getSelectedSlotCount(): number {
-  return HOTBAR_COUNTS[selectedHotbarIndex] ?? 0
+  return getSlot(HOTBAR_START + selectedHotbarIndex).count
 }
 
 /** Consume one item from the selected slot. Returns true if consumed and notifies UI. */
 export function consumeOneFromSelectedSlot(): boolean {
-  const count = HOTBAR_COUNTS[selectedHotbarIndex] ?? 0
-  if (count <= 0) return false
-  HOTBAR_COUNTS[selectedHotbarIndex]--
-  onHotbarChange?.(HOTBAR_BLOCKS.slice(), HOTBAR_COUNTS.slice())
-  return true
+  const taken = consumeFromSlot(HOTBAR_START + selectedHotbarIndex, 1)
+  return taken > 0
 }

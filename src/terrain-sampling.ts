@@ -415,6 +415,11 @@ export function createTerrainSampling(seed: number) {
     return topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1
   }
 
+  /**
+   * Simplified surface/column block type. Does not replicate full worker surface rules
+   * (coast blend, land boundary dither, frozen_peaks packed_ice/ice, grass_snow neighbor).
+   * For authoritative surface at a position, use chunk data or game-terrain getSurfaceBlockAt.
+   */
   function getBlockTypeAt(biome: Biome, y: number, topY: number): BlockType {
     if (y === 0) return 'bedrock'
     if (y > topY) {
@@ -433,7 +438,8 @@ export function createTerrainSampling(seed: number) {
       )
         return 'stone'
       if (biome === 'meadow' && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return 'stone'
-      if (topY >= SURFACE_STONE_HEIGHT) return 'stone'
+      if (topY >= SURFACE_STONE_HEIGHT && biome !== 'frozen_peaks' && biome !== 'jagged_peaks')
+        return 'stone'
       if (
         topY >= WATER_LEVEL + 20 &&
         biome !== 'desert' &&

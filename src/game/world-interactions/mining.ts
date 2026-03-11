@@ -22,7 +22,16 @@ export function breakBlock(params: {
   getBlockHeight: (blockType: BlockType) => number
   getBlockAt: (x: number, y: number, z: number) => BlockType | 'air' | null
   refreshChunkVisibleMeshes: (data: ChunkData, affectedBlockTypes?: Set<BlockType>) => void
-  spawnDrop: (worldX: number, worldY: number, worldZ: number, blockType: BlockType) => void
+  /** Current game time in seconds (for drop landing animation). */
+  time: number
+  spawnDrop: (
+    worldX: number,
+    worldZ: number,
+    startY: number,
+    restY: number,
+    blockType: BlockType,
+    time: number,
+  ) => void
   /** When true, do not refresh meshes (caller will re-request chunk from worker and replace). */
   skipRefresh?: boolean
 }): void {
@@ -67,6 +76,7 @@ export function breakBlock(params: {
   const cx = pos.x + 0.5
   const cz = pos.z + 0.5
   const dropSize = 0.35
+  const startY = pos.y + 0.5
   let groundY = pos.y - 1 + 0.5
   for (let by = pos.y - 1; by >= 0; by--) {
     const t = params.getBlockAt(pos.x, by, pos.z)
@@ -75,7 +85,7 @@ export function breakBlock(params: {
       break
     }
   }
-  const cy = groundY + dropSize * 0.5
-  params.spawnDrop(cx, cy, cz, params.blockType)
+  const restY = groundY + dropSize * 0.5
+  params.spawnDrop(cx, cz, startY, restY, params.blockType, params.time)
   if (!params.skipRefresh) params.refreshChunkVisibleMeshes(data, affectedBlockTypes)
 }

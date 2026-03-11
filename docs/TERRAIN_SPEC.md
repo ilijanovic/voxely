@@ -148,15 +148,10 @@ Desert is not “complete” unless its required primitives exist in code:
   - `cactus_side`, `cactus_top`, `cactus_bottom`
   - `deadbush` (note: Minecraft texture name is `deadbush`, not `dead_bush`)
 
-**CURRENT gap**:
+**CURRENT (resolved)**:
 
-- `src/terrain/features/desert-decor.ts` already places `cactus`/`dead_bush`.
-- But `src/block-registry.ts` does not define these blocks, and `src/terrain/block-ids.ts` does not include them in `TERRAIN_BLOCK_TYPES`.
-
-If you touch desert decor parameters, you must either:
-
-- implement these missing blocks first, **or**
-- explicitly document that the feature is intentionally disabled/placeholder.
+- `src/terrain/features/desert-decor.ts` places `cactus`/`dead_bush`.
+- `src/block-registry.ts` defines both blocks (with textures); `src/terrain/block-ids.ts` includes them in `TERRAIN_BLOCK_TYPES`. Desert decor is fully wired.
 
 ---
 
@@ -252,6 +247,28 @@ Old Minecraft had floating precision issues far from origin.
 - Keep noise inputs stable; if large world coordinates are used:
   - consider coordinate normalization/wrapping for noise
   - avoid accumulating floating error over long chains
+
+### 5.7 Biome balance and distribution
+
+Minecraft’s balance relies on **climate-based clustering** and **weighted rarity**, not uniform distribution. All biomes exist in an infinite world, but they are clustered by climate; common biomes appear frequently, rare ones require significant exploration.
+
+- **Climate-based generation**: Biomes are grouped into temperature categories (snowy, cold, medium, dry/warm). Similar biomes generally spawn near each other, preventing abrupt transitions (e.g. desert immediately next to snowy tundra).
+- **Weighted rarity**: Biomes are not equally weighted. Common biomes (Plains, Forests, Oceans) dominate the landscape; rare biomes (Jungle, Badlands/Mesa, Ice Spikes) are rarer and encourage exploration.
+- **Fallback system**: If all biomes for a given climate are removed (e.g. via mods or data packs), the game fills that space with biomes from other climate categories—prioritizing worldgen stability over strict climate consistency.
+- **Sub-biome structure**: Many biomes are variants of a “base” biome and only appear within it (e.g. Wooded Badlands only within a larger Badlands region).
+
+**TARGET rule for Voxely**:
+
+- Treat climate clustering and weighted rarity as design goals: common biomes should appear often, rare biomes should require travel; avoid uniform or random biome distribution.
+- Fallback behaviour and sub-biome constraints are optional for future extension; document any fallback or variant rules if implemented.
+
+**Common issues and player perspectives** (design context, not implementation requirements):
+
+- **Repetitiveness**: Temperature-based clustering can produce large, homogeneous regions (especially in dimension-style worlds like the Nether), which some players find repetitive.
+- **Size and exploration**: Larger biome sizes can make specific resources (e.g. bamboo, terracotta) harder to find and reduce local biodiversity.
+- **Ocean abundance**: Oceans often occupy a large share of the surface and can feel like “barren” barriers, despite offering resources.
+
+In short, the balance relies on a **temperature-clustered** model: large, cohesive regions of similar climate, with long travel needed to reach different environments.
 
 ---
 

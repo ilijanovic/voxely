@@ -189,6 +189,7 @@ These modules are extracted from `game.ts` for testability and separation of con
 - **`src/block-registry.ts`** – Block definitions: IDs, names, texture names, solid/unbreakable flags. Used by game and materials.
 - **`src/block-materials.ts`** – Three.js materials, texture loading, grass/foliage colormap sampling, shared geometries.
 - **`src/terrain/block-ids.ts`** – Terrain-side block ID mapping (used inside the pipeline; aligns with `BlockType`).
+- **Block type categories** – [docs/BLOCK_TYPES.md](docs/BLOCK_TYPES.md) describes solid, plant, crop, and fluid blocks and where they are defined in code.
 
 ---
 

@@ -4,7 +4,13 @@
  */
 import * as THREE from 'three'
 import type { BlockType, Biome, BlockPos } from './types'
-import { BLOCK_SIZE, DEFAULT_BLOCK_TEXTURE_PATH, getBlockTexturePath } from './constants'
+import {
+  BLOCK_SIZE,
+  DEFAULT_BLOCK_TEXTURE_PATH,
+  DEFAULT_ITEM_TEXTURE_PATH,
+  getBlockTexturePath,
+  getItemTexturePath,
+} from './constants'
 
 const textureLoader = new THREE.TextureLoader()
 const DEBUG_GRASS_TINT =
@@ -65,6 +71,23 @@ function getTextureUrls(textureName: string): { primaryUrl: string; fallbackUrl:
   }
 }
 
+function resolveItemTextureBase(): string {
+  const path = getItemTexturePath()
+  if (typeof window === 'undefined' || path.startsWith('http')) return path
+  return window.location.origin + path
+}
+
+function getItemTextureUrls(textureName: string): { primaryUrl: string; fallbackUrl: string } {
+  const normalized = normalizeTextureName(textureName)
+  const base = resolveItemTextureBase()
+  const defaultBase =
+    typeof window === 'undefined' ? DEFAULT_ITEM_TEXTURE_PATH : window.location.origin + DEFAULT_ITEM_TEXTURE_PATH
+  return {
+    primaryUrl: `${base}/${normalized}.png`,
+    fallbackUrl: `${defaultBase}/${normalized}.png`,
+  }
+}
+
 /** Loads a texture by name (primary path, then fallback); never rejects, returns fallback canvas texture on failure. */
 export function loadTextureSafe(textureName: string): Promise<THREE.Texture> {
   const { primaryUrl, fallbackUrl } = getTextureUrls(textureName)
@@ -72,6 +95,20 @@ export function loadTextureSafe(textureName: string): Promise<THREE.Texture> {
     .loadAsync(primaryUrl)
     .catch(() => textureLoader.loadAsync(fallbackUrl))
     .catch(() => getFallbackTexture())
+}
+
+/** Loads an item texture (e.g. wood_sword) from the item texture path. Used for held items and hotbar. */
+export function loadItemTextureSafe(textureName: string): Promise<THREE.Texture> {
+  const { primaryUrl, fallbackUrl } = getItemTextureUrls(textureName)
+  return textureLoader
+    .loadAsync(primaryUrl)
+    .catch(() => textureLoader.loadAsync(fallbackUrl))
+    .catch(() => getFallbackTexture())
+    .then((tex) => {
+      setPixelFilter(tex)
+      tex.colorSpace = THREE.SRGBColorSpace
+      return tex
+    })
 }
 
 /** Loads a texture by name; returns null on failure (does not use fallback texture). */

@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three'
 
-const DAY_DURATION = 400
+const DAY_DURATION = 900
 const SUN_DISTANCE = 200
 const SUN_SHADOW_MIN_HEIGHT = 0.15
 

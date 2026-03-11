@@ -1,6 +1,6 @@
 /**
  * Pure terrain/biome/tree logic for Web Worker chunk generation.
- * Pipeline-based: Stage 1 (heightmap + biome from climate), Stage 2 (3D carve), Stage 3 (stratigraphy), Stage 4 (features).
+ * Pipeline-based: Stage 1 (heightmap + biome), Stage 2 (carve 3D + cheese + spaghetti), Stage 3 (stratigraphy), Stage 4 (features), Stage 5 (template structures).
  */
 import { createNoise2D, createNoise3D } from 'simplex-noise'
 import type { Biome, BlockType } from '../types'
@@ -16,13 +16,30 @@ import { runPipeline, createChunkContext } from './pipeline'
 import type { ChunkContext } from './pipeline-types'
 import { createStage1 } from './stages/heightmap-biome'
 import { createStage2 } from './stages/carve-3d'
+import { createStage2Cheese } from './stages/carve-cheese'
+import { createStage2Spaghetti } from './stages/carve-spaghetti'
 import { createStage3 } from './stages/stratigraphy'
 import { createStage4 } from './stages/structures'
+import { createStage5Structures } from './stages/stage5-structures'
 import { createTreeFeature } from './features/trees'
 import { createFernFeature } from './features/ferns'
 import { createFlowersFeature } from './features/flowers'
 import { createGroundFeature } from './features/ground'
 import { localKey, typeToId, idToType, AIR_ID } from './block-ids'
+import {
+  FOREST_DENSITY_SCALE,
+  FOREST_DENSITY_THRESHOLD,
+  TREE_PLACEMENT_SCALE,
+  TREE_PLACEMENT_FOREST_THRESHOLD,
+  TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD,
+  TREE_PLACEMENT_JUNGLE_THRESHOLD,
+  TREE_PLACEMENT_PLAINS_THRESHOLD,
+  TREE_PLACEMENT_MOUNTAIN_THRESHOLD,
+  TREE_PLACEMENT_SNOW_THRESHOLD,
+  TREE_MAX_SLOPE,
+  getTreeShapeConfigForBiome,
+  type TreeShapeConfig,
+} from './tree-constants'
 
 /** Block modification for a chunk: world coords + value. */
 export type BlockModEntry = { bx: number; by: number; bz: number; value: BlockType | 'air' }
@@ -96,6 +113,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const forestDensityNoise2D = createNoise2D(makeSeededRandom(seed + 777))
   const treePlacementNoise2D = createNoise2D(makeSeededRandom(seed + 888))
   const caveNoise3D = createNoise3D(makeSeededRandom(seed + 400))
+  const cheeseNoise3D = createNoise3D(makeSeededRandom(seed + 401))
   const heightTransitionNoise2D = createNoise2D(makeSeededRandom(seed + 4242))
 
   const TEMP_SCALE = 0.001
@@ -127,114 +145,13 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const HIGHLAND_VARIANT_SCALE = 0.004
   const HEIGHT_TRANSITION_SCALE = 0.0016
   const HEIGHT_TRANSITION_AMPLITUDE = 4.5
-  const FOREST_DENSITY_SCALE = 0.028
-  const TREE_PLACEMENT_SCALE = 0.12
-  const FOREST_DENSITY_THRESHOLD = 0.0
-  const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1
-  const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0
-  const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.65
-  const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93
-  const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97
-  const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
   const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55
   const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16
   const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26
-  const TREE_MAX_SLOPE = 2
   const PEAK_Y_MIN = WATER_LEVEL + 30
   const PEAK_Y_RANGE = 24
 
   const SNOW_BIOMES: Biome[] = ['snow', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks', 'grove']
-  type TreeShapeConfig = {
-    trunkMin: number
-    trunkMax: number
-    leafRadiusMin: number
-    leafRadiusMax: number
-    leafHeightMin: number
-    leafHeightMax: number
-    leafDensityMin: number
-    leafDensityMax: number
-    giantChance: number
-    giantTrunkBonusMax: number
-    giantLeafRadiusBonusMax: number
-    giantLeafHeightBonusMax: number
-    giantDensityBonusMax: number
-  }
-
-  const TREE_SHAPE_DEFAULT: TreeShapeConfig = {
-    trunkMin: 4,
-    trunkMax: 8,
-    leafRadiusMin: 1,
-    leafRadiusMax: 3,
-    leafHeightMin: 3,
-    leafHeightMax: 6,
-    leafDensityMin: 0.58,
-    leafDensityMax: 0.92,
-    giantChance: 0.03,
-    giantTrunkBonusMax: 5,
-    giantLeafRadiusBonusMax: 2,
-    giantLeafHeightBonusMax: 3,
-    giantDensityBonusMax: 0.05,
-  }
-  const TREE_SHAPE_FOREST: TreeShapeConfig = {
-    trunkMin: 5,
-    trunkMax: 10,
-    leafRadiusMin: 2,
-    leafRadiusMax: 4,
-    leafHeightMin: 4,
-    leafHeightMax: 7,
-    leafDensityMin: 0.62,
-    leafDensityMax: 0.96,
-    giantChance: 0.06,
-    giantTrunkBonusMax: 6,
-    giantLeafRadiusBonusMax: 2,
-    giantLeafHeightBonusMax: 3,
-    giantDensityBonusMax: 0.04,
-  }
-  const TREE_SHAPE_JUNGLE: TreeShapeConfig = {
-    trunkMin: 8,
-    trunkMax: 14,
-    leafRadiusMin: 3,
-    leafRadiusMax: 6,
-    leafHeightMin: 6,
-    leafHeightMax: 11,
-    leafDensityMin: 0.78,
-    leafDensityMax: 0.98,
-    giantChance: 0.1,
-    giantTrunkBonusMax: 8,
-    giantLeafRadiusBonusMax: 2,
-    giantLeafHeightBonusMax: 4,
-    giantDensityBonusMax: 0.03,
-  }
-  const TREE_SHAPE_MOUNTAIN: TreeShapeConfig = {
-    trunkMin: 4,
-    trunkMax: 7,
-    leafRadiusMin: 1,
-    leafRadiusMax: 3,
-    leafHeightMin: 2,
-    leafHeightMax: 5,
-    leafDensityMin: 0.45,
-    leafDensityMax: 0.82,
-    giantChance: 0.02,
-    giantTrunkBonusMax: 4,
-    giantLeafRadiusBonusMax: 1,
-    giantLeafHeightBonusMax: 2,
-    giantDensityBonusMax: 0.06,
-  }
-  const TREE_SHAPE_SNOW: TreeShapeConfig = {
-    trunkMin: 8,
-    trunkMax: 14,
-    leafRadiusMin: 1,
-    leafRadiusMax: 3,
-    leafHeightMin: 5,
-    leafHeightMax: 9,
-    leafDensityMin: 0.55,
-    leafDensityMax: 0.9,
-    giantChance: 0.05,
-    giantTrunkBonusMax: 7,
-    giantLeafRadiusBonusMax: 2,
-    giantLeafHeightBonusMax: 3,
-    giantDensityBonusMax: 0.05,
-  }
   const CAVE_THRESHOLD = 0.4
 
   function clamp01(v: number): number {
@@ -653,11 +570,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   }
 
   function getTreeShapeConfig(biome: Biome): TreeShapeConfig {
-    if (biome === 'snow' || biome === 'grove') return TREE_SHAPE_SNOW
-    if (biome === 'forest' || biome === 'windswept_forest') return TREE_SHAPE_FOREST
-    if (biome === 'jungle') return TREE_SHAPE_JUNGLE
-    if (biome === 'mountain') return TREE_SHAPE_MOUNTAIN
-    return TREE_SHAPE_DEFAULT
+    return getTreeShapeConfigForBiome(biome)
   }
 
   function getIntInRange(min: number, max: number, sample: number): number {
@@ -770,6 +683,18 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     caveNoise3D,
     carveThreshold: CAVE_THRESHOLD,
   })
+  const stage2Cheese = createStage2Cheese({
+    cheeseNoise3D,
+    scale: 0.02,
+    threshold: 0.35,
+  })
+  const stage2Spaghetti = createStage2Spaghetti({
+    seed,
+    radius: 2,
+    cellSize: 32,
+    steps: 40,
+    maxY: WATER_LEVEL + 48,
+  })
 
   function getSurfaceBlock(ctx: ChunkContext, lx: number, lz: number): BlockType {
     const topY = ctx.heightmap[lx][lz]
@@ -802,10 +727,13 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     }
 
     // Land biome boundary: probabilistic surface swap based on blend weight.
+    // Minecraft-style: no dithering when desert is involved — sharp sand/grass boundary.
     if (
       blend.primary !== blend.secondary &&
       blend.primary !== 'ocean' &&
-      blend.secondary !== 'ocean'
+      blend.secondary !== 'ocean' &&
+      blend.primary !== 'desert' &&
+      blend.secondary !== 'desert'
     ) {
       const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType
       const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
@@ -873,8 +801,13 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const flowersFeature = createFlowersFeature()
   const groundFeature = createGroundFeature()
   const stage4 = createStage4([treeFeature, fernFeature, flowersFeature, groundFeature])
+  const stage5 = createStage5Structures({
+    seed,
+    getHeight: getHeightUncached,
+    getResolvedBiome,
+  })
 
-  const stages = [stage1, stage2, stage3, stage4]
+  const stages = [stage1, stage2, stage2Cheese, stage2Spaghetti, stage3, stage4, stage5]
 
   function generateChunkData(
     chunkX: number,

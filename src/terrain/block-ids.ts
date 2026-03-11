@@ -44,6 +44,27 @@ const TERRAIN_BLOCK_TYPES: (BlockType | 'air')[] = [
   'sandstone',
   'dead_bush',
   'cactus',
+  // Feature blocks (flowers, ground cover) – order fixed for deterministic ids
+  'dandelion',
+  'poppy',
+  'tulip_red',
+  'oxeye_daisy',
+  'blue_orchid',
+  'tall_grass',
+  'grass_path',
+  'fern',
+  'hay_block',
+  'ice',
+  'packed_ice',
+  // Flowing water: source + levels 1–7 (Minecraft-style spread)
+  'water_source',
+  'water_flowing_1',
+  'water_flowing_2',
+  'water_flowing_3',
+  'water_flowing_4',
+  'water_flowing_5',
+  'water_flowing_6',
+  'water_flowing_7',
 ]
 
 /** BlockType at id (id 0 = air, not in this array). Index = id - 1 for id >= 1. */
@@ -66,9 +87,19 @@ export function idToType(id: number): BlockType | 'air' {
   return t ?? 'air'
 }
 
-/** Block height in world units (1 = full block). Snow layers 1–8 use 1/8 … 8/8. */
+/** First terrain block id for water (water_source). Used for height and fluid logic. */
+export const WATER_SOURCE_ID = ((): number => {
+  const idx = TERRAIN_BLOCK_TYPES.indexOf('water_source' as BlockType)
+  return idx >= 0 ? idx : -1
+})()
+
+/** Block height in world units (1 = full block). Snow layers 1–8 use 1/8 … 8/8. Water source = 1, flowing 1..7 = 0.85 down to 0.55. */
 export function getBlockHeightById(id: number): number {
   if (id >= 12 && id <= 19) return (id - 11) / 8 // snow_layer_1..8 at indices 12..19
+  if (WATER_SOURCE_ID >= 0 && id >= WATER_SOURCE_ID && id < WATER_SOURCE_ID + 8) {
+    if (id === WATER_SOURCE_ID) return 1
+    return 0.9 - (id - WATER_SOURCE_ID - 1) * 0.05 // flowing 1..7
+  }
   return 1
 }
 

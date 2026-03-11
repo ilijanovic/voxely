@@ -6,6 +6,7 @@ import {
   CHUNK_SIZE,
   WATER_LEVEL,
   WATER_BLOCK_HEIGHT,
+  WATER_SPREAD_INTERVAL_SEC,
   SPAWN_X,
   SPAWN_Z,
   WORLD_HEIGHT,
@@ -67,7 +68,20 @@ import { spawnEntitiesForChunk } from './entities/spawn'
 import { updateMovement } from './entities/movement'
 import { updateAI } from './entities/ai'
 import { updateAnimation } from './entities/animation'
-import { isSolidBlock as isBlockTypeSolid, isUnbreakableBlock } from './block-registry'
+import {
+  isSolidBlock as isBlockTypeSolid,
+  isUnbreakableBlock,
+  getBlockDefinition,
+  getBlockTextureNames,
+  getItemTextureName,
+  isWeapon,
+} from './block-registry'
+import { loadTextureSafe, loadItemTextureSafe, setPixelFilter } from './block-materials'
+import {
+  getPersistentSlots,
+  setPersistentSlots,
+  initDefaultInventory,
+} from './inventory'
 import {
   SAVE_VERSION,
   saveToStorage,
@@ -102,11 +116,13 @@ import {
   chunkKey,
   chunkKeyNumeric,
   localKey,
+  decodeLocalKey,
   blockKeyString,
   invalidateColumnHeight,
   getBlockAt,
   getBlockModsForChunk,
 } from './chunk-runtime'
+import { isWaterBlock, computeWaterSpread } from './game/fluid/water-flow'
 import { isPendingSpawnReady } from './game/player/pending-spawn'
 import { RaycastMeshCache } from './game/chunks/raycast-cache'
 import { initChunkWorkerClient, type ChunkWorkerClient } from './game/chunks/chunk-worker-client'
@@ -125,6 +141,8 @@ import {
 } from './game/chunks/chunk-generate-sync'
 import {
   updateDropsAndPickup as updateDropsAndPickupSystem,
+  DEFAULT_MAGNET_RADIUS,
+  DEFAULT_MAGNET_SPEED,
   type Drop,
 } from './game/world-interactions/drops'
 import {
@@ -217,6 +235,7 @@ function saveGame(): void {
     placedTorches: placedTorches.map((t) => ({ x: t.x, y: t.y, z: t.z })),
     dayTime: getDayTime() % 1,
     snowForced: snowEffect?.getForced?.() ?? undefined,
+    inventory: getPersistentSlots(),
   }
   saveToStorage(state)
 }
@@ -228,7 +247,10 @@ function saveGame(): void {
  */
 function loadGame(): boolean {
   const data = loadFromStorage()
-  if (!data) return false
+  if (!data) {
+    initDefaultInventory()
+    return false
+  }
   if (data.worldSeed !== WORLD_SEED) return false
 
   for (const { x, y, z } of data.removedBlocks ?? []) {
@@ -280,6 +302,16 @@ function loadGame(): boolean {
     if (snowEffect) snowEffect.setForced?.(data.snowForced)
     else pendingSnowForced = data.snowForced
   }
+  if (data.inventory && data.inventory.length > 0) {
+    const valid = data.inventory.slice(0, 36).map((s) =>
+      s && s.type && VALID_BLOCK_TYPES.has(s.type)
+        ? { type: s.type, count: Math.min(s.count, 64) }
+        : { type: null as BlockType | null, count: 0 },
+    )
+    setPersistentSlots(valid)
+  } else {
+    initDefaultInventory()
+  }
   return true
 }
 
@@ -323,6 +355,8 @@ const drops: Drop[] = []
 const PICKUP_RADIUS = 1.4
 const DROP_BOB_SPEED = 3
 const DROP_BOB_HEIGHT = 0.08
+const MAGNET_RADIUS = DEFAULT_MAGNET_RADIUS
+const MAGNET_SPEED = DEFAULT_MAGNET_SPEED
 
 /** Platziere Fackeln: Weltposition (Mitte der Fackel) + Group (Mesh + PointLight). */
 const placedTorches: PlacedTorch[] = []
@@ -332,6 +366,7 @@ const PLACE_DISTANCE = 5
 const BLOCK_TICK_INTERVAL = 5
 const WHEAT_GROWTH_PROBABILITY = 0.2
 let lastBlockTickTime = 0
+let lastWaterSpreadTime = 0
 
 const _direction = new THREE.Vector3()
 const _projScreenMatrix = new THREE.Matrix4()
@@ -464,12 +499,15 @@ function breakBlock(
   worldX: number,
   worldY: number,
   worldZ: number,
+  time: number,
 ): void {
   const ctx = getChunkSyncCtx()
   const useWorker = !!chunkWorker
   breakBlockSync(ctx, chunkKeyNum, blockType, worldX, worldY, worldZ, {
     skipRefresh: useWorker,
+    time,
   })
+  runWaterSpreadFromNeighbors(worldX, worldY, worldZ)
   if (useWorker && chunkWorker) {
     const cx = chunkKeyNum >> 16
     const cz = (chunkKeyNum << 16) >> 16
@@ -621,8 +659,96 @@ function createPlayer(scene: THREE.Scene) {
 
 // ================= POV HAND =================
 
+/** Scale of held block in first-person (small block in hand). */
+const HELD_BLOCK_SCALE = 0.2
+/** Blade length for sword held item (world units). */
+const HELD_SWORD_BLADE_LENGTH = 0.4
+/** Cache of held-item meshes by block type (block or item id). */
+const heldItemMeshCache = new Map<string, THREE.Mesh>()
+/** Container for the currently held item (child of POV arm). Set in createPOVHands. */
+let povHeldItemContainer: THREE.Group
+
 /**
- * Creates the first-person arm/hand group attached to the camera (skin material, fixed offset). Used for mining swing and movement bob.
+ * Creates or returns a cached mesh for the given block/item type to show in the first-person hand.
+ */
+function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
+  let mesh = heldItemMeshCache.get(blockType)
+  if (mesh) return mesh
+
+  const itemTex = getItemTextureName(blockType)
+  if (itemTex) {
+    // Weapon/tool: sword-style thin elongated quad or box with item texture
+    const geom = new THREE.PlaneGeometry(HELD_SWORD_BLADE_LENGTH * 0.5, HELD_SWORD_BLADE_LENGTH)
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 1,
+      side: THREE.DoubleSide,
+    })
+    mesh = new THREE.Mesh(geom, mat)
+    mesh.renderOrder = 1000
+    loadItemTextureSafe(itemTex).then((tex) => {
+      setPixelFilter(tex)
+      tex.colorSpace = THREE.SRGBColorSpace
+      mat.map = tex
+      mat.needsUpdate = true
+    })
+    mesh.rotation.x = THREE.MathUtils.degToRad(-90)
+    mesh.rotation.z = THREE.MathUtils.degToRad(10)
+    mesh.position.set(0.05, 0.02, 0.1)
+  } else {
+    // Block: small cube with block texture
+    const names = getBlockTextureNames(blockType)
+    const texName = names[0] ?? 'stone'
+    const geom = new THREE.BoxGeometry(HELD_BLOCK_SCALE, HELD_BLOCK_SCALE, HELD_BLOCK_SCALE)
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      depthTest: false,
+      depthWrite: false,
+    })
+    mesh = new THREE.Mesh(geom, mat)
+    mesh.renderOrder = 1000
+    loadTextureSafe(texName).then((tex) => {
+      setPixelFilter(tex)
+      tex.colorSpace = THREE.SRGBColorSpace
+      mat.map = tex
+      mat.needsUpdate = true
+    })
+    mesh.rotation.y = THREE.MathUtils.degToRad(45)
+    mesh.rotation.x = THREE.MathUtils.degToRad(-20)
+    mesh.position.set(0.06, 0, 0.12)
+  }
+
+  heldItemMeshCache.set(blockType, mesh)
+  return mesh
+}
+
+/**
+ * Updates the POV held-item container to show the currently selected hotbar item.
+ */
+function updatePOVHeldItem(): void {
+  const count = getSelectedSlotCount()
+  if (count <= 0) {
+    povHeldItemContainer.clear()
+    return
+  }
+  const blockType = getSelectedBlockType()
+  const def = getBlockDefinition(blockType)
+  if (!def) {
+    povHeldItemContainer.clear()
+    return
+  }
+  const mesh = getOrCreateHeldItemMesh(blockType)
+  if (povHeldItemContainer.children[0] !== mesh) {
+    povHeldItemContainer.clear()
+    povHeldItemContainer.add(mesh)
+  }
+}
+
+/**
+ * Creates the first-person arm/hand group attached to the camera (skin material, fixed offset). Used for mining swing, movement bob, and held item.
  */
 function createPOVHands(camera: THREE.PerspectiveCamera) {
   const hands = new THREE.Group()
@@ -642,6 +768,9 @@ function createPOVHands(camera: THREE.PerspectiveCamera) {
     THREE.MathUtils.degToRad(-15),
     THREE.MathUtils.degToRad(-10),
   )
+  povHeldItemContainer = new THREE.Group()
+  povHeldItemContainer.position.set(0, 0.18, 0)
+  arm.add(povHeldItemContainer)
   hands.add(arm)
   camera.add(hands)
   return hands
@@ -752,6 +881,19 @@ let miningSwingPhase = 0
 const POV_ARM_BASE_ROTATION_X = THREE.MathUtils.degToRad(-25)
 const POV_ARM_BASE_ROTATION_Y = THREE.MathUtils.degToRad(-15)
 const POV_ARM_BASE_ROTATION_Z = THREE.MathUtils.degToRad(-10)
+
+/** Sword slash: idle -> slashing (left-to-right and back) -> cooldown -> idle. */
+type AttackState = 'idle' | 'slashing' | 'cooldown'
+let attackState: AttackState = 'idle'
+let slashPhase = 0
+/** Duration of the slash motion (forward + return) in seconds. */
+const SLASH_DURATION = 0.4
+/** Cooldown after slash before next attack can start. */
+const SLASH_COOLDOWN_DURATION = 0.15
+/** Total attack cycle duration. */
+const SLASH_TOTAL_DURATION = SLASH_DURATION + SLASH_COOLDOWN_DURATION
+/** Max rotation (radians) of POV hands for slash (left-to-right arc). */
+const SLASH_HAND_ROTATION_Y = 0.65
 
 // Third-Person: Körper-Yaw (Bewegungsrichtung), Kopf relativ dazu
 let bodyYaw = 0
@@ -1006,7 +1148,13 @@ function initControlsAndInput(): void {
     renderer.domElement.requestPointerLock()
   })
   document.addEventListener('mousedown', (e) => {
-    if (e.button === 0) isMouseDown = true
+    if (e.button === 0) {
+      isMouseDown = true
+      if (isWeapon(getSelectedBlockType()) && attackState === 'idle') {
+        attackState = 'slashing'
+        slashPhase = 0
+      }
+    }
     if (e.button === 2) {
       e.preventDefault()
       rightMouseJustPressed = true
@@ -1077,6 +1225,14 @@ const horizontalMaxSpeedSprint = 5.8
 const horizontalMaxSpeedSneak = 1.4
 const groundFriction = 0.15 // velocity multiplier per second when on ground and not moving
 
+// Water (swimming/diving): world units per second, frame-rate independent
+const waterSwimUpSpeed = 2.2
+const waterSinkSpeed = 0.6
+const waterSinkSpeedSneak = 2.2
+const waterHorizontalSpeedFactor = 0.51 // ~Minecraft surface speed vs walk
+/** Max vertical speed in water (clamp for smoother feel). */
+const waterVerticalSpeedCap = 2.8
+
 // ================= PHYSICS (all per-second for frame-rate independence) =================
 
 let velocityY = 0
@@ -1088,6 +1244,25 @@ let playerGrounded = false
 let debugCollisionLogCooldown = 0
 /** Gesetzt bei Space keydown; wird zu Beginn des nächsten Frames ausgewertet, damit der Sprung sofort in der Physik ankommt. */
 let jumpRequested = false
+
+/** When true, log swim state about once per second (inWater, playerY, velocityY). Enable in console: window.__DEBUG_SWIM = true */
+let DEBUG_SWIM = false
+let lastSwimDebugTime = 0
+declare global {
+  interface Window {
+    __DEBUG_SWIM?: boolean
+  }
+}
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, '__DEBUG_SWIM', {
+    get: () => DEBUG_SWIM,
+    set: (v: boolean) => {
+      DEBUG_SWIM = v
+      console.log('[swim] DEBUG_SWIM =', v)
+    },
+    configurable: true,
+  })
+}
 
 const gravity = -18
 const jumpForce = 6.71 // ~1.2522 block jump height (Minecraft Java)
@@ -1175,7 +1350,7 @@ document.addEventListener('keydown', (e) => {
   if (code === getKeyBinding('jump')) {
     if (!e.repeat) {
       jumpRequested = true
-      if (playerGrounded) velocityY = jumpForce
+      if (playerGrounded && !isPlayerInWater()) velocityY = jumpForce
     }
     e.preventDefault()
     return
@@ -1194,6 +1369,7 @@ document.addEventListener('keyup', (e) => {
     return
   }
   if (code === getKeyBinding('sprint')) sprintKeyHeld = false
+  if (code === getKeyBinding('sneak')) sneakKeyHeld = false
   if (code === getKeyBinding('back')) moveState.back = false
   if (code === getKeyBinding('left')) moveState.left = false
   if (code === getKeyBinding('right')) moveState.right = false
@@ -1332,18 +1508,35 @@ function updateChunkVisibility(): void {
   _right.crossVectors(_direction, camera.up).normalize()
 }
 
+/** Vertical offset from feet: player is "in water" when (position.y + offset) is below water surface. Avoids triggering on shallow contact. */
+const WATER_ENTRY_OFFSET = PLAYER_HEIGHT * 0.2
+
+/**
+ * True when the player is considered submerged (below water surface). Uses height-based check; water is not stored as voxels.
+ */
+function isPlayerInWater(): boolean {
+  const waterSurfaceY = WATER_LEVEL + WATER_BLOCK_HEIGHT
+  return player.position.y + WATER_ENTRY_OFFSET < waterSurfaceY
+}
+
 /**
  * Applies movement (walk/sprint/sneak), FOV/pointer speed lerp, jump buffer, gravity, voxel collision; updates entity AI, movement, and animation.
  */
 function updateMovementAndCollision(dt: number, time: number): void {
+  const inWater = isPlayerInWater()
   isSprinting = moveState.forward && !sneakKeyHeld && (sprintKeyHeld || doubleTapSprint)
-  const speed = sneakKeyHeld ? sneakSpeed : isSprinting ? sprintSpeed : moveSpeed
-  const backSpeed = sneakKeyHeld ? sneakSpeed : moveSpeed
-  const maxSpeed = sneakKeyHeld
+  let speed = sneakKeyHeld ? sneakSpeed : isSprinting ? sprintSpeed : moveSpeed
+  let backSpeed = sneakKeyHeld ? sneakSpeed : moveSpeed
+  let maxSpeed = sneakKeyHeld
     ? horizontalMaxSpeedSneak
     : isSprinting
       ? horizontalMaxSpeedSprint
       : horizontalMaxSpeed
+  if (inWater) {
+    speed *= waterHorizontalSpeedFactor
+    backSpeed *= waterHorizontalSpeedFactor
+    maxSpeed *= waterHorizontalSpeedFactor
+  }
 
   // POV-FOV: beim Sprint etwas zoomen (größeres FOV = schnellerer Eindruck)
   const targetFov = isSprinting && moveState.forward ? getFovSprint() : getFovNormal()
@@ -1388,10 +1581,37 @@ function updateMovementAndCollision(dt: number, time: number): void {
     wishZ -= _right.z * speed
   }
 
-  // Jump-Buffer: Sprung zu Beginn des Frames anwenden (reagiert sofort, kein 1-Frame-Lag)
-  if (jumpRequested && playerGrounded) {
-    velocityY = jumpForce
-    jumpRequested = false
+  // Vertical: in water use Space to swim up (while held), Shift to sink faster, else slow sink; on land use normal jump
+  if (inWater) {
+    if (jumpRequested) {
+      velocityY = waterSwimUpSpeed
+      // Do not clear jumpRequested here: keyup clears it; while Space is held we want continuous swim-up
+    } else if (sneakKeyHeld) {
+      velocityY = -waterSinkSpeedSneak
+    } else {
+      velocityY = -waterSinkSpeed
+    }
+    velocityY = THREE.MathUtils.clamp(velocityY, -waterVerticalSpeedCap, waterVerticalSpeedCap)
+    if (DEBUG_SWIM && inWater) {
+      const now = performance.now()
+      if (now - lastSwimDebugTime >= 1000) {
+        lastSwimDebugTime = now
+        const waterSurfaceY = WATER_LEVEL + WATER_BLOCK_HEIGHT
+        console.log('[swim]', {
+          inWater: true,
+          playerY: player.position.y.toFixed(2),
+          waterSurfaceY,
+          jumpRequested,
+          sneakKeyHeld,
+          velocityY: velocityY.toFixed(2),
+        })
+      }
+    }
+  } else {
+    if (jumpRequested && playerGrounded) {
+      velocityY = jumpForce
+      jumpRequested = false
+    }
   }
 
   const onGround = playerGrounded
@@ -1414,8 +1634,8 @@ function updateMovementAndCollision(dt: number, time: number): void {
     }
   }
 
-  // Apply gravity only when not grounded to avoid Y sink→push every frame (micro-jitter on ground)
-  if (!playerGrounded) {
+  // Apply gravity only when not grounded and not in water (water has its own vertical behaviour)
+  if (!playerGrounded && !inWater) {
     velocityY += gravity * dt
     if (velocityY < terminalVelocity) velocityY = terminalVelocity
   }
@@ -1433,6 +1653,7 @@ function updateMovementAndCollision(dt: number, time: number): void {
     PLAYER_HALF,
     PLAYER_HEIGHT,
     collisionDebug,
+    inWater,
   )
   velocityX = vel.x
   velocityY = vel.y
@@ -1488,6 +1709,7 @@ function updateCameraAndViewMode(time: number, dt: number): void {
     arm2.visible = false
 
     povHands.visible = true
+    updatePOVHeldItem()
 
     // POV-Schattenkörper: Position = Spieler, Kopf-Rotation = Blickrichtung, nur als Schatten sichtbar
     povShadowBody.visible = true
@@ -1498,19 +1720,36 @@ function updateCameraAndViewMode(time: number, dt: number): void {
     head.rotation.y = lookYaw
     head.rotation.x = lookPitch
 
-    // POV-Hände: Lauf-Wackeln oder Mining-Schwung (Halten auf Block)
+    // POV-Hände: Slash (Waffe), Mining-Schwung oder Lauf-Wackeln
     const isMining = breakTarget !== null
     const povArm = povHands.children[0] as THREE.Mesh
-    if (isMining) {
+    if (attackState !== 'idle') {
+      slashPhase += dt
+      if (slashPhase >= SLASH_TOTAL_DURATION) attackState = 'idle'
+      let slashY = 0
+      if (slashPhase < SLASH_DURATION) {
+        const p = slashPhase / SLASH_DURATION
+        if (p < 0.5) {
+          slashY = -SLASH_HAND_ROTATION_Y + 2 * p * SLASH_HAND_ROTATION_Y
+        } else {
+          slashY = SLASH_HAND_ROTATION_Y - 2 * (p - 0.5) * SLASH_HAND_ROTATION_Y
+        }
+      }
+      povHands.rotation.y = slashY
+      povHands.rotation.z = 0
+      povHands.position.set(0, 0, 0)
+      povArm.rotation.x = POV_ARM_BASE_ROTATION_X
+      povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
+      povArm.rotation.z = POV_ARM_BASE_ROTATION_Z
+    } else if (isMining) {
       miningSwingPhase += dt
-      // Arm schwingt vor und zurück wie beim Abbauen
       const swing = Math.sin(miningSwingPhase * 14) * 0.52
       povArm.rotation.x = POV_ARM_BASE_ROTATION_X + swing
       povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
       povArm.rotation.z = POV_ARM_BASE_ROTATION_Z
-      // Leichtes Zurückziehen der Hand beim Schwingen
       const pullZ = 0.02 + Math.max(0, Math.sin(miningSwingPhase * 14)) * 0.04
       povHands.position.set(0, 0, pullZ)
+      povHands.rotation.y = 0
       povHands.rotation.z = 0
     } else {
       miningSwingPhase = 0
@@ -1527,6 +1766,7 @@ function updateCameraAndViewMode(time: number, dt: number): void {
       povHandAnimY += (targetY - povHandAnimY) * POV_HAND_LERP
       povHandAnimZ += (targetZ - povHandAnimZ) * POV_HAND_LERP
       povHands.position.set(povHandAnimX, povHandAnimY, povHandAnimZ)
+      povHands.rotation.y = 0
       povHands.rotation.z = 0
     }
 
@@ -1619,9 +1859,9 @@ function updateCameraAndViewMode(time: number, dt: number): void {
 }
 
 /**
- * Updates drop item physics (bob, gravity), pickup detection within PICKUP_RADIUS, and removes collected drops from scene.
+ * Updates drop landing animation, bobbing, magnet pull, and pickup within PICKUP_RADIUS.
  */
-function updateDropsAndPickup(time: number): void {
+function updateDropsAndPickup(time: number, dt: number): void {
   updateDropsAndPickupSystem({
     scene,
     drops,
@@ -1629,10 +1869,13 @@ function updateDropsAndPickup(time: number): void {
     playerY: player.position.y + PLAYER_HEIGHT * 0.5,
     playerZ: player.position.z,
     time,
+    dt,
     config: {
       pickupRadius: PICKUP_RADIUS,
       bobSpeed: DROP_BOB_SPEED,
       bobHeight: DROP_BOB_HEIGHT,
+      magnetRadius: MAGNET_RADIUS,
+      magnetSpeed: MAGNET_SPEED,
     },
   })
 }
@@ -1677,10 +1920,107 @@ function runBlockTick(time: number): void {
   }
 }
 
+/** Max water spread changes per tick to cap cost. */
+const WATER_SPREAD_MAX_CHANGES_PER_TICK = 40
+
+/**
+ * Runs water flow every WATER_SPREAD_INTERVAL_SEC: collects water block positions from loaded chunks and blockMods,
+ * computes spread (fall then horizontal), applies changes via blockModifications and refreshChunkVisibleMeshes.
+ */
+function runWaterFlowTick(time: number): void {
+  if (time - lastWaterSpreadTime < WATER_SPREAD_INTERVAL_SEC) return
+  lastWaterSpreadTime = time
+
+  const waterPositions: Array<{ bx: number; by: number; bz: number }> = []
+  const seen = new Set<string>()
+
+  for (const [, data] of chunks) {
+    const worldX = data.cx * CHUNK_SIZE
+    const worldZ = data.cz * CHUNK_SIZE
+    for (const [key, type] of data.voxelMap) {
+      if (!isWaterBlock(type)) continue
+      const { lx, ly, lz } = decodeLocalKey(key)
+      const bx = worldX + lx
+      const bz = worldZ + lz
+      const k = `${bx},${ly},${bz}`
+      if (seen.has(k)) continue
+      const effective = getBlockAt(bx, ly, bz)
+      if (effective === null || !isWaterBlock(effective)) continue
+      seen.add(k)
+      waterPositions.push({ bx, by: ly, bz })
+    }
+  }
+  for (const [keyStr, value] of blockModifications) {
+    if (!isWaterBlock(value)) continue
+    const parts = keyStr.split(',')
+    const bx = Number(parts[0])
+    const by = Number(parts[1])
+    const bz = Number(parts[2])
+    const cx = Math.floor(bx / CHUNK_SIZE)
+    const cz = Math.floor(bz / CHUNK_SIZE)
+    if (!chunks.has(chunkKeyNumeric(cx, cz))) continue
+    if (seen.has(keyStr)) continue
+    seen.add(keyStr)
+    waterPositions.push({ bx, by, bz })
+  }
+
+  const changes = computeWaterSpread({
+    getBlockAt,
+    isSolid: isBlockTypeSolid,
+    waterPositions,
+    maxChangesPerTick: WATER_SPREAD_MAX_CHANGES_PER_TICK,
+  })
+
+  for (const { bx, by, bz, value } of changes) {
+    const keyStr = blockKeyString(bx, by, bz)
+    blockModifications.set(keyStr, value)
+    applyBlockChangeToLoadedChunk({ bx, by, bz, next: value })
+  }
+}
+
+/** Neighbor offsets for 6 directions (for immediate water spread when a block is broken). */
+const NEIGHBOR_OFFSETS: Array<[number, number, number]> = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+]
+
+/**
+ * Runs one water spread pass from the neighbors of (bx, by, bz).
+ * Used when a block is broken so water immediately flows into the new air.
+ */
+function runWaterSpreadFromNeighbors(bx: number, by: number, bz: number): void {
+  const waterPositions: Array<{ bx: number; by: number; bz: number }> = []
+  for (const [dx, dy, dz] of NEIGHBOR_OFFSETS) {
+    const nx = bx + dx
+    const ny = by + dy
+    const nz = bz + dz
+    const t = getBlockAt(nx, ny, nz)
+    if (t !== null && isWaterBlock(t)) waterPositions.push({ bx: nx, by: ny, bz: nz })
+  }
+  if (waterPositions.length === 0) return
+
+  const changes = computeWaterSpread({
+    getBlockAt,
+    isSolid: isBlockTypeSolid,
+    waterPositions,
+    maxChangesPerTick: WATER_SPREAD_MAX_CHANGES_PER_TICK,
+  })
+
+  for (const { bx: cx, by: cy, bz: cz, value } of changes) {
+    const keyStr = blockKeyString(cx, cy, cz)
+    blockModifications.set(keyStr, value)
+    applyBlockChangeToLoadedChunk({ bx: cx, by: cy, bz: cz, next: value })
+  }
+}
+
 /**
  * Handles block break (hold-to-mine with progress, raycast to block), block/torch place (right-click or F), and block-crack overlay updates.
  */
-function updateBlockBreakAndPlace(dt: number): void {
+function updateBlockBreakAndPlace(dt: number, time: number): void {
   // Place (right-click or F): torch or block; F works without pointer lock
   const placeRequested =
     (rightMouseJustPressed && document.pointerLockElement === renderer.domElement) ||
@@ -1729,7 +2069,11 @@ function updateBlockBreakAndPlace(dt: number): void {
             if (!torchInPlayer && placeTorch(placeX, placeY, placeZ)) {
               consumeOneFromSelectedSlot()
             }
-          } else if (sel !== 'torch' && count > 0 && isBlockTypeSolid(sel)) {
+          } else if (
+            sel !== 'torch' &&
+            count > 0 &&
+            (isBlockTypeSolid(sel) || sel === 'water')
+          ) {
             const adjX = Math.floor(placeHit.point.x + _direction.x * 0.01)
             const adjY = Math.floor(placeHit.point.y + _direction.y * 0.01)
             const adjZ = Math.floor(placeHit.point.z + _direction.z * 0.01)
@@ -1747,12 +2091,13 @@ function updateBlockBreakAndPlace(dt: number): void {
               (at === null || at === 'air') &&
               !blockModifications.has(keyStr)
             ) {
-              blockModifications.set(keyStr, sel)
+              const blockToPlace = sel === 'water' ? ('water_source' as BlockType) : sel
+              blockModifications.set(keyStr, blockToPlace)
               applyBlockChangeToLoadedChunk({
                 bx: adjX,
                 by: adjY,
                 bz: adjZ,
-                next: sel,
+                next: blockToPlace,
               })
               consumeOneFromSelectedSlot()
             }
@@ -1762,8 +2107,14 @@ function updateBlockBreakAndPlace(dt: number): void {
     }
   }
 
-  // Block-Abbau: Halten auf Block (Raycast von Kamera-Mitte, nur bei Pointer Lock)
+  // Block-Abbau: Halten auf Block (Raycast von Kamera-Mitte, nur bei Pointer Lock). Skip when holding a weapon (left-click triggers slash instead).
   if (document.pointerLockElement === renderer.domElement && isMouseDown && camera) {
+    if (isWeapon(getSelectedBlockType())) {
+      breakTarget = null
+      breakProgress = 0
+      const crackEl = document.getElementById('block-crack')
+      if (crackEl) crackEl.style.visibility = 'hidden'
+    } else {
     rayOrigin.copy(camera.position)
     camera.getWorldDirection(rayDirection)
     raycaster.set(rayOrigin, rayDirection)
@@ -1828,7 +2179,7 @@ function updateBlockBreakAndPlace(dt: number): void {
         ) {
           breakProgress += dt
           if (breakProgress >= BREAK_TIME) {
-            breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z)
+            breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
             breakTarget = null
             breakProgress = 0
             const crackEl = document.getElementById('block-crack')
@@ -1884,7 +2235,7 @@ function updateBlockBreakAndPlace(dt: number): void {
           ) {
             breakProgress += dt
             if (breakProgress >= BREAK_TIME) {
-              breakBlock(chunkKeyNum, at, bx, by, bz)
+              breakBlock(chunkKeyNum, at, bx, by, bz, time)
               breakTarget = null
               breakProgress = 0
             }
@@ -1903,6 +2254,7 @@ function updateBlockBreakAndPlace(dt: number): void {
     } else {
       breakTarget = null
       breakProgress = 0
+    }
     }
   } else if (!isMouseDown) {
     breakTarget = null
@@ -1969,9 +2321,10 @@ function animate(): void {
   updateChunkVisibility()
   updateMovementAndCollision(dt, time)
   updateCameraAndViewMode(time, dt)
-  updateDropsAndPickup(time)
+  updateDropsAndPickup(time, dt)
   runBlockTick(time)
-  updateBlockBreakAndPlace(dt)
+  runWaterFlowTick(time)
+  updateBlockBreakAndPlace(dt, time)
   updateShadowAndRender(dt)
 }
 

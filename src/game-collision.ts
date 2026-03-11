@@ -5,7 +5,7 @@
  * Block convention (must match rendering and worker geometry): a block at integer (bx, by, bz)
  * occupies the world AABB [bx..bx+1], [by..by+1], [bz..bz+1] (corner-based, not center-based).
  */
-import { STEP_BLOCK_HEIGHT } from './constants'
+import { STEP_BLOCK_HEIGHT, STEP_HEIGHT } from './constants'
 import {
   isSolidBlock as isSolidBlockRuntime,
   isSolidBlockLoadedOnly,
@@ -114,6 +114,7 @@ if (typeof window !== 'undefined') {
  * Mutates position and velocity in place. Returns collision flags; grounded is true only when landing on a block (Y down).
  * halfX, halfZ, height define the AABB (center at position, full height in Y).
  * If debug is provided, every position correction is recorded in debug.snaps (for debugging movement jitter).
+ * When allowStepUp is true, a block within STEP_HEIGHT above feet can be climbed onto (e.g. exit water onto shore); default false so normal walking does not auto-step full blocks.
  */
 export function resolveVoxelCollisions(
   position: { x: number; y: number; z: number },
@@ -123,6 +124,7 @@ export function resolveVoxelCollisions(
   halfZ: number,
   height: number,
   debug?: CollisionDebug,
+  allowStepUp: boolean = false,
 ): CollisionResult {
   const blockMin = (b: number) => b
   const blockMax = (b: number) => b + 1
@@ -162,6 +164,43 @@ export function resolveVoxelCollisions(
       const overlapMinX = Math.max(playerMinX, blockMinX)
       const overlapMaxX = Math.min(playerMaxX, blockMaxX)
       if (overlapMaxX - overlapMinX <= 0) continue
+
+      // Step-up: only when allowed (e.g. in water exiting onto shore); on land we don't auto-step full blocks
+      const canStepUpX =
+        allowStepUp &&
+        blockMaxY > position.y &&
+        blockMaxY <= position.y + STEP_HEIGHT
+      if (canStepUpX) {
+        const stepY = blockMaxY
+        fillBlocksInAABB(position.x, stepY, position.z, halfX, halfZ, height, false)
+        let wallBlocked = false
+        for (let j = 0; j < _aabbBlockCount; j++) {
+          const b = _aabbBlockBuffer[j]
+          const bMinX = blockMin(b.bx)
+          const bMaxX = blockMax(b.bx)
+          const bMinZ = blockMin(b.bz)
+          const bMaxZ = blockMax(b.bz)
+          const xO = Math.min(position.x + halfX, bMaxX) - Math.max(position.x - halfX, bMinX)
+          const zO = Math.min(position.z + halfZ, bMaxZ) - Math.max(position.z - halfZ, bMinZ)
+          if (xO <= 1e-4 || zO <= 1e-4) continue
+          const bH = getBlockHeightAt(b.bx, b.by, b.bz)
+          const bMaxY = b.by + (bH > 0 ? bH : 1)
+          if (bH <= STEP_BLOCK_HEIGHT) continue
+          const floorAtStep = bMaxY <= stepY + FLOOR_TOLERANCE
+          const aboveAtStep = stepY >= bMaxY - FLOOR_TOLERANCE
+          if (floorAtStep && aboveAtStep) continue
+          wallBlocked = true
+          break
+        }
+        if (!wallBlocked) {
+          position.y = stepY
+          velocity.y = 0
+          result.grounded = true
+          resolved = true
+          break
+        }
+      }
+
       const fromX = position.x
       if (velocity.x > 0) position.x = blockMinX - halfX
       else if (velocity.x < 0) position.x = blockMaxX + halfX
@@ -205,6 +244,43 @@ export function resolveVoxelCollisions(
       const overlapMinZ = Math.max(playerMinZ, blockMinZ)
       const overlapMaxZ = Math.min(playerMaxZ, blockMaxZ)
       if (overlapMaxZ - overlapMinZ <= 0) continue
+
+      // Step-up: only when allowed (e.g. in water exiting onto shore); on land we don't auto-step full blocks
+      const canStepUpZ =
+        allowStepUp &&
+        blockMaxY > position.y &&
+        blockMaxY <= position.y + STEP_HEIGHT
+      if (canStepUpZ) {
+        const stepY = blockMaxY
+        fillBlocksInAABB(position.x, stepY, position.z, halfX, halfZ, height, false)
+        let wallBlocked = false
+        for (let j = 0; j < _aabbBlockCount; j++) {
+          const b = _aabbBlockBuffer[j]
+          const bMinX = blockMin(b.bx)
+          const bMaxX = blockMax(b.bx)
+          const bMinZ = blockMin(b.bz)
+          const bMaxZ = blockMax(b.bz)
+          const xO = Math.min(position.x + halfX, bMaxX) - Math.max(position.x - halfX, bMinX)
+          const zO = Math.min(position.z + halfZ, bMaxZ) - Math.max(position.z - halfZ, bMinZ)
+          if (xO <= 1e-4 || zO <= 1e-4) continue
+          const bH = getBlockHeightAt(b.bx, b.by, b.bz)
+          const bMaxY = b.by + (bH > 0 ? bH : 1)
+          if (bH <= STEP_BLOCK_HEIGHT) continue
+          const floorAtStep = bMaxY <= stepY + FLOOR_TOLERANCE
+          const aboveAtStep = stepY >= bMaxY - FLOOR_TOLERANCE
+          if (floorAtStep && aboveAtStep) continue
+          wallBlocked = true
+          break
+        }
+        if (!wallBlocked) {
+          position.y = stepY
+          velocity.y = 0
+          result.grounded = true
+          resolved = true
+          break
+        }
+      }
+
       const fromZ = position.z
       if (velocity.z > 0) position.z = blockMinZ - halfZ
       else if (velocity.z < 0) position.z = blockMaxZ + halfZ

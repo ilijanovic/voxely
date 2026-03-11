@@ -4,6 +4,14 @@ import { initGame } from './game.ts'
 import { subscribeConnection, type ConnectionStatus } from './multiplayer'
 import type { BlockType } from './types'
 import { BLOCK_ICON, BLOCK_LABEL } from './hotbar-icons'
+import {
+  getAllSlots,
+  getHotbarSlots,
+  setOnInventoryChange,
+  moveSlots,
+  craftOne,
+  clearCraftingGrid,
+} from './inventory'
 
 /** 1x1 grey data URL when block icon fails to load (e.g. missing texture path). */
 const FALLBACK_ICON =
@@ -30,8 +38,16 @@ function toggleInventory() {
   const willOpen = !inventoryOpen.value
   if (willOpen) {
     document.exitPointerLock()
+  } else {
+    clearCraftingGrid()
   }
   inventoryOpen.value = willOpen
+}
+
+/** Closes inventory overlay and clears the crafting grid. */
+function closeInventory() {
+  clearCraftingGrid()
+  inventoryOpen.value = false
 }
 
 /** Hides the controls hint when the user first presses WASD. */
@@ -67,7 +83,7 @@ function onKeyDown(e: KeyboardEvent) {
     if (inventoryOpen.value) {
       e.preventDefault()
       e.stopPropagation()
-      inventoryOpen.value = false
+      closeInventory()
       return
     }
     if (gameMode.value !== null) {
@@ -83,13 +99,16 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
-/** Hotbar state from the game (updated via callback when picking up items). */
+/** Hotbar state for HUD (blocks and counts for slots 0–8). */
 const hotbarState = ref<{ blocks: BlockType[]; counts: number[] }>({
   blocks: [],
   counts: [],
 })
 
-/** Called by game when hotbar selection or slot counts change; keeps hotbarState in sync for HUD and Inventory. */
+/** Full inventory slots (0–39) for Inventory overlay. */
+const inventorySlots = ref<Array<{ type: BlockType | null; count: number }>>([])
+
+/** Called by game when hotbar selection or slot counts change; keeps hotbarState in sync for HUD. */
 function onHotbarChange(blocks: BlockType[], counts: number[]) {
   hotbarState.value = { blocks: [...blocks], counts: [...counts] }
 }
@@ -108,6 +127,15 @@ watch(gameMode, async (mode) => {
   } else {
     initGame(undefined, opts)
   }
+  inventorySlots.value = getAllSlots()
+  setOnInventoryChange(() => {
+    inventorySlots.value = getAllSlots()
+    const h = getHotbarSlots()
+    onHotbarChange(
+      h.map((s) => s.type ?? ''),
+      h.map((s) => s.count),
+    )
+  })
   unsubscribeConnection = subscribeConnection((status) => {
     connectionStatus.value = status
   })
@@ -250,13 +278,14 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Inventory overlay: pass hotbar state for icons -->
+      <!-- Inventory overlay: full slots, move and craft callbacks -->
       <Transition name="modal">
         <Inventory
           v-if="inventoryOpen"
-          :hotbar-blocks="hotbarState.blocks"
-          :hotbar-counts="hotbarState.counts"
-          @close="inventoryOpen = false"
+          :slots="inventorySlots"
+          :on-move="(from: number, to: number) => moveSlots(from, to)"
+          :on-craft-one="craftOne"
+          @close="closeInventory"
         />
       </Transition>
 

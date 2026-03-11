@@ -6,6 +6,8 @@ export const CHUNK_SIZE = 16
 
 /** Default base path for block textures (built-in assets). Must match public folder: public/assets/minecraft/textures/block. */
 export const DEFAULT_BLOCK_TEXTURE_PATH = '/assets/minecraft/textures/block'
+/** Default base path for item textures (held items, hotbar icons for tools/weapons). */
+export const DEFAULT_ITEM_TEXTURE_PATH = '/assets/minecraft/textures/items'
 
 /**
  * Base path for block textures. Can be overridden by the selected resource pack
@@ -17,6 +19,17 @@ export function getBlockTexturePath(): string {
   if (!pack) return DEFAULT_BLOCK_TEXTURE_PATH
   const normalized = pack.endsWith('/') ? pack.slice(0, -1) : pack
   return `${normalized}/assets/minecraft/textures/block`
+}
+
+/**
+ * Base path for item textures (held items, weapons, tools). Uses same resource pack as block textures.
+ */
+export function getItemTexturePath(): string {
+  if (typeof window === 'undefined') return DEFAULT_ITEM_TEXTURE_PATH
+  const pack = getSelectedResourcePack()
+  if (!pack) return DEFAULT_ITEM_TEXTURE_PATH
+  const normalized = pack.endsWith('/') ? pack.slice(0, -1) : pack
+  return `${normalized}/assets/minecraft/textures/items`
 }
 
 /** @deprecated Use getBlockTexturePath() for resource-pack support. */
@@ -33,9 +46,26 @@ export const WATER_LEVEL = 64
 export const WATER_BLOCK_HEIGHT = 0.9
 /** Offset above water surface for water plane mesh to avoid z-fighting. */
 export const WATER_PLANE_Y_OFFSET = 0.05
+/** Game ticks between water spread updates (Minecraft: 5 ticks = 4 blocks/sec). */
+export const WATER_SPREAD_TICKS = 5
+/** Maximum flow level for water (7 = flow stops after 7 blocks from source). */
+export const WATER_MAX_LEVEL = 7
+/** Seconds between water spread updates (WATER_SPREAD_TICKS at 20 tps). */
+export const WATER_SPREAD_INTERVAL_SEC = WATER_SPREAD_TICKS / 20
 
 /** Max stack size for most items (Minecraft: 64; some items like eggs stack to 16). */
 export const MAX_STACK_SIZE = 64
+
+/** Hotbar slot count (Minecraft: 9). */
+export const HOTBAR_SLOTS = 9
+/** Main inventory rows × columns (Minecraft: 3×9). */
+export const MAIN_INVENTORY_ROWS = 3
+export const MAIN_INVENTORY_COLS = 9
+export const MAIN_INVENTORY_SLOTS = MAIN_INVENTORY_ROWS * MAIN_INVENTORY_COLS
+/** 2×2 crafting grid slot count (inventory screen). */
+export const CRAFTING_GRID_2X2 = 4
+/** Total persistent slots: hotbar + main (crafting grid not persisted). */
+export const TOTAL_PERSISTENT_SLOTS = HOTBAR_SLOTS + MAIN_INVENTORY_SLOTS
 
 /** Spawn position (world block coords). */
 export const SPAWN_X = 0

@@ -44,6 +44,7 @@ function makeParams(overrides: Partial<Parameters<typeof breakBlock>[0]> = {}) {
     getBlockHeight: () => 1,
     getBlockAt: (_x: number, _y: number, _z: number): BlockType | 'air' | null => 'air',
     refreshChunkVisibleMeshes,
+    time: 0,
     spawnDrop,
     ...overrides,
   }
@@ -109,11 +110,13 @@ describe('breakBlock', () => {
     params.chunks.set(0, data)
     breakBlock(params)
     expect(params.spawnDrop).toHaveBeenCalledTimes(1)
-    const [cx, cy, cz, bt] = vi.mocked(params.spawnDrop).mock.calls[0]
+    const [cx, cz, startY, restY, bt, time] = vi.mocked(params.spawnDrop).mock.calls[0]
     expect(cx).toBe(5.5)
     expect(cz).toBe(5.5)
     expect(bt).toBe('stone')
-    expect(cy).toBeGreaterThan(9)
+    expect(startY).toBe(10.5)
+    expect(restY).toBeGreaterThan(9)
+    expect(time).toBe(0)
   })
 
   it('calls refreshChunkVisibleMeshes with data and affectedBlockTypes when instanceIndex is -1', () => {
@@ -152,10 +155,11 @@ describe('breakBlock', () => {
     params.chunks.set(0, data)
     breakBlock(params)
     expect(params.spawnDrop).toHaveBeenCalledTimes(1)
-    const [, cy] = vi.mocked(params.spawnDrop).mock.calls[0]
+    const [, , startY, restY] = vi.mocked(params.spawnDrop).mock.calls[0]
     const dropSize = 0.35
     const groundY = 7 + 1 // full block height from getBlockHeight mock
-    expect(cy).toBeCloseTo(groundY + dropSize * 0.5)
+    expect(startY).toBe(10.5)
+    expect(restY).toBeCloseTo(groundY + dropSize * 0.5)
   })
 
   it('removes block from worker-built voxelMap (buildVoxelMapFromBuffer)', () => {

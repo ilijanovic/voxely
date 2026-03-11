@@ -41,13 +41,15 @@ At runtime the “authoritative” world state is a **composition** of:
 The lookup order is:
 
 1. **Bounds**: if `by` is outside `[0..WORLD_HEIGHT)`, treat as air.
-2. **Overrides first**: `blockModifications` map (keyed by integer `bx,by,bz`).
+2. **Overrides first**: `blockModifications` map (keyed by block position string from `blockKeyString(bx, by, bz)`).
 3. **Generated data**: if the containing chunk is loaded, return the block from its `voxelMap`.
 4. **Unloaded**: if the chunk is not loaded, return `null` (unknown/unavailable to the caller).
 
 Implementation anchor: `getBlockAt(bx,by,bz)` in `src/chunk-runtime.ts`.
 
 ### A4. Block identity, properties, and terrain IDs
+
+For block type categories and behavior (solid, plant, crop, fluid), see [BLOCK_TYPES.md](BLOCK_TYPES.md).
 
 Voxely uses two related representations:
 

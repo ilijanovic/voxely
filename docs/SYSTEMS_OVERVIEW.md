@@ -77,7 +77,7 @@ See [TERRAIN_SPEC.md](./TERRAIN_SPEC.md) for pipeline details and invariants; [A
 
 ## Biomes and transitions
 
-Biomes are chosen from **climate parameters** (temperature, humidity, continentalness, erosion, weirdness) sampled deterministically from seed and coordinates. Selection is a nearest-match in “climate space”, so boundaries appear where a different biome becomes the best match even though the underlying noise is smooth. Height can further refine the biome (e.g. high elevation in a mountain base → snowy_slopes or peaks). Surface block type (grass/sand/snow) and colors use the resolved biome, with dithered transitions near boundaries to avoid hard lines.
+Biomes are chosen from **climate parameters** (temperature, humidity, continentalness, erosion, weirdness) sampled deterministically from seed and coordinates. Selection is a nearest-match in “climate space”, so boundaries appear where a different biome becomes the best match even though the underlying noise is smooth. Height can further refine the biome (e.g. high elevation in a mountain base → snowy_slopes or peaks). Surface block type (grass/sand/snow) and colors use the resolved biome, with dithered transitions near boundaries to avoid hard lines. For how Minecraft balances biome distribution—climate clustering, weighted rarity, fallback, and sub-biomes—see [TERRAIN_SPEC.md §5.7](./TERRAIN_SPEC.md#57-biome-balance-and-distribution).
 
 The **Plains** biome is our canonical example for this system: temperate, moderately humid, smooth inland terrain; gentle height profile; grass‑over‑dirt surface; sparse oaks; plains villages; and strong association with farm animals and horses. Use it as the main reference when designing or tuning similar biomes.
 
@@ -89,7 +89,7 @@ See [BIOME_TRANSITIONS.md](./BIOME_TRANSITIONS.md) for the Minecraft-style expla
 
 Blocks are defined by the **terrain pipeline** (block IDs in the voxel buffer and heightmap) and by **block modifications** (player place/break) stored in the chunk runtime. The **block registry** maps block types to names, textures, and flags (solid, unbreakable). Surface blocks (grass, sand, snow) come from the biome’s layer config. Grass and foliage use colormap-based tinting for biome colors. At runtime, `getBlockAt` returns the overlay if present, otherwise the generated block; unloaded chunks return null.
 
-See [BLOCK_SYSTEM.md](./BLOCK_SYSTEM.md) for how blocks are represented and rendered; [PROJECT_MAP.md](./PROJECT_MAP.md) for chunk runtime and block registry locations.
+For a breakdown of block type categories—solid, plant, crop, fluid—see [BLOCK_TYPES.md](./BLOCK_TYPES.md). See [BLOCK_SYSTEM.md](./BLOCK_SYSTEM.md) for how blocks are represented and rendered; [PROJECT_MAP.md](./PROJECT_MAP.md) for chunk runtime and block registry locations.
 
 ---
 
@@ -116,7 +116,11 @@ Hostile mobs and spawn rules (e.g. light level) are not implemented yet; they ar
 | Where to find code (entry points, terrain, entities, UI) | [PROJECT_MAP.md](./PROJECT_MAP.md) |
 | Runtime architecture (main loop, chunks, worker, apply) | [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | Terrain pipeline, biome model, invariants | [TERRAIN_SPEC.md](./TERRAIN_SPEC.md) |
+| How the surface is made (height, block, rules) | [SURFACE_GENERATION.md](./SURFACE_GENERATION.md) |
 | Biome boundaries and transitions (climate space) | [BIOME_TRANSITIONS.md](./BIOME_TRANSITIONS.md) |
 | Block representation and rendering | [BLOCK_SYSTEM.md](./BLOCK_SYSTEM.md) |
+| Block type categories (solid, plant, crop, fluid) | [BLOCK_TYPES.md](./BLOCK_TYPES.md) |
+| Vegetation rendering (cross quads, materials) | [VEGETATION_RENDERING.md](./VEGETATION_RENDERING.md) |
+| Water flow (spread, source creation) | [WATER_FLOW_TECHNICAL.md](./WATER_FLOW_TECHNICAL.md) |
 | Player mechanics, mining, placing, targets (mobs, day/night) | [GAMEPLAY_LLM.md](./GAMEPLAY_LLM.md) |
 | One biome in depth (desert) | [DESERT_BIOME_TECHNICAL.md](./DESERT_BIOME_TECHNICAL.md) |

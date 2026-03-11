@@ -7,6 +7,10 @@ import { localKey, typeToId, idToType } from '../block-ids'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
 const FLOWER_NOISE_SEED = 919291
+/** Seed for "place flower or not" noise; must differ from FLOWER_NOISE_SEED so type and density are independent. */
+const FLOWER_PLACE_NOISE_SEED = 717171
+/** Fraction of eligible surface blocks that get any flower (0–1). Lower = sparser flowers. */
+const FLOWER_DENSITY = 0.18
 const SURFACE_BLOCKS_FOR_FLOWERS: BlockType[] = ['grass', 'grass_snow', 'grass_savanna', 'dirt']
 
 function flowerNoiseKey(wx: number, wz: number): string {
@@ -18,6 +22,20 @@ function sampleFlowerNoise(cache: Map<string, number>, wx: number, wz: number): 
   let v = cache.get(k)
   if (v === undefined) {
     let h = wx * 374761393 + wz * 668265263 + FLOWER_NOISE_SEED
+    h = (h ^ (h >> 13)) * 1274126177
+    h ^= h >> 16
+    v = (h >>> 0) / 0xffffffff
+    cache.set(k, v)
+  }
+  return v
+}
+
+/** Deterministic noise in [0,1] for "place a flower here or not". Used with FLOWER_DENSITY. */
+function sampleFlowerPlaceNoise(cache: Map<string, number>, wx: number, wz: number): number {
+  const k = `place_${flowerNoiseKey(wx, wz)}`
+  let v = cache.get(k)
+  if (v === undefined) {
+    let h = wx * 374761393 + wz * 668265263 + FLOWER_PLACE_NOISE_SEED
     h = (h ^ (h >> 13)) * 1274126177
     h ^= h >> 16
     v = (h >>> 0) / 0xffffffff
@@ -114,8 +132,9 @@ export function createFlowersFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        const n = sampleFlowerNoise(noiseCache, wx, wz)
+        if (sampleFlowerPlaceNoise(noiseCache, wx, wz) > FLOWER_DENSITY) continue
 
+        const n = sampleFlowerNoise(noiseCache, wx, wz)
         for (const entry of entries) {
           if (n >= entry.minThreshold && n < entry.maxThreshold) {
             voxelMap[keyAbove] = typeToId(entry.block)

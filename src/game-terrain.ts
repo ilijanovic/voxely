@@ -11,6 +11,20 @@ import { columnHeightCache, columnCacheKey, getBlockAt } from './chunk-runtime'
 import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from './block-registry'
 import { createTerrainSampling } from './terrain-sampling'
 import { BIOME_REGISTRY } from './terrain/biomes'
+import {
+  FOREST_DENSITY_SCALE,
+  FOREST_DENSITY_THRESHOLD,
+  TREE_PLACEMENT_SCALE,
+  TREE_PLACEMENT_FOREST_THRESHOLD,
+  TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD,
+  TREE_PLACEMENT_JUNGLE_THRESHOLD,
+  TREE_PLACEMENT_PLAINS_THRESHOLD,
+  TREE_PLACEMENT_MOUNTAIN_THRESHOLD,
+  TREE_PLACEMENT_SNOW_THRESHOLD,
+  TREE_MAX_SLOPE,
+  getTreeShapeConfigForBiome,
+  type TreeShapeConfig,
+} from './terrain/tree-constants'
 
 export type { Biome }
 
@@ -177,7 +191,9 @@ function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): 
   if (
     blend.primary !== blend.secondary &&
     blend.primary !== 'ocean' &&
-    blend.secondary !== 'ocean'
+    blend.secondary !== 'ocean' &&
+    blend.primary !== 'desert' &&
+    blend.secondary !== 'desert'
   ) {
     const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType
     const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
@@ -229,7 +245,13 @@ function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): 
       for (let dz = -1; dz <= 1; dz++) {
         if (dx === 0 && dz === 0) continue
         const n = getResolvedBiome(wx + dx, wz + dz)
-        if (n === 'snow' || n === 'grove' || n === 'snowy_slopes' || n === 'frozen_peaks')
+        if (
+          n === 'snow' ||
+          n === 'grove' ||
+          n === 'snowy_slopes' ||
+          n === 'frozen_peaks' ||
+          n === 'jagged_peaks'
+        )
           return 'grass_snow'
       }
     }
@@ -315,109 +337,6 @@ export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
 }
 
 // ================= TREE GENERATION =================
-
-const FOREST_DENSITY_SCALE = 0.028
-const TREE_PLACEMENT_SCALE = 0.12
-const FOREST_DENSITY_THRESHOLD = 0.0
-const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1
-const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0
-const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.65
-const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93
-const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97
-const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
-const TREE_MAX_SLOPE = 2
-
-type TreeShapeConfig = {
-  trunkMin: number
-  trunkMax: number
-  leafRadiusMin: number
-  leafRadiusMax: number
-  leafHeightMin: number
-  leafHeightMax: number
-  leafDensityMin: number
-  leafDensityMax: number
-  giantChance: number
-  giantTrunkBonusMax: number
-  giantLeafRadiusBonusMax: number
-  giantLeafHeightBonusMax: number
-  giantDensityBonusMax: number
-}
-
-const TREE_SHAPE_DEFAULT: TreeShapeConfig = {
-  trunkMin: 4,
-  trunkMax: 8,
-  leafRadiusMin: 1,
-  leafRadiusMax: 3,
-  leafHeightMin: 3,
-  leafHeightMax: 6,
-  leafDensityMin: 0.58,
-  leafDensityMax: 0.92,
-  giantChance: 0.03,
-  giantTrunkBonusMax: 5,
-  giantLeafRadiusBonusMax: 2,
-  giantLeafHeightBonusMax: 3,
-  giantDensityBonusMax: 0.05,
-}
-const TREE_SHAPE_FOREST: TreeShapeConfig = {
-  trunkMin: 5,
-  trunkMax: 10,
-  leafRadiusMin: 2,
-  leafRadiusMax: 4,
-  leafHeightMin: 4,
-  leafHeightMax: 7,
-  leafDensityMin: 0.62,
-  leafDensityMax: 0.96,
-  giantChance: 0.06,
-  giantTrunkBonusMax: 6,
-  giantLeafRadiusBonusMax: 2,
-  giantLeafHeightBonusMax: 3,
-  giantDensityBonusMax: 0.04,
-}
-const TREE_SHAPE_JUNGLE: TreeShapeConfig = {
-  trunkMin: 8,
-  trunkMax: 14,
-  leafRadiusMin: 3,
-  leafRadiusMax: 6,
-  leafHeightMin: 6,
-  leafHeightMax: 11,
-  leafDensityMin: 0.78,
-  leafDensityMax: 0.98,
-  giantChance: 0.1,
-  giantTrunkBonusMax: 8,
-  giantLeafRadiusBonusMax: 2,
-  giantLeafHeightBonusMax: 4,
-  giantDensityBonusMax: 0.03,
-}
-const TREE_SHAPE_MOUNTAIN: TreeShapeConfig = {
-  trunkMin: 4,
-  trunkMax: 7,
-  leafRadiusMin: 1,
-  leafRadiusMax: 3,
-  leafHeightMin: 2,
-  leafHeightMax: 5,
-  leafDensityMin: 0.45,
-  leafDensityMax: 0.82,
-  giantChance: 0.02,
-  giantTrunkBonusMax: 4,
-  giantLeafRadiusBonusMax: 1,
-  giantLeafHeightBonusMax: 2,
-  giantDensityBonusMax: 0.06,
-}
-const TREE_SHAPE_SNOW: TreeShapeConfig = {
-  trunkMin: 8,
-  trunkMax: 14,
-  leafRadiusMin: 1,
-  leafRadiusMax: 3,
-  leafHeightMin: 5,
-  leafHeightMax: 9,
-  leafDensityMin: 0.55,
-  leafDensityMax: 0.9,
-  giantChance: 0.05,
-  giantTrunkBonusMax: 7,
-  giantLeafRadiusBonusMax: 2,
-  giantLeafHeightBonusMax: 3,
-  giantDensityBonusMax: 0.05,
-}
 
 function treeSeedValue(x: number, z: number): number {
   const n = treePlacementNoise2D(x * 0.7 + 100, z * 0.7)
@@ -550,11 +469,7 @@ function shouldPlaceLeafAtCorner(wx: number, wz: number, lx: number, lz: number)
 }
 
 function getTreeShapeConfig(biome: Biome): TreeShapeConfig {
-  if (biome === 'snow' || biome === 'grove') return TREE_SHAPE_SNOW
-  if (biome === 'forest' || biome === 'windswept_forest') return TREE_SHAPE_FOREST
-  if (biome === 'jungle') return TREE_SHAPE_JUNGLE
-  if (biome === 'mountain') return TREE_SHAPE_MOUNTAIN
-  return TREE_SHAPE_DEFAULT
+  return getTreeShapeConfigForBiome(biome)
 }
 
 function getIntInRange(min: number, max: number, sample: number): number {

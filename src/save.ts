@@ -7,9 +7,15 @@ import { getAllBlockIds } from './block-registry'
 export const SAVE_KEY = 'voxel-save'
 
 /** Increment when save format changes; used to reject or migrate older saves. */
-export const SAVE_VERSION = 3
+export const SAVE_VERSION = 4
 
-/** Serialized game state written to localStorage: player, block mods, torches, day time, snow override. */
+/** One inventory slot (hotbar or main; crafting grid not persisted). */
+export interface SaveInventorySlot {
+  type: BlockType | null
+  count: number
+}
+
+/** Serialized game state written to localStorage: player, block mods, torches, day time, snow override, inventory. */
 export interface SaveData {
   saveVersion: number
   worldSeed: number
@@ -26,6 +32,8 @@ export interface SaveData {
   dayTime?: number
   /** Snow override: null = auto (cold biomes), true = force on, false = force off. */
   snowForced?: boolean | null
+  /** Hotbar + main inventory (36 slots). Omitted in older saves. */
+  inventory?: SaveInventorySlot[]
 }
 
 /**

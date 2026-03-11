@@ -1,0 +1,13 @@
+---
+description: When editing tests, follow project test style and run test suite; full workflow in quality-manager skill
+globs: src/**/*.test.ts
+alwaysApply: false
+---
+
+# Quality Manager (Tests)
+
+When editing files under `src/**/*.test.ts`:
+
+- Follow project test style: JSDoc in English, no magic numbers (use constants), clear names (see **.cursor/rules/function-docs-and-style.mdc**).
+- Run `npm run test:run` before and after changes to keep tests green.
+- For the full workflow (writing tests, reviewing coverage, preventing regressions), use **.cursor/skills/quality-manager**.

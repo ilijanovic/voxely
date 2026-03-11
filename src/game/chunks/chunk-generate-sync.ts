@@ -43,6 +43,7 @@ import {
   FOLIAGE_BLOCK_TYPES,
   sharedBlockGeometry,
   sharedTallGrassGeometry,
+  sharedWaterPlaneGeometry,
   getMaterialForBlockType,
   getSnowLayerGeometry,
   isSharedBlockOrSnowLayerGeometry,
@@ -147,6 +148,41 @@ export function addInstancedLayer(
   return mesh
 }
 
+/**
+ * Adds an instanced water plane layer (for water_source and water_flowing_*).
+ * Each instance is a horizontal plane at block Y + waterHeight (source = 1, flowing = 0.55–0.85).
+ */
+export function addWaterBlockLayer(
+  group: THREE.Group,
+  positions: BlockPos[],
+  material: THREE.Material | THREE.Material[],
+  waterHeight: number,
+  userData?: { chunkKeyNum: number; blockType: BlockType },
+): THREE.InstancedMesh | null {
+  const count = positions.length
+  if (count === 0) return null
+
+  const mesh = new THREE.InstancedMesh(
+    sharedWaterPlaneGeometry,
+    material as THREE.Material,
+    count,
+  )
+  mesh.count = count
+  for (let i = 0; i < count; i++) {
+    const p = positions[i]
+    _position.set(p.x + 0.5, p.y + waterHeight, p.z + 0.5)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, count)
+  mesh.castShadow = false
+  mesh.receiveShadow = true
+  if (userData) mesh.userData = userData
+  group.add(mesh)
+  return mesh
+}
+
 export function buildChunkWaterGeometry(
   worldX: number,
   worldZ: number,
@@ -205,7 +241,17 @@ export function buildPositionsByType(
 }
 
 const GRASS_BLOCK_TYPES_FOR_TALL_GRASS: BlockType[] = ['grass', 'grass_savanna']
+/** Block types that use cross geometry (flowers, fern) – same list as in chunk-apply. */
+const CROSS_GEOMETRY_BLOCK_TYPES: BlockType[] = [
+  'dandelion',
+  'poppy',
+  'tulip_red',
+  'oxeye_daisy',
+  'blue_orchid',
+  'fern',
+]
 const TALL_GRASS_SPAWN_CHANCE = 0.05
+const TALL_GRASS_SPAWN_CHANCE_WOODLAND = 0.12
 const TALL_GRASS_Y_OFFSET = -0.02
 
 function pseudoRandomFromBlockPos(x: number, y: number, z: number): number {
@@ -224,6 +270,7 @@ export function getTallGrassPositions(
   worldZ: number,
   voxelMap: Map<number, BlockType>,
   positionsByType: Map<BlockType, BlockPos[]>,
+  getBiome?: (x: number, z: number) => Biome,
 ): BlockPos[] {
   const out: BlockPos[] = []
   for (const blockType of GRASS_BLOCK_TYPES_FOR_TALL_GRASS) {
@@ -234,11 +281,46 @@ export function getTallGrassPositions(
       const lz = p.z - worldZ
       const keyAbove = localKey(lx, p.y + 1, lz)
       if (voxelMap.has(keyAbove)) continue
-      if (pseudoRandomFromBlockPos(p.x, p.y, p.z) > TALL_GRASS_SPAWN_CHANCE) continue
+      const chance =
+        getBiome && (getBiome(p.x, p.z) === 'forest' || getBiome(p.x, p.z) === 'jungle')
+          ? TALL_GRASS_SPAWN_CHANCE_WOODLAND
+          : TALL_GRASS_SPAWN_CHANCE
+      if (pseudoRandomFromBlockPos(p.x, p.y, p.z) > chance) continue
       out.push(p)
     }
   }
   return out
+}
+
+/**
+ * Adds an instanced mesh with cross geometry (e.g. flowers, fern). Position is block corner.
+ */
+function addCrossGeometryLayer(
+  group: THREE.Group,
+  positions: BlockPos[],
+  material: THREE.Material | THREE.Material[],
+  userData?: { chunkKeyNum: number; blockType: BlockType },
+): THREE.InstancedMesh | null {
+  if (positions.length === 0) return null
+  const mesh = new THREE.InstancedMesh(
+    sharedTallGrassGeometry,
+    material as THREE.Material,
+    positions.length,
+  )
+  mesh.count = positions.length
+  for (let i = 0; i < positions.length; i++) {
+    const p = positions[i]
+    _position.set(p.x + 0.5, p.y, p.z + 0.5)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, positions.length)
+  mesh.castShadow = false
+  mesh.receiveShadow = true
+  if (userData) mesh.userData = userData
+  group.add(mesh)
+  return mesh
 }
 
 export function addTallGrassLayer(
@@ -300,17 +382,21 @@ export function getBlockWorldPosition(
 export function spawnDrop(
   ctx: ChunkSyncContext,
   worldX: number,
-  worldY: number,
   worldZ: number,
+  startY: number,
+  restY: number,
   blockType: BlockType,
+  time: number,
 ): void {
   spawnDropItem({
     scene: ctx.scene,
     drops: ctx.drops,
     worldX,
-    worldY,
     worldZ,
+    startY,
+    restY,
     blockType,
+    time,
   })
 }
 
@@ -357,9 +443,42 @@ export function rebuildChunkLayer(
 
   if (positions.length === 0) return
 
+  // tall_grass: only the cross layer (addTallGrassLayer), no box.
+  if (blockType === 'tall_grass') {
+    if (ctx.tallGrassMaterial) {
+      const mesh = addTallGrassLayer(data.group, positions, ctx.tallGrassMaterial)
+      if (mesh && ctx.grassColormapData) {
+        setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
+      }
+    }
+    return
+  }
+
+  // Flowers and fern: cross geometry.
+  if (CROSS_GEOMETRY_BLOCK_TYPES.includes(blockType)) {
+    const mesh = addCrossGeometryLayer(data.group, positions, getMaterialForBlockType(blockType), {
+      chunkKeyNum: keyNum,
+      blockType,
+    })
+    if (mesh && ctx.grassColormapData) {
+      setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
+    }
+    return
+  }
+
   const snowLayerMatch = /^snow_layer_([1-8])$/.exec(blockType)
   const geometry =
     snowLayerMatch != null ? getSnowLayerGeometry(parseInt(snowLayerMatch[1], 10)) : undefined
+
+  // Water blocks (source + flowing 1..7): horizontal plane per block at block Y + water height
+  if (blockType === 'water_source' || blockType.startsWith('water_flowing_')) {
+    const waterHeight = getBlockHeight(blockType)
+    addWaterBlockLayer(data.group, positions, getMaterialForBlockType(blockType), waterHeight, {
+      chunkKeyNum: keyNum,
+      blockType,
+    })
+    return
+  }
 
   const mesh = addInstancedLayer(
     data.group,
@@ -430,8 +549,9 @@ export function breakBlock(
   worldX: number,
   worldY: number,
   worldZ: number,
-  options?: { skipRefresh?: boolean },
+  options?: { skipRefresh?: boolean; time?: number },
 ): void {
+  const time = options?.time ?? 0
   breakBlockSystem({
     chunkKeyNum,
     blockType,
@@ -451,7 +571,8 @@ export function breakBlock(
     getBlockAt,
     refreshChunkVisibleMeshes: (data, affectedBlockTypes) =>
       refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes),
-    spawnDrop: (wx, wy, wz, bt) => spawnDrop(ctx, wx, wy, wz, bt),
+    time,
+    spawnDrop: (wx, wz, startY, restY, bt, t) => spawnDrop(ctx, wx, wz, startY, restY, bt, t),
     skipRefresh: options?.skipRefresh,
   })
 }
@@ -571,6 +692,19 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
   for (const [blockType, positions] of positionsByType) {
     const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions)
     blockPositionsByType.set(blockType, visible)
+    // tall_grass is rendered only via getTallGrassPositions + addTallGrassLayer below.
+    if (blockType === 'tall_grass') continue
+    // Flowers and fern use cross geometry (same as in chunk-apply).
+    if (CROSS_GEOMETRY_BLOCK_TYPES.includes(blockType)) {
+      const mesh = addCrossGeometryLayer(group, visible, getMaterialForBlockType(blockType), {
+        chunkKeyNum: keyNum,
+        blockType,
+      })
+      if (mesh && ctx.grassColormapData) {
+        setGrassInstanceColors(mesh, visible, getResolvedBiome, ctx.grassColormapData)
+      }
+      continue
+    }
     const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
       chunkKeyNum: keyNum,
       blockType,
@@ -583,7 +717,13 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
     }
   }
 
-  const tallGrassPositions = getTallGrassPositions(worldX, worldZ, voxelMap, blockPositionsByType)
+  const tallGrassPositions = getTallGrassPositions(
+    worldX,
+    worldZ,
+    voxelMap,
+    blockPositionsByType,
+    getResolvedBiome,
+  )
   if (ctx.tallGrassMaterial && tallGrassPositions.length > 0) {
     const tallGrassMesh = addTallGrassLayer(group, tallGrassPositions, ctx.tallGrassMaterial)
     if (tallGrassMesh && ctx.grassColormapData) {

@@ -15,6 +15,8 @@ export interface BlockDefinition {
   solid?: boolean
   transparent?: boolean
   unbreakable?: boolean
+  /** When set, this is a held item (e.g. weapon/tool); texture name under item texture path for icon and first-person display. */
+  itemTexture?: string
 }
 
 /** Default: solid true, transparent false, unbreakable false. */
@@ -109,6 +111,21 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     textures: { type: 'single', texture: 'stone' }, // not used for voxel; material is custom in game.ts
     solid: false,
   }),
+  // Flowing water block types (water_source + water_flowing_1..7) for simulation and rendering
+  D({
+    id: 'water_source',
+    displayName: 'Water (Source)',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+  }),
+  ...([1, 2, 3, 4, 5, 6, 7] as const).map((k) =>
+    D({
+      id: `water_flowing_${k}` as const,
+      displayName: 'Water (Flowing)',
+      textures: { type: 'single', texture: 'stone' },
+      solid: false,
+    }),
+  ),
   D({
     id: 'wood',
     displayName: 'Oak Log',
@@ -227,6 +244,56 @@ const CURATED_BLOCKS: BlockDefinition[] = [
         'cactus_side',
       ],
     },
+  }),
+  // Feature blocks (flowers, ground cover) – cross geometry in chunk-apply; alpha cutout + double-side
+  D({
+    id: 'dandelion',
+    displayName: 'Dandelion',
+    textures: { type: 'single', texture: 'flower_dandelion' },
+    solid: false,
+    transparent: true,
+  }),
+  D({
+    id: 'poppy',
+    displayName: 'Poppy',
+    textures: { type: 'single', texture: 'flower_rose' },
+    solid: false,
+    transparent: true,
+  }),
+  D({
+    id: 'tulip_red',
+    displayName: 'Red Tulip',
+    textures: { type: 'single', texture: 'flower_tulip_red' },
+    solid: false,
+    transparent: true,
+  }),
+  D({
+    id: 'oxeye_daisy',
+    displayName: 'Oxeye Daisy',
+    textures: { type: 'single', texture: 'flower_oxeye_daisy' },
+    solid: false,
+    transparent: true,
+  }),
+  D({
+    id: 'blue_orchid',
+    displayName: 'Blue Orchid',
+    textures: { type: 'single', texture: 'flower_blue_orchid' },
+    solid: false,
+    transparent: true,
+  }),
+  D({
+    id: 'tall_grass',
+    displayName: 'Tall Grass',
+    textures: { type: 'single', texture: 'tallgrass' },
+    solid: false,
+    transparent: true,
+  }),
+  D({
+    id: 'fern',
+    displayName: 'Fern',
+    textures: { type: 'single', texture: 'fern' },
+    solid: false,
+    transparent: true,
   }),
   D({
     id: 'quartz_block',
@@ -505,10 +572,43 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Light Gray Wool',
     textures: { type: 'single', texture: 'wool_colored_silver' },
   }),
+  D({
+    id: 'crafting_table',
+    displayName: 'Crafting Table',
+    textures: { type: 'single', texture: 'crafting_table_top' },
+  }),
 ]
 
+/** Non-placeable held items (weapons, tools, materials). Shown in hotbar and first-person hand. */
+const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
+  {
+    id: 'wood_sword',
+    displayName: 'Wooden Sword',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    itemTexture: 'wood_sword',
+  },
+  {
+    id: 'stick',
+    displayName: 'Stick',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    itemTexture: 'stick',
+  },
+  {
+    id: 'coal',
+    displayName: 'Coal',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    itemTexture: 'coal',
+  },
+]
+
+/** Block IDs that are weapons (left-click triggers slash, not mining). */
+const WEAPON_IDS = new Set(NON_PLACEABLE_ITEMS.filter((d) => d.itemTexture?.includes('sword')).map((d) => d.id))
+
 const REGISTRY = new Map<string, BlockDefinition>()
-for (const def of [...LEGACY_BLOCKS, ...CURATED_BLOCKS]) {
+for (const def of [...LEGACY_BLOCKS, ...CURATED_BLOCKS, ...NON_PLACEABLE_ITEMS]) {
   REGISTRY.set(def.id, def)
 }
 
@@ -522,11 +622,11 @@ export function getAllBlockIds(): string[] {
   return Array.from(REGISTRY.keys())
 }
 
-/** Block IDs that can be placed from hotbar (solid voxel blocks; excludes water/torch for placement logic). */
+/** Block IDs that can be placed from hotbar (solid voxel blocks; water and torch are placeable but not solid). */
 export function getPlaceableBlockIds(): string[] {
   return getAllBlockIds().filter((id) => {
     const def = REGISTRY.get(id)!
-    return def.solid !== false || id === 'torch' // torch is placeable but not solid
+    return def.solid !== false || id === 'torch' || id === 'water'
   })
 }
 
@@ -536,10 +636,13 @@ export function isSolidBlock(id: string): boolean {
   return def ? def.solid !== false : false
 }
 
-/** Block height in world units (1 = full block). Snow layers 1–8 use 1/8 … 8/8. */
+/** Block height in world units (1 = full block). Snow layers 1–8 use 1/8 … 8/8. Water source = 1, flowing 1..7 = 0.85 down to 0.55. */
 export function getBlockHeight(blockType: string): number {
   const m = /^snow_layer_([1-8])$/.exec(blockType)
   if (m) return parseInt(m[1], 10) / 8
+  if (blockType === 'water_source') return 1
+  const flowM = /^water_flowing_([1-7])$/.exec(blockType)
+  if (flowM) return 0.9 - (parseInt(flowM[1], 10) - 1) * 0.05
   return 1
 }
 
@@ -555,10 +658,21 @@ export function getBlockDisplayName(id: string): string {
   return def ? def.displayName : id
 }
 
-/** Texture file names (without .png) for loading. Single block returns 1; six-face returns 6. */
+/** Texture file names (without .png) for loading. Single block returns 1; six-face returns 6. For items with itemTexture, returns [itemTexture] for icon/held display. */
 export function getBlockTextureNames(id: string): string[] {
   const def = REGISTRY.get(id)
   if (!def) return []
+  if (def.itemTexture) return [def.itemTexture]
   if (def.textures.type === 'single') return [def.textures.texture]
   return [...def.textures.textures]
+}
+
+/** Item texture name for held items/weapons (e.g. wood_sword). Undefined for blocks. */
+export function getItemTextureName(id: string): string | undefined {
+  return REGISTRY.get(id)?.itemTexture
+}
+
+/** True if the block type is a weapon (e.g. sword); left-click triggers slash attack instead of mining. */
+export function isWeapon(id: string): boolean {
+  return WEAPON_IDS.has(id)
 }

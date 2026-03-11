@@ -7,5 +7,6 @@ Voxely is a voxel game (Vue + TypeScript + Three.js).
 
 - Follow **.cursor/rules/** for language (English), git (conventional commits), terrain/biome integrity, and project structure.
 - For **biome** changes use **.cursor/skills/biome-integration-assistant**; see PROJECT_MAP for other areas (blocks, entities, multiplayer).
+- For test writing, test review, and regression prevention, use **.cursor/skills/quality-manager**.
 - For deeper architecture and improvement ideas, see **docs/ARCHITECTURE.md**.
 - For terrain/biome design and checklists, see **docs/TERRAIN_SPEC.md** and **docs/BIOME_TRANSITIONS.md**.
