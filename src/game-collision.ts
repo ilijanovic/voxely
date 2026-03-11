@@ -5,7 +5,7 @@
  * Block convention (must match rendering and worker geometry): a block at integer (bx, by, bz)
  * occupies the world AABB [bx..bx+1], [by..by+1], [bz..bz+1] (corner-based, not center-based).
  */
-import { STEP_HEIGHT } from "./constants";
+import { STEP_BLOCK_HEIGHT } from "./constants";
 import {
   isSolidBlock as isSolidBlockRuntime,
   isSolidBlockLoadedOnly,
@@ -168,10 +168,10 @@ export function resolveVoxelCollisions(
       const blockMaxX = blockMax(bx);
       const blockH = getBlockHeightAt(bx, by, bz);
       const blockMaxY = by + (blockH > 0 ? blockH : 1);
+      if (blockH <= STEP_BLOCK_HEIGHT) continue;
       const isFloorBlock = blockMaxY <= position.y + FLOOR_TOLERANCE;
       const playerFullyAbove = position.y >= blockMaxY - FLOOR_TOLERANCE;
-      const canStepOver = blockMaxY <= position.y + STEP_HEIGHT;
-      if ((isFloorBlock && playerFullyAbove) || canStepOver) continue;
+      if (isFloorBlock && playerFullyAbove) continue;
       const playerMinX = position.x - halfX;
       const playerMaxX = position.x + halfX;
       const overlapMinX = Math.max(playerMinX, blockMinX);
@@ -220,10 +220,10 @@ export function resolveVoxelCollisions(
       const blockMaxZ = blockMax(bz);
       const blockH = getBlockHeightAt(bx, by, bz);
       const blockMaxY = by + (blockH > 0 ? blockH : 1);
+      if (blockH <= STEP_BLOCK_HEIGHT) continue;
       const isFloorBlock = blockMaxY <= position.y + FLOOR_TOLERANCE;
       const playerFullyAbove = position.y >= blockMaxY - FLOOR_TOLERANCE;
-      const canStepOver = blockMaxY <= position.y + STEP_HEIGHT;
-      if ((isFloorBlock && playerFullyAbove) || canStepOver) continue;
+      if (isFloorBlock && playerFullyAbove) continue;
       const playerMinZ = position.z - halfZ;
       const playerMaxZ = position.z + halfZ;
       const overlapMinZ = Math.max(playerMinZ, blockMinZ);

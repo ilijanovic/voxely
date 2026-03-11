@@ -14,6 +14,7 @@ A browser-based voxel game – procedurally generated worlds, mine and place blo
 ![Vite](https://img.shields.io/badge/Vite-7-646cff)
 
 ![Forest biome screenshot](docs/forest-biome.png)
+![Gameplay at golden hour – forest, hotbar, chat](docs/gameplay-sunset.png)
 
 ## Features
 

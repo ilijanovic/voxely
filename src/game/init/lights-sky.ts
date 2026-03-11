@@ -208,6 +208,7 @@ export function initLightsAndSky(
   const rain = new THREE.Points(rainGeometry, rainMaterial);
   rain.castShadow = false;
   rain.receiveShadow = false;
+  rain.frustumCulled = false;
   rain.visible = false;
   scene.add(rain);
 

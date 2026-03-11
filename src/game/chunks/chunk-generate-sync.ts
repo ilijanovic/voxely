@@ -1,5 +1,11 @@
 import * as THREE from "three";
-import type { BlockType, ChunkData, BlockPos, TreeNoiseCaches, Biome } from "../../types";
+import type {
+  BlockType,
+  ChunkData,
+  BlockPos,
+  TreeNoiseCaches,
+  Biome,
+} from "../../types";
 import {
   CHUNK_SIZE,
   WATER_LEVEL,
@@ -47,9 +53,7 @@ import {
   getSnowLayerGeometry,
   isSharedBlockOrSnowLayerGeometry,
 } from "../../block-materials";
-import {
-  despawnEntitiesInChunk,
-} from "../../entities/spawn";
+import { despawnEntitiesInChunk } from "../../entities/spawn";
 import {
   spawnDrop as spawnDropItem,
   type Drop,
@@ -129,6 +133,8 @@ function ensureWhiteInstanceColorsForVertexColorMaterial(
   mesh.instanceColor.needsUpdate = true;
 }
 
+/** Instance position (p.x, p.y, p.z) is the block's minimum corner (bottom at world y = p.y).
+ * For snow_layer_*, geometry is corner-based (bottom at local Y=0) so the mesh sits flush on the block below. */
 export function addInstancedLayer(
   group: THREE.Group,
   positions: BlockPos[],
@@ -140,11 +146,7 @@ export function addInstancedLayer(
   if (count === 0) return null;
 
   const geom = geometry ?? sharedBlockGeometry;
-  const mesh = new THREE.InstancedMesh(
-    geom,
-    material as THREE.Material,
-    count
-  );
+  const mesh = new THREE.InstancedMesh(geom, material as THREE.Material, count);
   mesh.count = count;
 
   for (let i = 0; i < count; i++) {
@@ -338,7 +340,14 @@ export function spawnDrop(
   worldZ: number,
   blockType: BlockType
 ): void {
-  spawnDropItem({ scene: ctx.scene, drops: ctx.drops, worldX, worldY, worldZ, blockType });
+  spawnDropItem({
+    scene: ctx.scene,
+    drops: ctx.drops,
+    worldX,
+    worldY,
+    worldZ,
+    blockType,
+  });
 }
 
 export function placeTorch(
@@ -376,7 +385,10 @@ export function rebuildChunkLayer(
       data.group.remove(child);
       if (child instanceof THREE.InstancedMesh) {
         child.dispose();
-      } else if (child.geometry && !isSharedBlockOrSnowLayerGeometry(child.geometry)) {
+      } else if (
+        child.geometry &&
+        !isSharedBlockOrSnowLayerGeometry(child.geometry)
+      ) {
         child.geometry.dispose();
       }
     }
@@ -412,7 +424,11 @@ export function rebuildChunkLayer(
       ctx.grassColormapData
     );
   }
-  if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && ctx.foliageColormapData) {
+  if (
+    mesh &&
+    FOLIAGE_BLOCK_TYPES.includes(blockType) &&
+    ctx.foliageColormapData
+  ) {
     setFoliageInstanceColors(
       mesh,
       positions,
@@ -438,7 +454,12 @@ export function refreshChunkVisibleMeshes(
   if (affectedBlockTypes !== undefined) {
     for (const blockType of affectedBlockTypes) {
       const positions = positionsByType.get(blockType) ?? [];
-      const visible = filterVisibleBlocks(worldX, worldZ, data.voxelMap, positions);
+      const visible = filterVisibleBlocks(
+        worldX,
+        worldZ,
+        data.voxelMap,
+        positions
+      );
       data.blockPositionsByType.set(blockType, visible);
       rebuildChunkLayer(ctx, data, blockType);
     }
@@ -453,7 +474,8 @@ export function refreshChunkVisibleMeshes(
       );
     }
     for (const blockType of previousTypes) {
-      if (!nextVisibleByType.has(blockType)) nextVisibleByType.set(blockType, []);
+      if (!nextVisibleByType.has(blockType))
+        nextVisibleByType.set(blockType, []);
     }
 
     data.blockPositionsByType = nextVisibleByType;
@@ -472,7 +494,8 @@ export function breakBlock(
   blockType: BlockType,
   worldX: number,
   worldY: number,
-  worldZ: number
+  worldZ: number,
+  options?: { skipRefresh?: boolean }
 ): void {
   breakBlockSystem({
     chunkKeyNum,
@@ -494,10 +517,15 @@ export function breakBlock(
     refreshChunkVisibleMeshes: (data, affectedBlockTypes) =>
       refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes),
     spawnDrop: (wx, wy, wz, bt) => spawnDrop(ctx, wx, wy, wz, bt),
+    skipRefresh: options?.skipRefresh,
   });
 }
 
-export function unloadChunk(scene: THREE.Scene, keyNum: number, raycastMeshCache: RaycastMeshCache): { frustumDirty: boolean } {
+export function unloadChunk(
+  scene: THREE.Scene,
+  keyNum: number,
+  raycastMeshCache: RaycastMeshCache
+): { frustumDirty: boolean } {
   const data = chunks.get(keyNum);
   if (!data) return { frustumDirty: false };
   despawnEntitiesInChunk(scene, chunkKey(data.cx, data.cz));
@@ -724,7 +752,8 @@ export function tryUpdateSnowAccumulation(
   const chunksToRefresh = new Map<number, Set<BlockType>>();
 
   for (let c = 0; c < SNOW_GROWTH_CANDIDATES_PER_INTERVAL; c++) {
-    const keyNum = loadedChunkKeys[Math.floor(Math.random() * loadedChunkKeys.length)];
+    const keyNum =
+      loadedChunkKeys[Math.floor(Math.random() * loadedChunkKeys.length)];
     const data = chunks.get(keyNum);
     if (!data) continue;
 
@@ -757,7 +786,10 @@ export function tryUpdateSnowAccumulation(
       chunksToRefresh.set(keyNum, affectedBlockTypes);
     }
 
-    if (BLOCKS_SNOW_CAN_LAY_ON.has(topType) && (above === null || above === "air")) {
+    if (
+      BLOCKS_SNOW_CAN_LAY_ON.has(topType) &&
+      (above === null || above === "air")
+    ) {
       const ny = topY + 1;
       const newType: BlockType = "snow_layer_1";
       blockModifications.set(blockKeyString(bx, ny, bz), newType);

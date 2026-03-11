@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   SAVE_KEY,
   SAVE_VERSION,
+  VALID_BLOCK_TYPES,
   loadFromStorage,
   saveToStorage,
   type SaveData,
@@ -88,11 +89,25 @@ describe("saveToStorage and loadFromStorage roundtrip", () => {
     vi.stubGlobal("localStorage", mock);
   });
 
+  it("includes grass_snow in VALID_BLOCK_TYPES (regression)", () => {
+    expect(VALID_BLOCK_TYPES.has("grass_snow")).toBe(true);
+    expect(VALID_BLOCK_TYPES.has("__not_a_real_block__")).toBe(false);
+  });
+
   it("roundtrips valid SaveData", () => {
     const data: SaveData = {
       ...validPayload,
       placedBlocks: [{ x: 1, y: 65, z: 1, type: "grass" }],
       dayTime: 0.5,
+    };
+    saveToStorage(data);
+    expect(loadFromStorage()).toEqual(data);
+  });
+
+  it("roundtrips SaveData with grass_snow placed block", () => {
+    const data: SaveData = {
+      ...validPayload,
+      placedBlocks: [{ x: 2, y: 65, z: 2, type: "grass_snow" }],
     };
     saveToStorage(data);
     expect(loadFromStorage()).toEqual(data);

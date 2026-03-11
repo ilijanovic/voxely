@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createTerrainSampling } from "./terrain-sampling";
 import type { Biome } from "./types";
+import { createChunkGenerator } from "./terrain-core";
+import { WORLD_HEIGHT } from "./constants";
 
 const ALL_BIOMES: Biome[] = [
   "plains",
@@ -202,6 +204,39 @@ describe("createTerrainSampling() height functions", () => {
         expect(h).toBeGreaterThan(0);
         expect(h).toBeLessThan(200);
       }
+    }
+  });
+});
+
+/**
+ * Worker vs main-thread contract: terrain pipeline (worker) and terrain-sampling (main/sync)
+ * must produce the same height for the same seed and (x,z). Sync fallback uses
+ * getHeight from game-terrain which uses terrain-sampling.getSmoothedHeight.
+ */
+describe("pipeline vs terrain-sampling height parity (worker/sync contract)", () => {
+  const SEED = 4242;
+
+  function samplingHeightAt(x: number, z: number): number {
+    const s = createTerrainSampling(SEED);
+    const h = s.getSmoothedHeight(x, z);
+    return Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, h)));
+  }
+
+  it("pipeline getHeight matches terrain-sampling (clamped) for same seed", () => {
+    const gen = createChunkGenerator(SEED);
+    const points: [number, number][] = [];
+    for (let x = -32; x <= 32; x += 8) {
+      for (let z = -32; z <= 32; z += 8) {
+        points.push([x, z]);
+      }
+    }
+    for (const [x, z] of points) {
+      const pipelineH = gen.getHeight(x, z);
+      const samplingH = samplingHeightAt(x, z);
+      expect(
+        pipelineH,
+        `height at (${x}, ${z}): pipeline ${pipelineH} vs sampling ${samplingH}`
+      ).toBe(samplingH);
     }
   });
 });

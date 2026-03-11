@@ -43,6 +43,8 @@ export const SPAWN_Z = 0;
 
 /** Max block height (world units) that the player can step over without being blocked in X/Z. 1.0 = step over any partial block (snow layers, slabs). */
 export const STEP_HEIGHT = 1;
+/** Block height threshold: blocks with height <= this never act as walls in X/Z; player can walk onto them (e.g. snow layers, steps). */
+export const STEP_BLOCK_HEIGHT = 0.5;
 
 /** Snow layer height (0–8) for terrain generation. 0 = no layer, 1–8 = layers on grass_snow/snow in snow biomes. */
 export const SNOW_ACCUMULATION_HEIGHT = 1;

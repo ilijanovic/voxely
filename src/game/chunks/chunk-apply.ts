@@ -4,7 +4,7 @@ import type { ChunkDataPayload } from "../../terrain-core";
 import { idToType, CARVED_ID } from "../../terrain-core";
 import { CHUNK_SIZE, WATER_BLOCK_HEIGHT, WATER_LEVEL, WATER_PLANE_Y_OFFSET, WORLD_HEIGHT } from "../../constants";
 import { localKey, chunkKeyNumeric } from "../../chunk-runtime";
-import { sharedBlockGeometry, sharedTallGrassGeometry, FOLIAGE_BLOCK_TYPES, getMaterialForBlockType, setFoliageInstanceColors, setGrassInstanceColors } from "../../block-materials";
+import { sharedBlockGeometry, sharedTallGrassGeometry, FOLIAGE_BLOCK_TYPES, getMaterialForBlockType, setFoliageInstanceColors, setGrassInstanceColors, isSharedBlockOrSnowLayerGeometry } from "../../block-materials";
 import { isSolidBlock as isBlockTypeSolid } from "../../block-registry";
 import { filterVisibleBlocks } from "./visible-blocks";
 import type { Biome } from "../../game-terrain";
@@ -256,7 +256,22 @@ export function applyChunkPayload(
   worldSeed: number
 ): void {
   const keyNum = chunkKeyNumeric(payload.chunkX, payload.chunkZ);
-  if (deps.chunks.has(keyNum)) return;
+  let wasReplacing = false;
+  if (deps.chunks.has(keyNum)) {
+    wasReplacing = true;
+    const existing = deps.chunks.get(keyNum)!;
+    scene.remove(existing.group);
+    existing.group.traverse((obj) => {
+      if (
+        obj instanceof THREE.Mesh &&
+        obj.geometry &&
+        !isSharedBlockOrSnowLayerGeometry(obj.geometry)
+      ) {
+        obj.geometry.dispose();
+      }
+    });
+    deps.chunks.delete(keyNum);
+  }
 
   const worldX = payload.chunkX * CHUNK_SIZE;
   const worldZ = payload.chunkZ * CHUNK_SIZE;
@@ -378,7 +393,7 @@ export function applyChunkPayload(
   };
   deps.chunks.set(keyNum, data);
   scene.add(group);
-  deps.onChunkAdded?.(data);
+  if (!wasReplacing) deps.onChunkAdded?.(data);
   deps.pendingChunkKeys.delete(keyNum);
   deps.onChunkChanged?.();
 }

@@ -229,6 +229,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     const ly = Math.floor(i / CHUNK_SIZE) % WORLD_HEIGHT;
     const lz = Math.floor(i / STRIDE_Z);
 
+    // World position: (x, y, z) is the block's minimum corner; for snow_layer_*, blockHeight = k/8 so mesh bottom at y.
     const x = worldX + lx;
     const y = ly;
     const z = worldZ + lz;

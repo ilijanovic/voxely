@@ -422,13 +422,21 @@ export const sharedBlockGeometry = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE,
 sharedBlockGeometry.translate(0.5 * BLOCK_SIZE, 0.5 * BLOCK_SIZE, 0.5 * BLOCK_SIZE);
 
 const _snowLayerGeometryCache: THREE.BufferGeometry[] = [];
-/** Shared geometry for snow_layer_k (height k/8). Use for sync-path instancing. */
+/** Shared geometry for snow_layer_k (height k/8). Use for sync-path instancing.
+ * Box is corner-based: local Y from 0 (bottom) to h (top) so instance at (bx, by, bz) places bottom at world by. */
 export function getSnowLayerGeometry(layers: number): THREE.BufferGeometry {
   const k = Math.max(1, Math.min(8, Math.floor(layers)));
   if (!_snowLayerGeometryCache[k - 1]) {
     const h = (k / 8) * BLOCK_SIZE;
     const geo = new THREE.BoxGeometry(BLOCK_SIZE, h, BLOCK_SIZE);
+    // Three.js BoxGeometry is centered at origin; translate so box spans (0,0,0) to (1,h,1).
     geo.translate(0.5 * BLOCK_SIZE, 0.5 * h, 0.5 * BLOCK_SIZE);
+    geo.computeBoundingBox();
+    const box = geo.boundingBox!;
+    // Ensure bottom face is at Y=0 so instance position (bx, by, bz) places snow bottom at world by.
+    if (Math.abs(box.min.y) > 1e-5) {
+      geo.translate(0, -box.min.y, 0);
+    }
     _snowLayerGeometryCache[k - 1] = geo;
   }
   return _snowLayerGeometryCache[k - 1];

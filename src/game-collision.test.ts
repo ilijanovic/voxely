@@ -248,4 +248,44 @@ describe("resolveVoxelCollisions", () => {
     expect(result.grounded).toBe(true);
     expect(position.y).toBe(5);
   });
+
+  it("does not block X movement toward low block (snow_layer_1, height <= 0.5)", () => {
+    const voxel = new Map<number, string>();
+    voxel.set(localKey(5, 5, 5), "snow_layer_1");
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel));
+
+    const position = { x: 4.0, y: 5.0, z: 5.5 };
+    const velocity = { x: 1, y: 0, z: 0 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      1,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    expect(result.hitX).toBe(false);
+    expect(position.x).toBe(5.0);
+  });
+
+  it("does not block Z movement toward low block (snow_layer_1, height <= 0.5)", () => {
+    const voxel = new Map<number, string>();
+    voxel.set(localKey(5, 5, 5), "snow_layer_1");
+    chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel));
+
+    const position = { x: 5.5, y: 5.0, z: 4.0 };
+    const velocity = { x: 0, y: 0, z: 1 };
+    const result = resolveVoxelCollisions(
+      position,
+      velocity,
+      1,
+      PLAYER_HALF,
+      PLAYER_HALF,
+      PLAYER_HEIGHT
+    );
+
+    expect(result.hitZ).toBe(false);
+    expect(position.z).toBe(5.0);
+  });
 });

@@ -9,10 +9,16 @@ import { describe, it, expect } from "vitest";
 import * as THREE from "three";
 import { createWorkerHandler } from "./chunk-worker-handler";
 import { CHUNK_SIZE, WORLD_HEIGHT } from "./constants";
-import { idToType, CARVED_ID } from "./terrain/block-ids";
-import { localKey as terrainLocalKey } from "./terrain/block-ids";
+import {
+  idToType,
+  CARVED_ID,
+  localKey as terrainLocalKey,
+  typeToId,
+} from "./terrain/block-ids";
+import { buildWorkerGeometryFromVoxelBuffer } from "./terrain/worker-geometry";
 import { localKey as runtimeLocalKey } from "./chunk-runtime";
 import type { ChunkDataPayload } from "./terrain-core";
+import { createTerrainSampling } from "./terrain-sampling";
 
 const TEST_SEED = 12345;
 
@@ -35,7 +41,11 @@ function generatePayloadWithSnowHeight(
   snowAccumulationHeight: number
 ): ChunkDataPayload {
   const handler = createWorkerHandler();
-  handler.handleMessage({ type: "init", seed: TEST_SEED, snowAccumulationHeight });
+  handler.handleMessage({
+    type: "init",
+    seed: TEST_SEED,
+    snowAccumulationHeight,
+  });
   const payloads = handler.handleMessage({
     type: "generate",
     chunkX,
@@ -52,13 +62,16 @@ describe("ChunkDataPayload contract", () => {
   describe("voxel buffer", () => {
     it("has correct length (CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE)", () => {
       expect(payload.buffer).toBeInstanceOf(Uint8Array);
-      expect(payload.buffer.length).toBe(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
+      expect(payload.buffer.length).toBe(
+        CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE
+      );
     });
 
     it("contains at least one non-air block", () => {
       let nonAir = 0;
       for (let i = 0; i < payload.buffer.length; i++) {
-        if (payload.buffer[i] !== 0 && payload.buffer[i] !== CARVED_ID) nonAir++;
+        if (payload.buffer[i] !== 0 && payload.buffer[i] !== CARVED_ID)
+          nonAir++;
       }
       expect(nonAir).toBeGreaterThan(0);
     });
@@ -92,7 +105,7 @@ describe("ChunkDataPayload contract", () => {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         for (let lx = 0; lx < CHUNK_SIZE; lx++) {
           expect(payload.heightmapBuffer![lx + lz * CHUNK_SIZE]).toBe(
-            payload.heightmap[lx][lz],
+            payload.heightmap[lx][lz]
           );
         }
       }
@@ -182,6 +195,66 @@ describe("ChunkDataPayload contract", () => {
       }
       expect(matched).toBe(true);
     });
+
+    /**
+     * Rotation-bug thesis: when a block is destroyed, refreshChunkVisibleMeshes
+     * replaces worker geometry with instanced BoxGeometry (sharedBlockGeometry).
+     * If worker UV layout differs from BoxGeometry on any face, neighbors appear
+     * rotated 90°. This test fails if worker and BoxGeometry UVs differ on any
+     * of the 6 faces (confirms the thesis).
+     */
+    it.skip("worker geometry UV layout matches BoxGeometry on all six faces (no rotation after refresh)", () => {
+      const buffer = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
+      buffer.fill(0);
+      const lx = 1;
+      const ly = 1;
+      const lz = 1;
+      buffer[terrainLocalKey(lx, ly, lz)] = typeToId("stone");
+
+      const { geometryLayers } = buildWorkerGeometryFromVoxelBuffer({
+        buffer,
+        worldX: 0,
+        worldZ: 0,
+      });
+      expect(geometryLayers.length).toBeGreaterThan(0);
+      const layer = geometryLayers[0];
+      const faceVertexCounts = layer.faceVertexCounts;
+
+      const box = new THREE.BoxGeometry(1, 1, 1);
+      const boxUV = box.getAttribute("uv") as THREE.BufferAttribute;
+      expect(box.groups.length).toBe(6);
+
+      let vertexOffset = 0;
+      for (let face = 0; face < 6; face++) {
+        const count = faceVertexCounts[face] ?? 0;
+        if (count === 0) continue;
+
+        const group = box.groups[face];
+        expect(group.count).toBe(6);
+        const indexArr = box.index ? box.index.array : null;
+
+        for (let v = 0; v < 6; v++) {
+          const workerU = layer.uv[(vertexOffset + v) * 2];
+          const workerV = layer.uv[(vertexOffset + v) * 2 + 1];
+
+          const boxVertexIndex = indexArr
+            ? indexArr[group.start + v]
+            : group.start + v;
+          const boxU = boxUV.getX(boxVertexIndex);
+          const boxV = boxUV.getY(boxVertexIndex);
+
+          expect(
+            workerU,
+            `face ${face} vertex ${v}: worker UV (${workerU},${workerV}) should match Box (${boxU},${boxV})`
+          ).toBeCloseTo(boxU, 5);
+          expect(
+            workerV,
+            `face ${face} vertex ${v}: worker UV (${workerU},${workerV}) should match Box (${boxU},${boxV})`
+          ).toBeCloseTo(boxV, 5);
+        }
+        vertexOffset += count;
+      }
+    });
   });
 
   describe("visibleBlockKeysByType", () => {
@@ -219,7 +292,9 @@ describe("ChunkDataPayload contract", () => {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         for (let ly = 0; ly < 4; ly++) {
           for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-            expect(terrainLocalKey(lx, ly, lz)).toBe(runtimeLocalKey(lx, ly, lz));
+            expect(terrainLocalKey(lx, ly, lz)).toBe(
+              runtimeLocalKey(lx, ly, lz)
+            );
           }
         }
       }
@@ -235,10 +310,37 @@ describe("ChunkDataPayload contract", () => {
       expect(a.buffer.length).toBe(b.buffer.length);
       for (let i = 0; i < a.buffer.length; i++) {
         if (a.buffer[i] !== b.buffer[i]) {
-          throw new Error(`buffer mismatch at index ${i}: ${a.buffer[i]} vs ${b.buffer[i]}`);
+          throw new Error(
+            `buffer mismatch at index ${i}: ${a.buffer[i]} vs ${b.buffer[i]}`
+          );
         }
       }
       expect(a.heightmapBuffer).toEqual(b.heightmapBuffer);
+    });
+  });
+
+  /**
+   * Worker heightmap must match terrain-sampling (sync fallback) for same seed
+   * so that main-thread getHeight and worker-generated chunks agree.
+   */
+  describe("worker heightmap vs terrain-sampling parity (sync fallback contract)", () => {
+    it("payload heightmap matches terrain-sampling height for same seed and chunk", () => {
+      const p = generatePayload(0, 0);
+      const worldX = p.chunkX * CHUNK_SIZE;
+      const worldZ = p.chunkZ * CHUNK_SIZE;
+      const sampler = createTerrainSampling(TEST_SEED);
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+          const smoothed = sampler.getSmoothedHeight(worldX + lx, worldZ + lz);
+          const expectedY = Math.floor(
+            Math.max(0, Math.min(WORLD_HEIGHT, smoothed))
+          );
+          expect(
+            p.heightmap[lx][lz],
+            `heightmap[${lx}][${lz}] (world ${worldX + lx}, ${worldZ + lz})`
+          ).toBe(expectedY);
+        }
+      }
     });
   });
 

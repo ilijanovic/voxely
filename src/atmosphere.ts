@@ -11,6 +11,11 @@ const SUN_SHADOW_MIN_HEIGHT = 0.15;
 
 const RAIN_FALL_SPEED = 12;
 const RAIN_BOX_HEIGHT = 20;
+const RAIN_BOX_WIDTH = 40;
+const RAIN_BOX_DEPTH = 40;
+const RAIN_RESPAWN_BELOW_PLAYER = 4;
+const RAIN_RESPAWN_DISTANCE_SQ =
+  (Math.max(RAIN_BOX_WIDTH, RAIN_BOX_DEPTH) * 0.7) ** 2;
 
 /** Biomes where rain is not shown (desert/savanna = dry; snow/cold = would be snow). */
 const NO_RAIN_BIOMES: Set<Biome> = new Set([
@@ -33,6 +38,7 @@ let isRaining = false;
 let rainChangeCountdown = 90;
 /** Override rain visibility: null = auto, true = force on, false = force off. */
 let rainForced: boolean | null = null;
+let rainParticlesInitialized = false;
 
 export function getIsRaining(): boolean {
   return isRaining;
@@ -273,23 +279,48 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
       .lerp(_cloudNight, night);
     if (isPrecipitating) ctx.cloudMaterial.color.lerp(_cloudRainSnow, 0.55);
 
-    ctx.rain.position.copy(ctx.playerPosition);
     if (showRain) {
       const posAttr = ctx.rain.geometry.getAttribute("position") as THREE.BufferAttribute;
       const pos = posAttr.array as Float32Array;
+      const px = ctx.playerPosition.x;
+      const py = ctx.playerPosition.y;
+      const pz = ctx.playerPosition.z;
+
+      // Keep rain in world space: initialize / respawn particles around the player,
+      // but do not move the whole Points object with the camera/player.
+      if (!rainParticlesInitialized) {
+        for (let i = 0; i < pos.length; i += 3) {
+          pos[i] = px + (Math.random() - 0.5) * RAIN_BOX_WIDTH;
+          pos[i + 1] = py + Math.random() * RAIN_BOX_HEIGHT;
+          pos[i + 2] = pz + (Math.random() - 0.5) * RAIN_BOX_DEPTH;
+        }
+        rainParticlesInitialized = true;
+      }
+
       for (let i = 0; i < pos.length; i += 3) {
         pos[i + 1] -= RAIN_FALL_SPEED * dt;
-        if (pos[i + 1] < 0) pos[i + 1] += RAIN_BOX_HEIGHT;
+
+        const dx = pos[i] - px;
+        const dz = pos[i + 2] - pz;
+        const distSq = dx * dx + dz * dz;
+
+        if (pos[i + 1] < py - RAIN_RESPAWN_BELOW_PLAYER || distSq > RAIN_RESPAWN_DISTANCE_SQ) {
+          pos[i] = px + (Math.random() - 0.5) * RAIN_BOX_WIDTH;
+          pos[i + 1] = py + Math.random() * RAIN_BOX_HEIGHT;
+          pos[i + 2] = pz + (Math.random() - 0.5) * RAIN_BOX_DEPTH;
+        }
       }
       posAttr.needsUpdate = true;
     }
     ctx.rain.visible = showRain;
+    if (!showRain) rainParticlesInitialized = false;
   } else {
     ctx.sunMesh.visible = false;
     ctx.moonMesh.visible = false;
     ctx.stars.visible = false;
     ctx.clouds.visible = false;
     ctx.rain.visible = false;
+    rainParticlesInitialized = false;
   }
   ctx.sky.position.copy(ctx.playerPosition);
 }

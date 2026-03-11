@@ -2,6 +2,7 @@
  * Save/load serialization and localStorage. Application of loaded state stays in game.ts.
  */
 import type { BlockType } from "./types";
+import { getAllBlockIds } from "./block-registry";
 
 export const SAVE_KEY = "voxel-save";
 export const SAVE_VERSION = 2;
@@ -28,34 +29,11 @@ export interface SaveData {
   snowForced?: boolean | null;
 }
 
-export const VALID_BLOCK_TYPES = new Set<string>([
-  "grass",
-  "dirt",
-  "stone",
-  "sand",
-  "snow",
-  "water",
-  "wood",
-  "leaves",
-  "snow_layer_1",
-  "snow_layer_2",
-  "snow_layer_3",
-  "snow_layer_4",
-  "snow_layer_5",
-  "snow_layer_6",
-  "snow_layer_7",
-  "snow_layer_8",
-  "door_closed",
-  "door_open",
-  "wheat_1",
-  "wheat_2",
-  "wheat_3",
-  "wheat_4",
-  "wheat_5",
-  "wheat_6",
-  "wheat_7",
-  "wheat_8",
-]);
+/**
+ * Allowlist for loading placed blocks from storage.
+ * Keep this derived from the block registry so newly added blocks don't silently fail to load.
+ */
+export const VALID_BLOCK_TYPES = new Set<string>(getAllBlockIds());
 
 export function saveToStorage(data: SaveData): void {
   try {

@@ -31,18 +31,24 @@ function makeParams(overrides: Partial<Parameters<typeof breakBlock>[0]> = {}) {
     worldY: 10,
     worldZ: 5,
     chunks,
-    getLayerPositions: (_data: ChunkData, _bt: BlockType): BlockPos[] | null => [
-      { x: 5, y: 10, z: 5 },
-    ],
+    getLayerPositions: (
+      _data: ChunkData,
+      _bt: BlockType
+    ): BlockPos[] | null => [{ x: 5, y: 10, z: 5 }],
     isUnbreakableBlock: (_bt: BlockType) => false,
     blockModifications,
     blockKeyString: (x: number, y: number, z: number) => `${x},${y},${z}`,
     invalidateColumnHeight,
-    localKey: (lx: number, ly: number, lz: number) => lx + ly * 16 + lz * 16 * 128,
+    localKey: (lx: number, ly: number, lz: number) =>
+      lx + ly * 16 + lz * 16 * 128,
     chunkSize,
     isSolidBlock: (bt: BlockType) => bt === "stone" || bt === "dirt",
     getBlockHeight: () => 1,
-    getBlockAt: (_x: number, _y: number, _z: number): BlockType | "air" | null => "air",
+    getBlockAt: (
+      _x: number,
+      _y: number,
+      _z: number
+    ): BlockType | "air" | null => "air",
     refreshChunkVisibleMeshes,
     spawnDrop,
     ...overrides,
@@ -79,7 +85,8 @@ describe("breakBlock", () => {
 
   it("sets blockModification to air and invalidates column height", () => {
     const data = makeChunkData(0, 0);
-    const localKeyFn = (lx: number, ly: number, lz: number) => lx + ly * 16 + lz * 16 * 128;
+    const localKeyFn = (lx: number, ly: number, lz: number) =>
+      lx + ly * 16 + lz * 16 * 128;
     data.voxelMap.set(localKeyFn(5, 10, 5), "stone");
     const params = makeParams();
     params.chunks.set(0, data);
@@ -124,10 +131,25 @@ describe("breakBlock", () => {
     params.chunks.set(0, data);
     breakBlock(params);
     expect(params.refreshChunkVisibleMeshes).toHaveBeenCalledTimes(1);
-    expect(params.refreshChunkVisibleMeshes).toHaveBeenCalledWith(data, expect.any(Set));
-    const affected = vi.mocked(params.refreshChunkVisibleMeshes).mock.calls[0][1] as Set<string>;
+    expect(params.refreshChunkVisibleMeshes).toHaveBeenCalledWith(
+      data,
+      expect.any(Set)
+    );
+    const affected = vi.mocked(params.refreshChunkVisibleMeshes).mock
+      .calls[0][1] as Set<string>;
     expect(affected.has("stone")).toBe(true);
     expect(params.spawnDrop).not.toHaveBeenCalled();
+  });
+
+  it("does not call refreshChunkVisibleMeshes when skipRefresh is true", () => {
+    const data = makeChunkData(0, 0);
+    data.voxelMap.set(5 + 10 * 16 + 5 * 16 * 128, "stone");
+    const params = makeParams({ skipRefresh: true });
+    params.chunks.set(0, data);
+    breakBlock(params);
+    expect(params.refreshChunkVisibleMeshes).not.toHaveBeenCalled();
+    expect(params.blockModifications.get("5,10,5")).toBe("air");
+    expect(params.spawnDrop).toHaveBeenCalledTimes(1);
   });
 
   it("searches downward for ground and spawns drop above solid block", () => {
@@ -150,8 +172,11 @@ describe("breakBlock", () => {
   it("removes block from worker-built voxelMap (buildVoxelMapFromBuffer)", () => {
     const BUFFER_LENGTH = CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE;
     const buffer = new Uint8Array(BUFFER_LENGTH);
-    const lx = 5, ly = 10, lz = 5;
-    const worldX = 0, worldZ = 0;
+    const lx = 5,
+      ly = 10,
+      lz = 5;
+    const worldX = 0,
+      worldZ = 0;
     buffer[localKey(lx, ly, lz)] = typeToId("stone");
 
     const voxelMap = buildVoxelMapFromBuffer(buffer);
@@ -176,7 +201,9 @@ describe("breakBlock", () => {
     breakBlock(params);
 
     expect(voxelMap.has(localKey(lx, ly, lz))).toBe(false);
-    expect(params.blockModifications.get(`${worldX + lx},${ly},${worldZ + lz}`)).toBe("air");
+    expect(
+      params.blockModifications.get(`${worldX + lx},${ly},${worldZ + lz}`)
+    ).toBe("air");
     expect(params.spawnDrop).toHaveBeenCalledTimes(1);
   });
 });

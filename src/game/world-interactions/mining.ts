@@ -7,7 +7,10 @@ export function breakBlock(params: {
   worldY: number;
   worldZ: number;
   chunks: Map<number, ChunkData>;
-  getLayerPositions: (data: ChunkData, blockType: BlockType) => BlockPos[] | null;
+  getLayerPositions: (
+    data: ChunkData,
+    blockType: BlockType
+  ) => BlockPos[] | null;
   isUnbreakableBlock: (blockType: BlockType) => boolean;
   blockModifications: Map<string, BlockType | "air">;
   blockKeyString: (x: number, y: number, z: number) => string;
@@ -17,8 +20,18 @@ export function breakBlock(params: {
   isSolidBlock: (blockType: BlockType) => boolean;
   getBlockHeight: (blockType: BlockType) => number;
   getBlockAt: (x: number, y: number, z: number) => BlockType | "air" | null;
-  refreshChunkVisibleMeshes: (data: ChunkData, affectedBlockTypes?: Set<BlockType>) => void;
-  spawnDrop: (worldX: number, worldY: number, worldZ: number, blockType: BlockType) => void;
+  refreshChunkVisibleMeshes: (
+    data: ChunkData,
+    affectedBlockTypes?: Set<BlockType>
+  ) => void;
+  spawnDrop: (
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+    blockType: BlockType
+  ) => void;
+  /** When true, do not refresh meshes (caller will re-request chunk from worker and replace). */
+  skipRefresh?: boolean;
 }): void {
   if (params.isUnbreakableBlock(params.blockType)) return;
   const data = params.chunks.get(params.chunkKeyNum);
@@ -27,9 +40,7 @@ export function breakBlock(params: {
   if (!positions) return;
   const instanceIndex = positions.findIndex(
     (p) =>
-      p.x === params.worldX &&
-      p.y === params.worldY &&
-      p.z === params.worldZ
+      p.x === params.worldX && p.y === params.worldY && p.z === params.worldZ
   );
   const pos =
     instanceIndex >= 0
@@ -60,7 +71,7 @@ export function breakBlock(params: {
   }
 
   if (instanceIndex === -1) {
-    params.refreshChunkVisibleMeshes(data, affectedBlockTypes);
+    if (!params.skipRefresh) params.refreshChunkVisibleMeshes(data, affectedBlockTypes);
     return;
   }
 
@@ -77,6 +88,5 @@ export function breakBlock(params: {
   }
   const cy = groundY + dropSize * 0.5;
   params.spawnDrop(cx, cy, cz, params.blockType);
-  params.refreshChunkVisibleMeshes(data, affectedBlockTypes);
+  if (!params.skipRefresh) params.refreshChunkVisibleMeshes(data, affectedBlockTypes);
 }
-

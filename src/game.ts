@@ -8,6 +8,7 @@ import {
   WATER_BLOCK_HEIGHT,
   SPAWN_X,
   SPAWN_Z,
+  WORLD_HEIGHT,
 } from "./constants";
 import {
   getSelectedBlockType,
@@ -111,6 +112,7 @@ import {
   columnHeightCache,
   chunkKey,
   chunkKeyNumeric,
+  localKey,
   blockKeyString,
   invalidateColumnHeight,
   getBlockAt,
@@ -131,6 +133,7 @@ import {
   getBlockWorldPosition as getBlockWorldPositionSync,
   placeTorch as placeTorchSync,
   getRaycastMeshes as getRaycastMeshesSync,
+  refreshChunkVisibleMeshes,
   tryUpdateSnowAccumulation,
   type ChunkSyncContext,
 } from "./game/chunks/chunk-generate-sync";
@@ -382,6 +385,61 @@ function syncFrustumDirty(ctx: ChunkSyncContext): void {
   _frustumDirty = ctx.frustumDirty;
 }
 
+function applyBlockChangeToLoadedChunk(params: {
+  bx: number;
+  by: number;
+  bz: number;
+  next: BlockType | "air";
+  /** When true, also request updated chunk payload from worker (if enabled). */
+  requestWorkerChunk?: boolean;
+}): void {
+  const { bx, by, bz, next } = params;
+  invalidateColumnHeight(bx, bz);
+
+  const cx = Math.floor(bx / CHUNK_SIZE);
+  const cz = Math.floor(bz / CHUNK_SIZE);
+  const keyNum = chunkKeyNumeric(cx, cz);
+  const data = chunks.get(keyNum);
+  if (data) {
+    const lx = bx - data.cx * CHUNK_SIZE;
+    const lz = bz - data.cz * CHUNK_SIZE;
+    const k = localKey(lx, by, lz);
+    if (next === "air") data.voxelMap.delete(k);
+    else data.voxelMap.set(k, next);
+
+    const affected = new Set<BlockType>();
+    if (next !== "air") affected.add(next);
+    const neighbors: Array<[number, number, number]> = [
+      [bx + 1, by, bz],
+      [bx - 1, by, bz],
+      [bx, by + 1, bz],
+      [bx, by - 1, bz],
+      [bx, by, bz + 1],
+      [bx, by, bz - 1],
+    ];
+    for (const [nx, ny, nz] of neighbors) {
+      const t = getBlockAt(nx, ny, nz);
+      if (t !== null && t !== "air") affected.add(t as BlockType);
+    }
+
+    const ctx = getChunkSyncCtx();
+    refreshChunkVisibleMeshes(ctx, data, affected.size > 0 ? affected : undefined);
+    syncFrustumDirty(ctx);
+  } else {
+    raycastMeshCache.markDirty();
+    _frustumDirty = true;
+  }
+
+  if ((params.requestWorkerChunk ?? true) && chunkWorker) {
+    pendingChunkKeys.add(keyNum);
+    chunkWorker.requestChunk({
+      chunkX: cx,
+      chunkZ: cz,
+      blockMods: getBlockModsForChunk(cx, cz),
+    });
+  }
+}
+
 function generateChunk(
   _scene: THREE.Scene,
   chunkX: number,
@@ -401,7 +459,19 @@ function breakBlock(
   worldZ: number
 ): void {
   const ctx = getChunkSyncCtx();
-  breakBlockSync(ctx, chunkKeyNum, blockType, worldX, worldY, worldZ);
+  const useWorker = !!chunkWorker;
+  breakBlockSync(ctx, chunkKeyNum, blockType, worldX, worldY, worldZ, {
+    skipRefresh: useWorker,
+  });
+  if (useWorker && chunkWorker) {
+    const cx = chunkKeyNum >> 16;
+    const cz = (chunkKeyNum << 16) >> 16;
+    chunkWorker.requestChunk({
+      chunkX: cx,
+      chunkZ: cz,
+      blockMods: getBlockModsForChunk(cx, cz),
+    });
+  }
   syncFrustumDirty(ctx);
 }
 
@@ -581,7 +651,11 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 function getBloomDaylight01(): number {
   const dayTime = getDayTime();
   const sunAngle = dayTime * Math.PI * 2;
-  const sunHeight = new THREE.Vector3(Math.cos(sunAngle), Math.sin(sunAngle), 0.3).normalize().y;
+  const sunHeight = new THREE.Vector3(
+    Math.cos(sunAngle),
+    Math.sin(sunAngle),
+    0.3
+  ).normalize().y;
 
   // Soft transition around the horizon to avoid a bloom spike during sunrise/sunset.
   return smoothstep(-0.25, 0.25, sunHeight);
@@ -1578,16 +1652,12 @@ function runBlockTick(time: number): void {
       next: `wheat_${stage + 1}` as BlockType,
     });
   }
-  for (const { keyStr, bx, bz, next } of changes) {
+  for (const { keyStr, bx, next } of changes) {
     blockModifications.set(keyStr, next);
-    invalidateColumnHeight(bx, bz);
-    const ckx = Math.floor(bx / CHUNK_SIZE);
-    const ckz = Math.floor(bz / CHUNK_SIZE);
-    chunks.delete(chunkKeyNumeric(ckx, ckz));
-  }
-  if (changes.length > 0) {
-    raycastMeshCache.markDirty();
-    _frustumDirty = true;
+    const parts = keyStr.split(",");
+    const by = Number(parts[1]);
+    const bz2 = Number(parts[2]);
+    applyBlockChangeToLoadedChunk({ bx, by, bz: bz2, next });
   }
 }
 
@@ -1626,16 +1696,9 @@ function updateBlockBreakAndPlace(dt: number): void {
         const useBlock = getBlockAt(useBx, useBy, useBz);
         if (useBlock === "door_closed" || useBlock === "door_open") {
           const keyStr = blockKeyString(useBx, useBy, useBz);
-          blockModifications.set(
-            keyStr,
-            useBlock === "door_closed" ? "door_open" : "door_closed"
-          );
-          invalidateColumnHeight(useBx, useBz);
-          const ckx = Math.floor(useBx / CHUNK_SIZE);
-          const ckz = Math.floor(useBz / CHUNK_SIZE);
-          chunks.delete(chunkKeyNumeric(ckx, ckz));
-          raycastMeshCache.markDirty();
-          _frustumDirty = true;
+          const next = useBlock === "door_closed" ? "door_open" : "door_closed";
+          blockModifications.set(keyStr, next);
+          applyBlockChangeToLoadedChunk({ bx: useBx, by: useBy, bz: useBz, next });
         } else {
           const sel = getSelectedBlockType();
           const count = getSelectedSlotCount();
@@ -1672,12 +1735,12 @@ function updateBlockBreakAndPlace(dt: number): void {
               !blockModifications.has(keyStr)
             ) {
               blockModifications.set(keyStr, sel);
-              invalidateColumnHeight(adjX, adjZ);
-              const ckx = Math.floor(adjX / CHUNK_SIZE);
-              const ckz = Math.floor(adjZ / CHUNK_SIZE);
-              chunks.delete(chunkKeyNumeric(ckx, ckz));
-              raycastMeshCache.markDirty();
-              _frustumDirty = true;
+              applyBlockChangeToLoadedChunk({
+                bx: adjX,
+                by: adjY,
+                bz: adjZ,
+                next: sel,
+              });
               consumeOneFromSelectedSlot();
             }
           }
@@ -1705,6 +1768,27 @@ function updateBlockBreakAndPlace(dt: number): void {
         .copy(hit.face.normal)
         .transformDirection(hit.object.matrixWorld);
 
+      /** When aiming at the top of a block that has snow on it, prefer breaking the snow layer. */
+      function preferSnowLayerIfAimingAbove(
+        bx: number,
+        by: number,
+        bz: number,
+        hitPointY: number
+      ): { x: number; y: number; z: number; blockType: BlockType; chunkKeyNum: number } | null {
+        if (hitPointY < by + 0.5) return null;
+        if (by + 1 >= WORLD_HEIGHT) return null;
+        const above = getBlockAt(bx, by + 1, bz);
+        if (above === null || above === "air") return null;
+        if (!/^snow_layer_[1-8]$/.test(above)) return null;
+        return {
+          x: bx,
+          y: by + 1,
+          z: bz,
+          blockType: above as BlockType,
+          chunkKeyNum: chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE)),
+        };
+      }
+
       // Instanced path: resolve exact instance block position.
       if (
         hit.object instanceof THREE.InstancedMesh &&
@@ -1714,10 +1798,15 @@ function updateBlockBreakAndPlace(dt: number): void {
           chunkKeyNum: number;
           blockType: BlockType;
         };
-        const chunkKeyNum = ud.chunkKeyNum;
-        const blockType = ud.blockType;
-        const instanceId = hit.instanceId;
-        const pos = getBlockWorldPosition(chunkKeyNum, blockType, instanceId);
+        let chunkKeyNum = ud.chunkKeyNum;
+        let blockType = ud.blockType;
+        let pos = getBlockWorldPosition(chunkKeyNum, blockType, hit.instanceId);
+        const snowPrefer = pos ? preferSnowLayerIfAimingAbove(pos.x, pos.y, pos.z, hit.point.y) : null;
+        if (snowPrefer) {
+          chunkKeyNum = snowPrefer.chunkKeyNum;
+          blockType = snowPrefer.blockType;
+          pos = { x: snowPrefer.x, y: snowPrefer.y, z: snowPrefer.z };
+        }
         if (!pos) {
           breakTarget = null;
           breakProgress = 0;
@@ -1756,10 +1845,17 @@ function updateBlockBreakAndPlace(dt: number): void {
         }
       } else {
         // Mesh path (worker geometry): derive the hit block coordinate from point and face normal.
-        const bx = Math.floor(hit.point.x - _direction.x * 0.01);
-        const by = Math.floor(hit.point.y - _direction.y * 0.01);
-        const bz = Math.floor(hit.point.z - _direction.z * 0.01);
-        const at = getBlockAt(bx, by, bz);
+        let bx = Math.floor(hit.point.x - _direction.x * 0.01);
+        let by = Math.floor(hit.point.y - _direction.y * 0.01);
+        let bz = Math.floor(hit.point.z - _direction.z * 0.01);
+        let at = getBlockAt(bx, by, bz);
+        const snowPrefer = at !== null && at !== "air" ? preferSnowLayerIfAimingAbove(bx, by, bz, hit.point.y) : null;
+        if (snowPrefer) {
+          bx = snowPrefer.x;
+          by = snowPrefer.y;
+          bz = snowPrefer.z;
+          at = snowPrefer.blockType;
+        }
         if (at === null || at === "air") {
           breakTarget = null;
           breakProgress = 0;
