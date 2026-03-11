@@ -24,6 +24,38 @@ export const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
 /** Max height difference between column and 4 neighbours for tree placement. */
 export const TREE_MAX_SLOPE = 2
 
+/** Biomes that do not get grass_snow at high elevation (WATER_LEVEL + 20). Used by game-terrain and terrain-sampling. */
+export const BIOMES_WITHOUT_GRASS_SNOW: ReadonlySet<Biome> = new Set([
+  'desert',
+  'savanna',
+  'mountain',
+  'jungle',
+  'cherry_grove',
+  'windswept_forest',
+  'meadow',
+  'plains',
+])
+
+/** Per-biome tree placement: use forest density check and threshold, or threshold only. */
+export interface TreePlacementConfig {
+  useForestDensity: boolean
+  threshold: number
+}
+
+/** Map from biome to tree placement config. Unlisted biomes do not place trees. */
+export const TREE_PLACEMENT_CONFIG: Partial<Record<Biome, TreePlacementConfig>> = {
+  forest: { useForestDensity: true, threshold: TREE_PLACEMENT_FOREST_THRESHOLD },
+  jungle: { useForestDensity: true, threshold: TREE_PLACEMENT_JUNGLE_THRESHOLD },
+  mountain: { useForestDensity: false, threshold: TREE_PLACEMENT_MOUNTAIN_THRESHOLD },
+  plains: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
+  meadow: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
+  savanna: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
+  cherry_grove: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
+  windswept_forest: { useForestDensity: true, threshold: TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD },
+  snow: { useForestDensity: false, threshold: TREE_PLACEMENT_SNOW_THRESHOLD },
+  grove: { useForestDensity: false, threshold: TREE_PLACEMENT_SNOW_THRESHOLD },
+}
+
 export interface TreeShapeConfig {
   trunkMin: number
   trunkMax: number
@@ -120,13 +152,19 @@ export const TREE_SHAPE_SNOW: TreeShapeConfig = {
   giantDensityBonusMax: 0.05,
 }
 
+/** Map from biome to tree shape config. Unlisted biomes use TREE_SHAPE_DEFAULT. */
+export const BIOME_TO_TREE_SHAPE: Partial<Record<Biome, TreeShapeConfig>> = {
+  snow: TREE_SHAPE_SNOW,
+  grove: TREE_SHAPE_SNOW,
+  forest: TREE_SHAPE_FOREST,
+  windswept_forest: TREE_SHAPE_FOREST,
+  jungle: TREE_SHAPE_JUNGLE,
+  mountain: TREE_SHAPE_MOUNTAIN,
+}
+
 /**
  * Returns the tree shape config for the given biome. Used by both worker and main thread.
  */
 export function getTreeShapeConfigForBiome(biome: Biome): TreeShapeConfig {
-  if (biome === 'snow' || biome === 'grove') return TREE_SHAPE_SNOW
-  if (biome === 'forest' || biome === 'windswept_forest') return TREE_SHAPE_FOREST
-  if (biome === 'jungle') return TREE_SHAPE_JUNGLE
-  if (biome === 'mountain') return TREE_SHAPE_MOUNTAIN
-  return TREE_SHAPE_DEFAULT
+  return BIOME_TO_TREE_SHAPE[biome] ?? TREE_SHAPE_DEFAULT
 }

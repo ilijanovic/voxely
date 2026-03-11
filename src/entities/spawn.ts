@@ -25,14 +25,18 @@ export const ANIMAL_DEFS: AnimalDef[] = [
     runSpeed: 2.8,
     spawnBiomes: ['plains', 'forest', 'jungle', 'meadow'],
     maxPerChunk: 1,
+    behaviour: 'flee',
+    maxHealth: 8,
   },
   {
     kind: 'pig',
-    aabb: { halfX: 0.3, halfZ: 0.2, height: 0.5 },
+    aabb: { halfX: 0.45, halfZ: 0.3, height: 0.9 },
     walkSpeed: 1.4,
     runSpeed: 2.6,
     spawnBiomes: ['plains', 'forest', 'jungle', 'meadow'],
     maxPerChunk: 1,
+    behaviour: 'passive',
+    maxHealth: 10,
   },
   {
     kind: 'wolf',
@@ -41,6 +45,8 @@ export const ANIMAL_DEFS: AnimalDef[] = [
     runSpeed: 3.2,
     spawnBiomes: ['forest', 'jungle', 'mountain', 'snow', 'grove'],
     maxPerChunk: 1,
+    behaviour: 'chase',
+    maxHealth: 8,
   },
 ]
 
@@ -81,6 +87,8 @@ export function spawnEntitiesForChunk(
         aabb: { ...def.aabb },
         state: 'idle',
         stateTime: 0,
+        health: def.maxHealth,
+        maxHealth: def.maxHealth,
       }
       const mesh = createAnimalMesh(def.kind)
       mesh.position.set(entity.position.x, entity.position.y, entity.position.z)

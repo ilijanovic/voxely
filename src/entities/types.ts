@@ -25,9 +25,18 @@ export interface Entity {
   aabb: EntityAABB
   state: EntityState
   stateTime: number
+  /** Current health; entity is dead when health <= 0. */
+  health: number
+  /** Maximum health (set from AnimalDef at spawn). */
+  maxHealth: number
+  /** When set, entity flees from player until this time (e.g. after being hit). Used for pig. */
+  fleeUntilTime?: number
 }
 
-/** Per-kind config: speeds, spawn biomes, cap per chunk. */
+/** AI behaviour when player is near: chase, flee, or passive (no reaction). */
+export type AnimalBehaviour = 'chase' | 'flee' | 'passive'
+
+/** Per-kind config: speeds, spawn biomes, cap per chunk, AI behaviour, and health. */
 export interface AnimalDef {
   kind: AnimalKind
   aabb: EntityAABB
@@ -35,4 +44,8 @@ export interface AnimalDef {
   runSpeed: number
   spawnBiomes: Biome[]
   maxPerChunk: number
+  /** How the animal reacts to the player (chase = wolf, flee = sheep/pig, passive = no reaction). */
+  behaviour: AnimalBehaviour
+  /** Maximum health (e.g. 10 for pig). */
+  maxHealth: number
 }

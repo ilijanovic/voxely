@@ -11,7 +11,8 @@ import {
   getLandBiomeBlendByClimate,
   getLandBiomeByClimate,
 } from './terrain/biomes'
-import { BIOME_LAYERS, BIOME_TERRAIN } from './terrain/biomes'
+import { BIOME_LAYERS, BIOME_TERRAIN, BIOME_VALUE } from './terrain/biomes'
+import { BIOMES_WITHOUT_GRASS_SNOW } from './terrain/tree-constants'
 import { makeSeededRandom } from './terrain/utils'
 
 const BASE_HEIGHT = 64
@@ -141,15 +142,7 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getBiomeValue(x: number, z: number): number {
-    const biome = getBiome(x, z)
-    if (biome === 'ocean') return 0
-    if (biome === 'desert') return 0
-    if (biome === 'plains') return 1
-    if (biome === 'savanna') return 2
-    if (biome === 'forest') return 3
-    if (biome === 'jungle') return 4
-    if (biome === 'mountain') return 5
-    return 6
+    return BIOME_VALUE[getBiome(x, z)]
   }
 
   function getContinentalness(x: number, z: number): number {
@@ -440,18 +433,7 @@ export function createTerrainSampling(seed: number) {
       if (biome === 'meadow' && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return 'stone'
       if (topY >= SURFACE_STONE_HEIGHT && biome !== 'frozen_peaks' && biome !== 'jagged_peaks')
         return 'stone'
-      if (
-        topY >= WATER_LEVEL + 20 &&
-        biome !== 'desert' &&
-        biome !== 'savanna' &&
-        biome !== 'mountain' &&
-        biome !== 'jungle' &&
-        biome !== 'cherry_grove' &&
-        biome !== 'windswept_forest' &&
-        biome !== 'meadow' &&
-        biome !== 'plains'
-      )
-        return 'grass_snow'
+      if (topY >= WATER_LEVEL + 20 && !BIOMES_WITHOUT_GRASS_SNOW.has(biome)) return 'grass_snow'
       if (surface === 'snow') return 'grass_snow'
       if (biome === 'savanna' && surface === 'grass') return 'grass_savanna'
       return surface

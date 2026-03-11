@@ -33,3 +33,18 @@ export const BIOME_LAYERS: Record<Biome, LayerConfig> = Object.fromEntries(
     },
   ]),
 ) as Record<Biome, LayerConfig>
+
+/** Numeric value per biome for sampling (e.g. macro terrain). Default 6 when not listed. */
+const BIOME_VALUE_OVERRIDES: Partial<Record<Biome, number>> = {
+  ocean: 0,
+  desert: 0,
+  plains: 1,
+  savanna: 2,
+  forest: 3,
+  jungle: 4,
+  mountain: 5,
+}
+const DEFAULT_BIOME_VALUE = 6
+export const BIOME_VALUE: Record<Biome, number> = Object.fromEntries(
+  (Object.keys(BIOME_REGISTRY) as Biome[]).map((b) => [b, BIOME_VALUE_OVERRIDES[b] ?? DEFAULT_BIOME_VALUE]),
+) as Record<Biome, number>

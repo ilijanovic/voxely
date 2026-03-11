@@ -3,7 +3,16 @@
  */
 import { describe, it, expect } from 'vitest'
 import { ID_TO_TYPE } from './terrain/block-ids'
-import { getBlockDefinition, getBlockHeight } from './block-registry'
+import {
+  getBlockDefinition,
+  getBlockHeight,
+  getBlockBreakTime,
+  getAllBlockIds,
+  getPlaceableBlockIds,
+  isPlaceableBlock,
+  isOccludingBlock,
+  isFluidBlock,
+} from './block-registry'
 import { VALID_BLOCK_TYPES } from './save'
 
 describe('Block-type consistency: terrain block-ids vs block-registry', () => {
@@ -18,6 +27,29 @@ describe('Block-type consistency: terrain block-ids vs block-registry', () => {
       ).toBeDefined()
       expect(def!.id).toBe(type)
     }
+  })
+})
+
+describe('getBlockBreakTime', () => {
+  it('returns 0 for instant-break blocks (e.g. flowers)', () => {
+    expect(getBlockBreakTime('dandelion')).toBe(0)
+    expect(getBlockBreakTime('fern')).toBe(0)
+    expect(getBlockBreakTime('dead_bush')).toBe(0)
+  })
+
+  it('returns default 1.0 for blocks without breakTimeSeconds', () => {
+    expect(getBlockBreakTime('oak_planks')).toBe(1)
+    expect(getBlockBreakTime('torch')).toBe(1)
+  })
+
+  it('returns configured break time for blocks with breakTimeSeconds', () => {
+    expect(getBlockBreakTime('dirt')).toBe(0.5)
+    expect(getBlockBreakTime('stone')).toBe(1.5)
+    expect(getBlockBreakTime('bricks')).toBe(2)
+  })
+
+  it('returns default for unknown block id', () => {
+    expect(getBlockBreakTime('unknown_block_xyz')).toBe(1)
   })
 })
 
@@ -43,5 +75,43 @@ describe('Save VALID_BLOCK_TYPES', () => {
         `VALID_BLOCK_TYPES contains "${id}" which must exist in block-registry`,
       ).toBeDefined()
     }
+  })
+})
+
+describe('Block registry invariants', () => {
+  it('no duplicate block IDs', () => {
+    const ids = getAllBlockIds()
+    const seen = new Set<string>()
+    for (const id of ids) {
+      expect(seen.has(id), `duplicate block id: ${id}`).toBe(false)
+      seen.add(id)
+    }
+  })
+
+  it('getPlaceableBlockIds and isPlaceableBlock agree', () => {
+    const placeableIds = new Set(getPlaceableBlockIds())
+    for (const id of getAllBlockIds()) {
+      expect(isPlaceableBlock(id), `isPlaceableBlock("${id}")`).toBe(placeableIds.has(id))
+    }
+  })
+
+  it('water and torch are placeable; water_source and weapons are not', () => {
+    expect(isPlaceableBlock('water')).toBe(true)
+    expect(isPlaceableBlock('torch')).toBe(true)
+    expect(isPlaceableBlock('water_source')).toBe(false)
+    expect(isPlaceableBlock('wood_sword')).toBe(false)
+  })
+
+  it('leaves and ice are non-occluding; stone is occluding', () => {
+    expect(isOccludingBlock('leaves')).toBe(false)
+    expect(isOccludingBlock('ice')).toBe(false)
+    expect(isOccludingBlock('stone')).toBe(true)
+  })
+
+  it('water block types are fluid; stone is not', () => {
+    expect(isFluidBlock('water')).toBe(true)
+    expect(isFluidBlock('water_source')).toBe(true)
+    expect(isFluidBlock('water_flowing_1')).toBe(true)
+    expect(isFluidBlock('stone')).toBe(false)
   })
 })

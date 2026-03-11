@@ -8,6 +8,8 @@ const WANDER_DURATION_MIN = 1
 const WANDER_DURATION_MAX = 4
 const FLEE_DIST_SQ = 8 * 8
 const CHASE_DIST_SQ = 12 * 12
+/** Seconds the pig flees after being damaged (Minecraft-like). */
+export const FLEE_DURATION_AFTER_HIT = 4
 
 /** Simple seeded RNG per entity for deterministic wander direction. */
 function hash(s: string): number {
@@ -22,7 +24,11 @@ function entityRng(entity: Entity, seed: number): number {
   return x - Math.floor(x)
 }
 
-export function updateAI(playerPosition: { x: number; y: number; z: number }, dt: number): void {
+export function updateAI(
+  playerPosition: { x: number; y: number; z: number },
+  dt: number,
+  time: number,
+): void {
   const entities = getAllEntities()
   for (const e of entities) {
     if (e.state === 'dead') continue
@@ -33,21 +39,33 @@ export function updateAI(playerPosition: { x: number; y: number; z: number }, dt
     const dz = playerPosition.z - e.position.z
     const distSq = dx * dx + dz * dz
 
-    if (e.kind === 'wolf') {
-      if (distSq < CHASE_DIST_SQ) {
-        e.state = 'chase'
-        e.stateTime = 0
-        const len = Math.sqrt(distSq) || 1
-        const vx = (dx / len) * def.runSpeed
-        const vz = (dz / len) * def.runSpeed
-        e.velocity.x = vx
-        e.velocity.z = vz
-        e.rotationY = Math.atan2(-dx, -dz)
-        continue
-      }
+    if (def.behaviour === 'chase' && distSq < CHASE_DIST_SQ) {
+      e.state = 'chase'
+      e.stateTime = 0
+      const len = Math.sqrt(distSq) || 1
+      const vx = (dx / len) * def.runSpeed
+      const vz = (dz / len) * def.runSpeed
+      e.velocity.x = vx
+      e.velocity.z = vz
+      e.rotationY = Math.atan2(-dx, -dz)
+      continue
     }
 
-    if ((e.kind === 'sheep' || e.kind === 'pig') && distSq < FLEE_DIST_SQ) {
+    const fleeingFromDamage =
+      e.kind === 'pig' &&
+      e.fleeUntilTime != null &&
+      time < e.fleeUntilTime &&
+      distSq < FLEE_DIST_SQ
+    if (fleeingFromDamage) {
+      e.state = 'flee'
+      e.stateTime = 0
+      const len = Math.sqrt(distSq) || 1
+      e.velocity.x = (-dx / len) * def.runSpeed
+      e.velocity.z = (-dz / len) * def.runSpeed
+      e.rotationY = Math.atan2(-dx, -dz)
+      continue
+    }
+    if (def.behaviour === 'flee' && distSq < FLEE_DIST_SQ) {
       e.state = 'flee'
       e.stateTime = 0
       const len = Math.sqrt(distSq) || 1

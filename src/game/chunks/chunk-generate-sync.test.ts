@@ -34,7 +34,9 @@ vi.mock('../../block-materials', () => {
 
 vi.mock('../../block-registry', () => ({
   isSolidBlock: () => true,
+  isOccludingBlock: () => true,
   isUnbreakableBlock: () => false,
+  getBlockHeight: () => 1,
 }))
 
 vi.mock('../../entities/spawn', () => ({

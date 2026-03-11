@@ -15,13 +15,9 @@ import {
   FOREST_DENSITY_SCALE,
   FOREST_DENSITY_THRESHOLD,
   TREE_PLACEMENT_SCALE,
-  TREE_PLACEMENT_FOREST_THRESHOLD,
-  TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD,
-  TREE_PLACEMENT_JUNGLE_THRESHOLD,
-  TREE_PLACEMENT_PLAINS_THRESHOLD,
-  TREE_PLACEMENT_MOUNTAIN_THRESHOLD,
-  TREE_PLACEMENT_SNOW_THRESHOLD,
   TREE_MAX_SLOPE,
+  BIOMES_WITHOUT_GRASS_SNOW,
+  TREE_PLACEMENT_CONFIG,
   getTreeShapeConfigForBiome,
   type TreeShapeConfig,
 } from './terrain/tree-constants'
@@ -224,18 +220,7 @@ function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): 
     return 'snow'
   }
 
-  if (
-    topY >= WATER_LEVEL + 20 &&
-    biome !== 'desert' &&
-    biome !== 'savanna' &&
-    biome !== 'mountain' &&
-    biome !== 'jungle' &&
-    biome !== 'cherry_grove' &&
-    biome !== 'windswept_forest' &&
-    biome !== 'meadow' &&
-    biome !== 'plains'
-  )
-    return 'grass_snow'
+  if (topY >= WATER_LEVEL + 20 && !BIOMES_WITHOUT_GRASS_SNOW.has(biome)) return 'grass_snow'
 
   if (surface === 'snow') return 'grass_snow'
   if (biome === 'savanna' && surface === 'grass') return 'grass_savanna'
@@ -385,27 +370,14 @@ function getTreePlacementPass(
   biome: Biome,
   caches?: TreeNoiseCaches,
 ): boolean {
+  const config = TREE_PLACEMENT_CONFIG[biome]
+  if (!config) return false
   const placement = getTreePlacementCached(wx, wz, caches?.treePlacement)
-  if (biome === 'forest') {
+  if (config.useForestDensity) {
     const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity)
     if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false
-    return placement > TREE_PLACEMENT_FOREST_THRESHOLD
   }
-  if (biome === 'jungle') {
-    const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity)
-    if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false
-    return placement > TREE_PLACEMENT_JUNGLE_THRESHOLD
-  }
-  if (biome === 'mountain') return placement > TREE_PLACEMENT_MOUNTAIN_THRESHOLD
-  if (biome === 'plains' || biome === 'meadow' || biome === 'savanna' || biome === 'cherry_grove')
-    return placement > TREE_PLACEMENT_PLAINS_THRESHOLD
-  if (biome === 'windswept_forest') {
-    const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity)
-    if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false
-    return placement > TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD
-  }
-  if (biome === 'snow' || biome === 'grove') return placement > TREE_PLACEMENT_SNOW_THRESHOLD
-  return false
+  return placement > config.threshold
 }
 
 function isLocalTreeMax(wx: number, wz: number, treePlacementCache?: Map<string, number>): boolean {

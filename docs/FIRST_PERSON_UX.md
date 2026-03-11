@@ -10,6 +10,7 @@ This document describes the intended user experience and technical anchors for t
 - The hand is only visible in first-person; in third-person it is hidden and the full body is shown.
 - Position and offset of the hand are relative to the camera (fixed offset so the arm appears at the bottom-right of the view).
 - **Code:** `createPOVHands(camera)` and visibility in `updateCameraAndViewMode()` in [src/game.ts](src/game.ts). The POV hand group is a child of the camera.
+- **Rendering:** Camera looks along -Z; the arm is positioned lower-right. All POV layout values are named constants at the top of the POV block in `game.ts`: `POV_ARM_*` (dimensions, position), `POV_HAND_OFFSET_*`, `HELD_ITEM_SIZE`, `HELD_ITEM_OFFSET_*`, `HELD_SWORD_TILT_*`. Held items (weapons/tools) use `depthTest: false` so they always draw in front of the arm and avoid clipping; the arm still writes depth.
 
 ---
 
@@ -38,7 +39,7 @@ This document describes the intended user experience and technical anchors for t
 ## 4. Sword slash animation
 
 - **Trigger:** Left-click while a weapon (e.g. sword) is selected and not already slashing.
-- **Motion:** A horizontal slice: **left → right**, then **back** (or one stroke left→right with a quick return). The arm and held item rotate together (e.g. around a vertical or combined axis).
+- **Motion:** Each slash picks a random direction: horizontal (left→right or right→left), vertical (top→bottom or bottom→top), or diagonal. The arm and held item rotate together (Y and/or X axis). Forward stroke then return; same timing for all variants.
 - **Timing:** Forward phase ~0.35 s, return ~0.2 s (or single 0.4–0.5 s total). A short cooldown after the slash before the next one can be triggered.
 - **State machine:** `idle` → (left-click with sword) → `slashing` → (animation done) → `cooldown` → `idle`.
 - **Implementation:** Driven by a phase variable (e.g. `slashPhase` 0…1 or time in seconds), updated in `updateCameraAndViewMode()` with `dt`. Use an ease-in/out curve for the rotation so the slash feels responsive. Reuse the same pattern as the existing mining swing ([miningSwingPhase](src/game.ts) around lines 751, 1505–1513).

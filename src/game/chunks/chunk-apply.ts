@@ -19,7 +19,7 @@ import {
   setGrassInstanceColors,
   isSharedBlockOrSnowLayerGeometry,
 } from '../../block-materials'
-import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from '../../block-registry'
+import { isOccludingBlock as isBlockTypeOccluding, getBlockHeight } from '../../block-registry'
 import { filterVisibleBlocks } from './visible-blocks'
 import { sharedWaterPlaneGeometry } from '../../block-materials'
 
@@ -411,7 +411,7 @@ export function applyChunkPayload(
           voxelMap,
           positions,
           localKey,
-          isSolidBlock: isBlockTypeSolid,
+          isOccludingBlock: isBlockTypeOccluding,
         })
       }
       blockPositionsByType.set(blockType, visible)

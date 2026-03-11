@@ -37,7 +37,7 @@ describe('filterVisibleBlocks', () => {
       voxelMap,
       positions,
       localKey,
-      isSolidBlock: () => true,
+      isOccludingBlock: () => true,
     })
 
     expect(visible).toEqual([{ x: 0, y: 1, z: 1 }])

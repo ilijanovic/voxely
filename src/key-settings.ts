@@ -116,14 +116,23 @@ export const keyActionLabels: Record<KeyAction, string> = {
   hotbar9: 'Hotbar 9',
 }
 
+/** Override display names for modifier and special keys. Other codes use Key*/
+const KEY_CODE_TO_DISPLAY: Record<string, string> = {
+  Space: 'Space',
+  ShiftLeft: 'Shift',
+  ShiftRight: 'Shift',
+  ControlLeft: 'Strg',
+  ControlRight: 'Strg',
+  AltLeft: 'Alt',
+  AltRight: 'Alt',
+}
+
 /** Convert KeyboardEvent.code to a short display string (e.g. "W", "Space"). */
 export function codeToDisplayName(code: string): string {
+  const override = KEY_CODE_TO_DISPLAY[code]
+  if (override !== undefined) return override
   if (code.startsWith('Key')) return code.slice(3)
   if (code.startsWith('Digit')) return code.slice(5)
-  if (code === 'Space') return 'Space'
-  if (code === 'ShiftLeft' || code === 'ShiftRight') return 'Shift'
-  if (code === 'ControlLeft' || code === 'ControlRight') return 'Strg'
-  if (code === 'AltLeft' || code === 'AltRight') return 'Alt'
   return code
 }
 

@@ -9,6 +9,7 @@ import {
   MAIN_INVENTORY_SLOTS,
   CRAFTING_GRID_2X2,
   TOTAL_PERSISTENT_SLOTS,
+  DEFAULT_START_WEAPON,
 } from './constants'
 import { matchRecipe2x2, getConsumeAmountsForCraft } from './recipes'
 
@@ -222,10 +223,21 @@ export function setPersistentSlots(snapshot: InventorySlot[]): void {
   clearCraftingGrid()
 }
 
+/** Ensures at least one sword is in the hotbar (for testing). If none, puts DEFAULT_START_WEAPON in slot 0. */
+export function ensureSwordInHotbar(): void {
+  const hasSword = Array.from({ length: HOTBAR_SLOTS }, (_, i) => getSlot(i).type).some(
+    (type) => type === DEFAULT_START_WEAPON,
+  )
+  if (!hasSword) {
+    slots[0] = { type: DEFAULT_START_WEAPON as BlockType, count: 1 }
+    notify()
+  }
+}
+
 /** Initializes default hotbar + empty main (e.g. new game). Does not clear crafting. */
 export function initDefaultInventory(): void {
   const defaultHotbar: { type: BlockType; count: number }[] = [
-    { type: 'wood_sword', count: 1 },
+    { type: DEFAULT_START_WEAPON as BlockType, count: 1 },
     { type: 'grass', count: 1 },
     { type: 'dirt', count: 1 },
     { type: 'stone', count: 1 },
@@ -242,5 +254,6 @@ export function initDefaultInventory(): void {
   for (let i = MAIN_INVENTORY_START; i < MAIN_INVENTORY_START + MAIN_INVENTORY_SLOTS; i++) {
     slots[i] = emptySlot()
   }
+  ensureSwordInHotbar()
   notify()
 }

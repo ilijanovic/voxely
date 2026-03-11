@@ -42,6 +42,15 @@ export const WORLD_HEIGHT = 128
 
 /** Global water level (block Y). Same as classic Minecraft (~sea level). */
 export const WATER_LEVEL = 64
+/** Max block Y for filling broken blocks with water (hole in ocean/lake). Blocks at or below this Y get water when broken. */
+export const WATER_FILL_MAX_Y = WATER_LEVEL
+
+/**
+ * Returns true when a block broken at the given Y should be filled with water (e.g. hole in ocean).
+ */
+export function shouldFillBrokenBlockWithWater(blockY: number): boolean {
+  return blockY <= WATER_FILL_MAX_Y
+}
 /** Height of a water block in world units (Minecraft: 0.9 m; surface at WATER_LEVEL + WATER_BLOCK_HEIGHT). */
 export const WATER_BLOCK_HEIGHT = 0.9
 /** Offset above water surface for water plane mesh to avoid z-fighting. */
@@ -67,6 +76,9 @@ export const CRAFTING_GRID_2X2 = 4
 /** Total persistent slots: hotbar + main (crafting grid not persisted). */
 export const TOTAL_PERSISTENT_SLOTS = HOTBAR_SLOTS + MAIN_INVENTORY_SLOTS
 
+/** Default weapon given on spawn for testing (e.g. wood_sword). */
+export const DEFAULT_START_WEAPON = 'wood_sword'
+
 /** Spawn position (world block coords). */
 export const SPAWN_X = 0
 export const SPAWN_Z = 0
@@ -85,6 +97,11 @@ export const SNOW_GROWTH_INTERVAL_SEC = 12
 export const SNOW_GROWTH_RADIUS = 10
 /** Number of positions to try per interval (snow forms in parallel in the area). */
 export const SNOW_GROWTH_CANDIDATES_PER_INTERVAL = 24
+
+/** Max distance for melee attack vs entities (same as block break reach). */
+export const ENTITY_ATTACK_DISTANCE = 5
+/** Damage applied per successful weapon slash to an entity. */
+export const DAMAGE_PER_SLASH = 2
 
 /** Default URL for the multiplayer server (Socket.IO backend). */
 export const MULTIPLAYER_SERVER_URL = 'http://localhost:3000'

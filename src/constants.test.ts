@@ -11,6 +11,8 @@ import {
   RENDER_DISTANCE_SQ,
   WORLD_HEIGHT,
   WATER_LEVEL,
+  WATER_FILL_MAX_Y,
+  shouldFillBrokenBlockWithWater,
   MAX_STACK_SIZE,
   HOTBAR_SLOTS,
   MAIN_INVENTORY_ROWS,
@@ -40,6 +42,17 @@ describe('constants', () => {
 
     it('WATER_LEVEL is 64', () => {
       expect(WATER_LEVEL).toBe(64)
+    })
+
+    it('WATER_FILL_MAX_Y equals WATER_LEVEL so holes at or below sea level fill with water', () => {
+      expect(WATER_FILL_MAX_Y).toBe(WATER_LEVEL)
+    })
+
+    it('shouldFillBrokenBlockWithWater returns true at or below WATER_FILL_MAX_Y', () => {
+      expect(shouldFillBrokenBlockWithWater(WATER_LEVEL)).toBe(true)
+      expect(shouldFillBrokenBlockWithWater(WATER_LEVEL - 1)).toBe(true)
+      expect(shouldFillBrokenBlockWithWater(0)).toBe(true)
+      expect(shouldFillBrokenBlockWithWater(WATER_LEVEL + 1)).toBe(false)
     })
 
     it('RENDER_DISTANCE_SQ equals RENDER_DISTANCE squared', () => {

@@ -10,6 +10,9 @@ import {
   SPAWN_X,
   SPAWN_Z,
   WORLD_HEIGHT,
+  ENTITY_ATTACK_DISTANCE,
+  DAMAGE_PER_SLASH,
+  shouldFillBrokenBlockWithWater,
 } from './constants'
 import {
   getSelectedBlockType,
@@ -66,13 +69,18 @@ import { initMultiplayer, updateMultiplayer } from './multiplayer'
 import { setWorldApi } from './world-api'
 import { spawnEntitiesForChunk } from './entities/spawn'
 import { updateMovement } from './entities/movement'
-import { updateAI } from './entities/ai'
+import { updateAI, FLEE_DURATION_AFTER_HIT } from './entities/ai'
 import { updateAnimation } from './entities/animation'
+import { removeEntity } from './entities/registry'
+import { raycastEntities } from './entities/entity-hit'
 import {
   isSolidBlock as isBlockTypeSolid,
+  isPlaceableBlock,
   isUnbreakableBlock,
+  getBlockBreakTime,
   getBlockDefinition,
   getBlockTextureNames,
+  getBlockHeight,
   getItemTextureName,
   isWeapon,
 } from './block-registry'
@@ -81,6 +89,7 @@ import {
   getPersistentSlots,
   setPersistentSlots,
   initDefaultInventory,
+  ensureSwordInHotbar,
 } from './inventory'
 import {
   SAVE_VERSION,
@@ -141,6 +150,7 @@ import {
 } from './game/chunks/chunk-generate-sync'
 import {
   updateDropsAndPickup as updateDropsAndPickupSystem,
+  spawnDrop as spawnDropItem,
   DEFAULT_MAGNET_RADIUS,
   DEFAULT_MAGNET_SPEED,
   type Drop,
@@ -283,16 +293,41 @@ function loadGame(): boolean {
     const maxCx = Math.floor((px + footHalf) / CHUNK_SIZE)
     const minCz = Math.floor((pz - footHalf) / CHUNK_SIZE)
     const maxCz = Math.floor((pz + footHalf) / CHUNK_SIZE)
-    for (let cx = minCx; cx <= maxCx; cx++) {
-      for (let cz = minCz; cz <= maxCz; cz++) {
-        if (!chunks.has(chunkKeyNumeric(cx, cz))) generateChunk(scene, cx, cz)
+    if (chunkWorker) {
+      const loadChunkKeys = new Set<number>()
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        for (let cz = minCz; cz <= maxCz; cz++) {
+          const keyNum = chunkKeyNumeric(cx, cz)
+          loadChunkKeys.add(keyNum)
+          if (chunks.has(keyNum)) continue
+          if (pendingChunkKeys.has(keyNum)) continue
+          pendingChunkKeys.add(keyNum)
+          chunkWorker.requestChunk({
+            chunkX: cx,
+            chunkZ: cz,
+            blockMods: getBlockModsForChunk(cx, cz),
+          })
+        }
       }
+      pendingLoad = { loadX: px, loadZ: pz, chunkKeys: loadChunkKeys }
+      const tempY = getHeight(px, pz) + 0.5
+      player.position.set(px, tempY, pz)
+      player.visible = false
+    } else {
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        for (let cz = minCz; cz <= maxCz; cz++) {
+          if (!chunks.has(chunkKeyNumeric(cx, cz))) generateChunk(scene, cx, cz)
+        }
+      }
+      const loadY = getSurfaceY(data.player.x, data.player.z)
+      player.position.set(data.player.x, loadY, data.player.z)
+      player.visible = true
     }
   }
-  const loadY = getSurfaceY(data.player.x, data.player.z)
-  player.position.set(data.player.x, loadY, data.player.z)
   pendingSpawn = null
-  player.visible = true
+  if (!pendingLoad) {
+    player.visible = true
+  }
   lastLookYaw = data.player.rotationY
   lastLookPitch = data.player.lookPitch
   loadedRotationY = data.player.rotationY
@@ -309,9 +344,12 @@ function loadGame(): boolean {
         : { type: null as BlockType | null, count: 0 },
     )
     setPersistentSlots(valid)
+    ensureSwordInHotbar()
   } else {
     initDefaultInventory()
   }
+  // If we deferred with pendingLoad, apply as soon as all chunks are present (e.g. already loaded).
+  if (pendingLoad) applyPendingLoadIfReady()
   return true
 }
 
@@ -325,6 +363,12 @@ let pendingSpawn: {
   spawnZ: number
   chunkKeys: Set<number>
 } | null = null
+/** When set: player position and visibility are applied once all chunks around the saved position are loaded (worker path in loadGame). */
+let pendingLoad: {
+  loadX: number
+  loadZ: number
+  chunkKeys: Set<number>
+} | null = null
 
 // ================= VOXEL COLLISION (see game-collision.ts) =================
 
@@ -333,7 +377,6 @@ const raycaster = new THREE.Raycaster()
 const rayOrigin = new THREE.Vector3()
 const rayDirection = new THREE.Vector3()
 const BREAK_DISTANCE = 5 // maximale Reichweite zum Abbauen (in Blöcken)
-const BREAK_TIME = 1.0 // Sekunden Halten bis Block abbricht
 
 /** Aktuelles Ziel beim Halten: gleicher Block = Fortschritt, anderer Block = Reset (Weltkoordinaten, nicht Instanz-Index). */
 let breakTarget: {
@@ -507,6 +550,15 @@ function breakBlock(
     skipRefresh: useWorker,
     time,
   })
+  if (shouldFillBrokenBlockWithWater(worldY)) {
+    blockModifications.set(blockKeyString(worldX, worldY, worldZ), 'water_source')
+    applyBlockChangeToLoadedChunk({
+      bx: worldX,
+      by: worldY,
+      bz: worldZ,
+      next: 'water_source',
+    })
+  }
   runWaterSpreadFromNeighbors(worldX, worldY, worldZ)
   if (useWorker && chunkWorker) {
     const cx = chunkKeyNum >> 16
@@ -550,6 +602,24 @@ function applyPendingSpawnIfReady(): void {
   playerGrounded = true
   player.visible = true
   pendingSpawn = null
+}
+
+/**
+ * If load was deferred until worker chunks arrived (loadGame with worker), checks that all required chunks are loaded and then sets final player position and visibility.
+ */
+function applyPendingLoadIfReady(): void {
+  if (!pendingLoad || !player) return
+  for (const keyNum of pendingLoad.chunkKeys) {
+    if (!chunks.has(keyNum)) return
+  }
+  const y = getSurfaceY(pendingLoad.loadX, pendingLoad.loadZ)
+  player.position.set(pendingLoad.loadX, y, pendingLoad.loadZ)
+  velocityY = 0
+  velocityX = 0
+  velocityZ = 0
+  playerGrounded = true
+  player.visible = true
+  pendingLoad = null
 }
 
 /**
@@ -658,11 +728,32 @@ function createPlayer(scene: THREE.Scene) {
 }
 
 // ================= POV HAND =================
+// Camera looks along -Z; arm is lower-right. Held items use depthTest: false so they always draw in front of the arm.
 
+/** POV arm dimensions (slim so it reads as an arm, not a block). */
+const POV_ARM_WIDTH = 0.06
+const POV_ARM_HEIGHT = 0.4
+const POV_ARM_DEPTH = 0.05
+/** POV arm position in camera space (right, down, forward). */
+const POV_ARM_POS_X = 0.42
+const POV_ARM_POS_Y = -0.42
+const POV_ARM_POS_Z = -0.5
+/** Offset from arm origin to held-item container (hand at end of arm). */
+const POV_HAND_OFFSET_X = 0
+const POV_HAND_OFFSET_Y = 0.2
+const POV_HAND_OFFSET_Z = 0
 /** Scale of held block in first-person (small block in hand). */
 const HELD_BLOCK_SCALE = 0.2
-/** Blade length for sword held item (world units). */
-const HELD_SWORD_BLADE_LENGTH = 0.4
+/** Size of held item in first-person (e.g. sword); 1:1 aspect to avoid stretching square item textures. */
+const HELD_ITEM_SIZE = 0.32
+/** Held weapon/tool: offset so grip is at hand (Y = half size puts quad bottom at hand), blade in front. */
+const HELD_ITEM_OFFSET_X = 0
+const HELD_ITEM_OFFSET_Y = HELD_ITEM_SIZE * 0.5
+const HELD_ITEM_OFFSET_Z = 0.06
+/** Held sword tilt: Y = face camera (Math.PI), Z = blade-up, X = slight forward tilt so grip sits in hand. */
+const HELD_SWORD_TILT_Y_RAD = Math.PI
+const HELD_SWORD_TILT_Z_DEG = -18
+const HELD_SWORD_TILT_X_DEG = 5
 /** Cache of held-item meshes by block type (block or item id). */
 const heldItemMeshCache = new Map<string, THREE.Mesh>()
 /** Container for the currently held item (child of POV arm). Set in createPOVHands. */
@@ -677,8 +768,9 @@ function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
 
   const itemTex = getItemTextureName(blockType)
   if (itemTex) {
-    // Weapon/tool: sword-style thin elongated quad or box with item texture
-    const geom = new THREE.PlaneGeometry(HELD_SWORD_BLADE_LENGTH * 0.5, HELD_SWORD_BLADE_LENGTH)
+    // Weapon/tool: single quad with 1:1 aspect so the item texture is not stretched and shows once (no box faces).
+    // depthTest: false so the item always draws in front of the arm (no clipping).
+    const geom = new THREE.PlaneGeometry(HELD_ITEM_SIZE, HELD_ITEM_SIZE)
     const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       depthTest: false,
@@ -691,13 +783,18 @@ function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
     mesh.renderOrder = 1000
     loadItemTextureSafe(itemTex).then((tex) => {
       setPixelFilter(tex)
+      tex.wrapS = THREE.ClampToEdgeWrapping
+      tex.wrapT = THREE.ClampToEdgeWrapping
       tex.colorSpace = THREE.SRGBColorSpace
       mat.map = tex
       mat.needsUpdate = true
     })
-    mesh.rotation.x = THREE.MathUtils.degToRad(-90)
-    mesh.rotation.z = THREE.MathUtils.degToRad(10)
-    mesh.position.set(0.05, 0.02, 0.1)
+    mesh.rotation.set(
+      THREE.MathUtils.degToRad(HELD_SWORD_TILT_X_DEG),
+      HELD_SWORD_TILT_Y_RAD,
+      THREE.MathUtils.degToRad(HELD_SWORD_TILT_Z_DEG),
+    )
+    mesh.position.set(HELD_ITEM_OFFSET_X, HELD_ITEM_OFFSET_Y, HELD_ITEM_OFFSET_Z)
   } else {
     // Block: small cube with block texture
     const names = getBlockTextureNames(blockType)
@@ -755,21 +852,24 @@ function createPOVHands(camera: THREE.PerspectiveCamera) {
   hands.renderOrder = 999
   const matSkin = new THREE.MeshStandardMaterial({
     color: 0xffdbac,
-    depthTest: false,
-    depthWrite: false,
+    depthTest: true,
+    depthWrite: true,
     transparent: true,
     opacity: 1.0,
   })
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), matSkin)
+  const arm = new THREE.Mesh(
+    new THREE.BoxGeometry(POV_ARM_WIDTH, POV_ARM_HEIGHT, POV_ARM_DEPTH),
+    matSkin,
+  )
   arm.renderOrder = 999
-  arm.position.set(0.45, -0.45, -0.65)
+  arm.position.set(POV_ARM_POS_X, POV_ARM_POS_Y, POV_ARM_POS_Z)
   arm.rotation.set(
     THREE.MathUtils.degToRad(-25),
     THREE.MathUtils.degToRad(-15),
     THREE.MathUtils.degToRad(-10),
   )
   povHeldItemContainer = new THREE.Group()
-  povHeldItemContainer.position.set(0, 0.18, 0)
+  povHeldItemContainer.position.set(POV_HAND_OFFSET_X, POV_HAND_OFFSET_Y, POV_HAND_OFFSET_Z)
   arm.add(povHeldItemContainer)
   hands.add(arm)
   camera.add(hands)
@@ -882,18 +982,52 @@ const POV_ARM_BASE_ROTATION_X = THREE.MathUtils.degToRad(-25)
 const POV_ARM_BASE_ROTATION_Y = THREE.MathUtils.degToRad(-15)
 const POV_ARM_BASE_ROTATION_Z = THREE.MathUtils.degToRad(-10)
 
-/** Sword slash: idle -> slashing (left-to-right and back) -> cooldown -> idle. */
+/** Sword slash: idle -> slashing (direction chosen at random per slash) -> cooldown -> idle. */
 type AttackState = 'idle' | 'slashing' | 'cooldown'
 let attackState: AttackState = 'idle'
 let slashPhase = 0
+/** True after we've run entity hit detection for the current slash (one hit check per slash). */
+let slashHitCheckedThisCycle = false
 /** Duration of the slash motion (forward + return) in seconds. */
 const SLASH_DURATION = 0.4
 /** Cooldown after slash before next attack can start. */
 const SLASH_COOLDOWN_DURATION = 0.15
 /** Total attack cycle duration. */
 const SLASH_TOTAL_DURATION = SLASH_DURATION + SLASH_COOLDOWN_DURATION
-/** Max rotation (radians) of POV hands for slash (left-to-right arc). */
+/** Max rotation (radians) of POV hands for slash (horizontal arc). */
 const SLASH_HAND_ROTATION_Y = 0.65
+/** Max rotation (radians) for vertical/diagonal slash component. */
+const SLASH_HAND_ROTATION_X = 0.65
+
+/** Axis factors (1, -1, or 0) for slash direction variants. Y = horizontal, X = vertical, Z = roll. */
+interface SlashVariant {
+  y: number
+  x: number
+  z: number
+}
+
+/** Slash direction variants: horizontal, vertical, and diagonal. One is chosen at random per slash. */
+const SLASH_VARIANTS: SlashVariant[] = [
+  { y: 1, x: 0, z: 0 },   // left to right
+  { y: -1, x: 0, z: 0 },  // right to left
+  { y: 0, x: 1, z: 0 },   // top to bottom
+  { y: 0, x: -1, z: 0 },  // bottom to top
+  { y: 1, x: 1, z: 0 },   // diagonal: top-left to bottom-right
+  { y: -1, x: 1, z: 0 },  // diagonal: top-right to bottom-left
+  { y: 1, x: -1, z: 0 },  // diagonal: bottom-left to top-right
+  { y: -1, x: -1, z: 0 }, // diagonal: bottom-right to top-left
+]
+
+let currentSlashVariant: SlashVariant = SLASH_VARIANTS[0]
+
+/** Returns slash arc: 0 at start/end, smooth wind-up then slash then return (no snap from/to idle). */
+function getSlashArc(phase: number, duration: number): number {
+  if (phase >= duration) return 0
+  const p = phase / duration
+  if (p < 0.25) return -4 * p                    // 0 → -1 wind-up
+  if (p < 0.5) return 8 * p - 3                   // -1 → 1 main slash
+  return 2 - 2 * p                                // 1 → 0 return to rest
+}
 
 // Third-Person: Körper-Yaw (Bewegungsrichtung), Kopf relativ dazu
 let bodyYaw = 0
@@ -1062,6 +1196,7 @@ function initChunkWorker(): void {
             raycastMeshCache.markDirty()
             _frustumDirty = true
             applyPendingSpawnIfReady()
+            applyPendingLoadIfReady()
           },
         },
         WORLD_SEED,
@@ -1153,6 +1288,8 @@ function initControlsAndInput(): void {
       if (isWeapon(getSelectedBlockType()) && attackState === 'idle') {
         attackState = 'slashing'
         slashPhase = 0
+        slashHitCheckedThisCycle = false
+        currentSlashVariant = SLASH_VARIANTS[Math.floor(Math.random() * SLASH_VARIANTS.length)]
       }
     }
     if (e.button === 2) {
@@ -1408,10 +1545,11 @@ let fpsEl: HTMLElement | null = null
 const terrainDebug: TerrainDebugState = createTerrainDebugState()
 
 /**
- * Applies pending spawn when worker chunks are ready, updates terrain debug overlay, and refreshes FPS display every 500 ms.
+ * Applies pending spawn or load when worker chunks are ready, updates terrain debug overlay, and refreshes FPS display every 500 ms.
  */
 function updateFPSAndSpawn(time: number): void {
   applyPendingSpawnIfReady()
+  applyPendingLoadIfReady()
   updateTerrainDebugOverlaySystem(terrainDebug, time, player)
   fpsFrameCount++
   const fpsElapsed = time * 1000 - fpsLastTime
@@ -1680,7 +1818,7 @@ function updateMovementAndCollision(dt: number, time: number): void {
     if (debugCollisionLogCooldown > 0) debugCollisionLogCooldown--
   }
 
-  updateAI({ x: player.position.x, y: player.position.y, z: player.position.z }, dt)
+  updateAI({ x: player.position.x, y: player.position.y, z: player.position.z }, dt, time)
   updateMovement(dt, (pos, v, d, hx, hz, height) => {
     resolveVoxelCollisions(pos, v, d, hx, hz, height)
   })
@@ -1725,18 +1863,74 @@ function updateCameraAndViewMode(time: number, dt: number): void {
     const povArm = povHands.children[0] as THREE.Mesh
     if (attackState !== 'idle') {
       slashPhase += dt
-      if (slashPhase >= SLASH_TOTAL_DURATION) attackState = 'idle'
-      let slashY = 0
-      if (slashPhase < SLASH_DURATION) {
-        const p = slashPhase / SLASH_DURATION
-        if (p < 0.5) {
-          slashY = -SLASH_HAND_ROTATION_Y + 2 * p * SLASH_HAND_ROTATION_Y
-        } else {
-          slashY = SLASH_HAND_ROTATION_Y - 2 * (p - 0.5) * SLASH_HAND_ROTATION_Y
+      if (slashPhase >= SLASH_TOTAL_DURATION) {
+        attackState = 'idle'
+        slashHitCheckedThisCycle = false
+      }
+      // Entity hit: once per slash in the first frame after slash start
+      if (
+        attackState === 'slashing' &&
+        slashPhase > 0 &&
+        slashPhase <= dt * 1.5 &&
+        !slashHitCheckedThisCycle
+      ) {
+        slashHitCheckedThisCycle = true
+        rayOrigin.copy(camera.position)
+        camera.getWorldDirection(rayDirection)
+        const hit = raycastEntities(rayOrigin, rayDirection, ENTITY_ATTACK_DISTANCE)
+        if (hit) {
+          hit.entity.health -= DAMAGE_PER_SLASH
+          hit.entity.fleeUntilTime = time + FLEE_DURATION_AFTER_HIT
+          if (hit.entity.health <= 0) {
+            const deadKind = hit.entity.kind
+            const pos = { ...hit.entity.position }
+            hit.entity.state = 'dead'
+            const mesh = removeEntity(hit.entity.id)
+            if (mesh) {
+              scene.remove(mesh)
+              mesh.traverse((obj) => {
+                if (obj instanceof THREE.Mesh) {
+                  obj.geometry?.dispose()
+                  if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose())
+                  else obj.material?.dispose()
+                }
+              })
+            }
+            if (deadKind === 'pig') {
+              const dropSize = 0.35
+              let groundY = pos.y - 0.5
+              for (let by = Math.floor(pos.y - 1); by >= 0; by--) {
+                const t = getBlockAt(pos.x, by, pos.z)
+                if (t !== null && t !== 'air' && isBlockTypeSolid(t as BlockType)) {
+                  groundY = by + getBlockHeight(t as BlockType)
+                  break
+                }
+              }
+              const restY = groundY + dropSize * 0.5
+              const count = 1 + Math.floor(Math.random() * 3)
+              for (let i = 0; i < count; i++) {
+                const offsetX = (Math.random() - 0.5) * 0.4
+                const offsetZ = (Math.random() - 0.5) * 0.4
+                spawnDropItem({
+                  scene,
+                  drops,
+                  worldX: pos.x + offsetX,
+                  worldZ: pos.z + offsetZ,
+                  startY: pos.y,
+                  restY,
+                  blockType: 'raw_porkchop',
+                  time,
+                })
+              }
+            }
+          }
         }
       }
-      povHands.rotation.y = slashY
-      povHands.rotation.z = 0
+      const arc = getSlashArc(slashPhase, SLASH_DURATION)
+      const v = currentSlashVariant
+      povHands.rotation.y = arc * SLASH_HAND_ROTATION_Y * v.y
+      povHands.rotation.x = arc * SLASH_HAND_ROTATION_X * v.x
+      povHands.rotation.z = arc * SLASH_HAND_ROTATION_X * v.z
       povHands.position.set(0, 0, 0)
       povArm.rotation.x = POV_ARM_BASE_ROTATION_X
       povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
@@ -2069,11 +2263,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             if (!torchInPlayer && placeTorch(placeX, placeY, placeZ)) {
               consumeOneFromSelectedSlot()
             }
-          } else if (
-            sel !== 'torch' &&
-            count > 0 &&
-            (isBlockTypeSolid(sel) || sel === 'water')
-          ) {
+          } else if (sel !== 'torch' && count > 0 && isPlaceableBlock(sel)) {
             const adjX = Math.floor(placeHit.point.x + _direction.x * 0.01)
             const adjY = Math.floor(placeHit.point.y + _direction.y * 0.01)
             const adjZ = Math.floor(placeHit.point.z + _direction.z * 0.01)
@@ -2177,8 +2367,9 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
           breakTarget.y === pos.y &&
           breakTarget.z === pos.z
         ) {
+          const required = getBlockBreakTime(blockType)
           breakProgress += dt
-          if (breakProgress >= BREAK_TIME) {
+          if (breakProgress >= required) {
             breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
             breakTarget = null
             breakProgress = 0
@@ -2195,6 +2386,14 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
               z: pos.z,
             }
             breakProgress = dt
+            const required = getBlockBreakTime(blockType)
+            if (required <= 0 || breakProgress >= required) {
+              breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
+              breakTarget = null
+              breakProgress = 0
+              const crackEl = document.getElementById('block-crack')
+              if (crackEl) crackEl.style.visibility = 'hidden'
+            }
           } else {
             breakTarget = null
             breakProgress = 0
@@ -2233,8 +2432,9 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             breakTarget.y === by &&
             breakTarget.z === bz
           ) {
+            const required = getBlockBreakTime(at)
             breakProgress += dt
-            if (breakProgress >= BREAK_TIME) {
+            if (breakProgress >= required) {
               breakBlock(chunkKeyNum, at, bx, by, bz, time)
               breakTarget = null
               breakProgress = 0
@@ -2248,6 +2448,12 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
               z: bz,
             }
             breakProgress = dt
+            const required = getBlockBreakTime(at)
+            if (required <= 0 || breakProgress >= required) {
+              breakBlock(chunkKeyNum, at, bx, by, bz, time)
+              breakTarget = null
+              breakProgress = 0
+            }
           }
         }
       }
@@ -2266,8 +2472,9 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
   if (crackEl) {
     const visible = breakTarget !== null
     crackEl.style.visibility = visible ? 'visible' : 'hidden'
-    if (visible) {
-      const progress = Math.min(1, breakProgress / BREAK_TIME)
+    if (visible && breakTarget) {
+      const breakTime = getBlockBreakTime(breakTarget.blockType)
+      const progress = breakTime > 0 ? Math.min(1, breakProgress / breakTime) : 1
       const stage = Math.min(9, Math.floor(progress * 10))
       crackEl.style.backgroundPosition = `0 ${-stage * 10}%`
       crackEl.setAttribute('data-stage', String(stage))

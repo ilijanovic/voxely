@@ -5,22 +5,12 @@ import {
   createPBRMaterial,
   loadFoliageColormapImageData,
   loadGrassColormapImageData,
+  loadItemTextureSafe,
   loadTextureOptional,
   sampleGrassColormap,
   setPixelFilter,
 } from '../../block-materials'
 import { patchMaterialWithTerrainFog } from '../../terrain-fog'
-
-/** Block IDs that use cross geometry (flowers, fern, tall grass); need DoubleSide for correct rendering. */
-const CROSS_GEOMETRY_BLOCK_IDS = new Set([
-  'dandelion',
-  'poppy',
-  'tulip_red',
-  'oxeye_daisy',
-  'blue_orchid',
-  'fern',
-  'tall_grass',
-])
 
 export type MaterialsInitResult = {
   grassColormapData: ImageData | null
@@ -49,44 +39,36 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
     }
   }
 
+  let waterMaterial: THREE.MeshStandardMaterial | null = null
   await Promise.all(
     getAllBlockIds().map(async (blockId) => {
-      if (blockId === 'water') {
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0x3366aa,
-          roughness: 0.2,
-          metalness: 0.1,
-          transparent: true,
-          opacity: 0.85,
-          depthWrite: true,
-          depthTest: true,
-          side: THREE.DoubleSide,
-          polygonOffset: true,
-          polygonOffsetUnits: 1,
-          polygonOffsetFactor: 1,
-        })
-        patchMaterialWithTerrainFog(mat)
-        blockMaterialCache.set(blockId, mat)
-        // Reuse same material for flowing water block types (source + flowing 1..7)
-        blockMaterialCache.set('water_source', mat)
-        for (let k = 1; k <= 7; k++) blockMaterialCache.set(`water_flowing_${k}`, mat)
+      const def = getBlockDefinition(blockId)!
+      if (def.fluid === 'water') {
+        if (!waterMaterial) {
+          waterMaterial = new THREE.MeshStandardMaterial({
+            color: 0x3366aa,
+            roughness: 0.2,
+            metalness: 0.1,
+            transparent: true,
+            opacity: 0.85,
+            depthWrite: true,
+            depthTest: true,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetUnits: 1,
+            polygonOffsetFactor: 1,
+          })
+          patchMaterialWithTerrainFog(waterMaterial)
+        }
+        blockMaterialCache.set(blockId, waterMaterial)
         return
       }
-      const def = getBlockDefinition(blockId)!
       const names = getBlockTextureNames(blockId)
-      const skipNormalMapForTerrain =
-        blockId === 'dirt' ||
-        blockId === 'stone' ||
-        blockId === 'sand' ||
-        blockId === 'snow' ||
-        blockId === 'grass' ||
-        blockId === 'grass_snow' ||
-        blockId === 'grass_savanna' ||
-        blockId === 'bedrock'
-      const skipSpecularMapForGrass = blockId === 'grass' || blockId === 'grass_savanna'
+      const skipNormalMapForTerrain = def.skipNormalMap === true
+      const skipSpecularMapForGrass = def.skipSpecularMap === true
 
       const grassMaterialOpts: { color?: number; vertexColors?: boolean } = {}
-      if (DEBUG_GRASS_TINT && (blockId === 'grass' || blockId === 'grass_savanna')) {
+      if (DEBUG_GRASS_TINT && def.skipSpecularMap === true) {
         console.log('[grass tint] material opts', {
           blockId,
           grassMaterialOpts,
@@ -97,22 +79,32 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
 
       const leafMaterialOpts: { color?: number; vertexColors?: boolean } = {}
       if (names.length === 1) {
-        const mat = await createPBRMaterial(names[0], {
-          transparent: def.transparent === true,
-          alphaTest: def.transparent ? 0.1 : undefined,
-          enableNormalMap: !skipNormalMapForTerrain,
-          enableSpecularMap: !skipSpecularMapForGrass,
-          ...grassMaterialOpts,
-          ...leafMaterialOpts,
-        })
-        if (CROSS_GEOMETRY_BLOCK_IDS.has(blockId)) mat.side = THREE.DoubleSide
+        let mat: THREE.MeshStandardMaterial
+        if (def.itemTexture) {
+          const tex = await loadItemTextureSafe(def.itemTexture)
+          mat = new THREE.MeshStandardMaterial({
+            map: tex,
+            roughness: 1,
+            metalness: 0,
+            transparent: def.transparent === true,
+            alphaTest: def.transparent ? 0.1 : undefined,
+            ...grassMaterialOpts,
+            ...leafMaterialOpts,
+          })
+        } else {
+          mat = await createPBRMaterial(names[0], {
+            transparent: def.transparent === true,
+            alphaTest: def.transparent ? 0.1 : undefined,
+            enableNormalMap: !skipNormalMapForTerrain,
+            enableSpecularMap: !skipSpecularMapForGrass,
+            ...grassMaterialOpts,
+            ...leafMaterialOpts,
+          })
+        }
+        if (def.crossGeometry === true) mat.side = THREE.DoubleSide
         patchMaterialWithTerrainFog(mat)
         blockMaterialCache.set(blockId, mat)
-        if (
-          DEBUG_GRASS_TINT &&
-          (blockId === 'grass' || blockId === 'grass_savanna') &&
-          !_debugGrassMaterialLogged
-        ) {
+        if (DEBUG_GRASS_TINT && def.skipSpecularMap === true && !_debugGrassMaterialLogged) {
           console.log('[grass tint] single material maps', {
             blockId,
             vertexColors: mat.vertexColors,
@@ -137,11 +129,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
         )) as THREE.MeshStandardMaterial[]
         patchMaterialWithTerrainFog(mats)
         blockMaterialCache.set(blockId, mats)
-        if (
-          DEBUG_GRASS_TINT &&
-          (blockId === 'grass' || blockId === 'grass_savanna') &&
-          !_debugGrassMaterialLogged
-        ) {
+        if (DEBUG_GRASS_TINT && def.skipSpecularMap === true && !_debugGrassMaterialLogged) {
           console.log(
             '[grass tint] six-face material maps',
             mats.map((m, i) => ({

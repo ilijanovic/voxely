@@ -34,6 +34,7 @@ import {
 import { filterVisibleBlocks as filterVisibleBlocksPure } from './visible-blocks'
 import {
   isSolidBlock as isBlockTypeSolid,
+  isOccludingBlock as isBlockTypeOccluding,
   isUnbreakableBlock,
   getBlockHeight,
 } from '../../block-registry'
@@ -359,7 +360,7 @@ export function filterVisibleBlocks(
     voxelMap,
     positions,
     localKey,
-    isSolidBlock: isBlockTypeSolid,
+    isOccludingBlock: isBlockTypeOccluding,
   })
 }
 

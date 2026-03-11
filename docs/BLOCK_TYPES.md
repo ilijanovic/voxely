@@ -28,7 +28,7 @@ Examples: dandelion, poppy, tulip_red, oxeye_daisy, blue_orchid, fern; optionall
 - **Model:** Cross geometry (two intersecting quads) for a billboard look, not a full cube.
 - **Collision:** Non-solid; players can walk through. Raycast still hits them for selection and breaking.
 - **Placement:** In terrain generation they are placed by features on suitable ground (grass, dirt). No per-block placement validation at place time in the current implementation.
-- **Breaking:** Instant (hand or shears); no tool required.
+- **Breaking:** Instant (hand or shears); no tool required. Implemented via `breakTimeSeconds: 0` in the block registry.
 - **In Voxely:** `solid: false`, `transparent: true` in the block registry. Cross geometry is used for a fixed set of types in `src/game/chunks/chunk-apply.ts` (`CROSS_GEOMETRY_BLOCK_TYPES`: dandelion, poppy, tulip_red, oxeye_daisy, blue_orchid, fern). See [VEGETATION_RENDERING.md](./VEGETATION_RENDERING.md).
 
 ### Crop blocks

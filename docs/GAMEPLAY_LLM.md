@@ -26,7 +26,7 @@ If you are an AI assistant: **Do not treat Section B as implemented behavior.** 
 
 - **Input**: mining is **hold left mouse** while pointer lock is active.
 - **Raycast**: from the camera position/direction with **max distance 5** (`BREAK_DISTANCE = 5`).
-- **Hold-to-break time**: **1.0 seconds** holding the same block (`BREAK_TIME = 1.0`).
+- **Hold-to-break time**: **Per-block** (see block registry `breakTimeSeconds`). Flowers/ferns break instantly (0 s); dirt, sand, grass ~0.5 s; stone, wood ~1.5 s; bricks ~2 s. Default 1.0 s when not set.
 - **Target stability**: mining progress only continues if the raycast keeps hitting the **same world block position** (not instance index).
 - **Unbreakable blocks**: blocks marked `unbreakable` (e.g. bedrock) cannot be broken.
 - **Visual feedback**: a “block crack” overlay has **10 stages** (0–9) based on progress.
@@ -199,7 +199,7 @@ This section is an **explicit design target**. Treat it as requirements for futu
 
 - **Break distance**: 5 blocks.
 - **Place distance**: 5 blocks.
-- **Hold-to-break**: 1.0s (for all breakable blocks).
+- **Hold-to-break**: Per-block (block registry `breakTimeSeconds`; flowers instant, dirt/stone etc. vary).
 - **Pickup radius**: 1.4 blocks.
 - **Stack size**: 64.
 - **Torch**: special object (mesh + point light), cannot be duplicated at same block key.

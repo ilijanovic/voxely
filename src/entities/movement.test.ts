@@ -14,6 +14,8 @@ function makeEntity(
     aabb: { halfX: 0.3, halfZ: 0.2, height: 0.5 },
     state: 'idle',
     stateTime: 0,
+    health: 8,
+    maxHealth: 8,
     ...overrides,
   }
 }

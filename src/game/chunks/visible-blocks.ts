@@ -8,12 +8,13 @@ export type VisibleBlockFilterInput = {
   voxelMap: Map<number, BlockType>
   positions: BlockPos[]
   localKey: (lx: number, ly: number, lz: number) => number
-  isSolidBlock: (blockType: BlockType) => boolean
+  /** True if block type occludes neighbor faces (opaque); used for face culling. */
+  isOccludingBlock: (blockType: BlockType) => boolean
 }
 
 /**
- * Face-culling: keep only blocks that have at least one visible face (non-solid neighbor).
- * Reduces overdraw by not rendering blocks fully surrounded by solid blocks.
+ * Face-culling: keep only blocks that have at least one visible face (non-occluding neighbor).
+ * Reduces overdraw by not rendering blocks fully surrounded by occluding blocks.
  */
 export function filterVisibleBlocks(input: VisibleBlockFilterInput): BlockPos[] {
   const out: BlockPos[] = []
@@ -46,7 +47,7 @@ export function filterVisibleBlocks(input: VisibleBlockFilterInput): BlockPos[] 
         break
       }
       const neighborType = input.voxelMap.get(input.localKey(nx, ny, nz))
-      if (!neighborType || !input.isSolidBlock(neighborType)) {
+      if (!neighborType || !input.isOccludingBlock(neighborType)) {
         visible = true
         break
       }
