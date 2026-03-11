@@ -235,10 +235,32 @@ function writeQuadIndexed(
   index[idxCursor + 4] = base + 2
   index[idxCursor + 5] = base + 3
 
-  // UVs span [0,w] x [0,h] so with RepeatWrapping the texture tiles once per block.
+  // World-aligned UVs: keep texture phase continuous across greedy-merged quads.
+  // Mapping per face:
+  //  ±X: u=z, v=y
+  //  ±Z: u=x, v=y
+  //  ±Y: u=x, v=z
   const p0 = base * 3
   const n0 = base * 3
   const t0 = base * 2
+
+  const uvFor = (px: number, py: number, pz: number): { u: number; v: number } => {
+    switch (face) {
+      case 0: // +X
+      case 1: // -X
+        return { u: pz, v: py }
+      case 4: // +Z
+      case 5: // -Z
+        return { u: px, v: py }
+      case 2: // +Y
+      case 3: // -Y
+        return { u: px, v: pz }
+    }
+  }
+  const uva = uvFor(ax, ay, az)
+  const uvb = uvFor(bx, by, bz)
+  const uvc = uvFor(cx, cy, cz)
+  const uvd = uvFor(dx, dy, dz)
 
   // a
   pos[p0] = ax
@@ -247,8 +269,8 @@ function writeQuadIndexed(
   nor[n0] = nx
   nor[n0 + 1] = ny
   nor[n0 + 2] = nz
-  uv[t0] = 0
-  uv[t0 + 1] = h
+  uv[t0] = uva.u
+  uv[t0 + 1] = uva.v
   // b
   pos[p0 + 3] = bx
   pos[p0 + 4] = by
@@ -256,8 +278,8 @@ function writeQuadIndexed(
   nor[n0 + 3] = nx
   nor[n0 + 4] = ny
   nor[n0 + 5] = nz
-  uv[t0 + 2] = w
-  uv[t0 + 3] = h
+  uv[t0 + 2] = uvb.u
+  uv[t0 + 3] = uvb.v
   // c
   pos[p0 + 6] = cx
   pos[p0 + 7] = cy
@@ -265,8 +287,8 @@ function writeQuadIndexed(
   nor[n0 + 6] = nx
   nor[n0 + 7] = ny
   nor[n0 + 8] = nz
-  uv[t0 + 4] = w
-  uv[t0 + 5] = 0
+  uv[t0 + 4] = uvc.u
+  uv[t0 + 5] = uvc.v
   // d
   pos[p0 + 9] = dx
   pos[p0 + 10] = dy
@@ -274,8 +296,8 @@ function writeQuadIndexed(
   nor[n0 + 9] = nx
   nor[n0 + 10] = ny
   nor[n0 + 11] = nz
-  uv[t0 + 6] = 0
-  uv[t0 + 7] = 0
+  uv[t0 + 6] = uvd.u
+  uv[t0 + 7] = uvd.v
 }
 
 export function buildWorkerGeometryFromVoxelBuffer(options: {

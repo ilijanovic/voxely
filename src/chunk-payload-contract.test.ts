@@ -249,7 +249,7 @@ describe('ChunkDataPayload contract', () => {
       }
     })
 
-    it('UV layout matches Three.js BoxGeometry for single-block (1×1 quads → 0/1 UVs)', () => {
+    it('UV layout is world-aligned for single-block (top face uses x/z)', () => {
       const buffer = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE)
       buffer.fill(0)
       buffer[terrainLocalKey(1, 1, 1)] = typeToId('stone')
@@ -261,14 +261,6 @@ describe('ChunkDataPayload contract', () => {
       })
       expect(geometryLayers.length).toBeGreaterThan(0)
 
-      const box = new THREE.BoxGeometry(1, 1, 1)
-      const uvAttr = box.getAttribute('uv') as THREE.BufferAttribute
-      const topFaceGroupIndex = 2
-      const group = box.groups[topFaceGroupIndex]
-      const firstVertexIndex = box.index ? box.index.array[group.start] : group.start
-      const boxU = uvAttr.getX(firstVertexIndex)
-      const boxV = uvAttr.getY(firstVertexIndex)
-
       const layer = geometryLayers[0]
       const faceVertexCounts = layer.faceVertexCounts
       const topFaceStart = (faceVertexCounts[0] ?? 0) + (faceVertexCounts[1] ?? 0)
@@ -276,8 +268,9 @@ describe('ChunkDataPayload contract', () => {
       const firstVertex = layer.index ? layer.index[topFaceStart] : topFaceStart
       const workerU = layer.uv[firstVertex * 2]
       const workerV = layer.uv[firstVertex * 2 + 1]
-      expect(workerU).toBeCloseTo(boxU, 5)
-      expect(workerV).toBeCloseTo(boxV, 5)
+      // Block at (1,1,1). Top face's first vertex "a" is at (x=1, z=2) (see worker-geometry.ts face 2).
+      expect(workerU).toBeCloseTo(1, 5)
+      expect(workerV).toBeCloseTo(2, 5)
     })
 
     /**
