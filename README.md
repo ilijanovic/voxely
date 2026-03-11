@@ -109,7 +109,9 @@ After clicking: left-click = mine block, right-click = place block.
 │   ├── save.ts              # Player + world persistence
 │   ├── atmosphere.ts        # Day/night, sun direction
 │   ├── terrain-fog.ts       # Terrain fog state and material patching
-│   ├── multiplayer.ts       # Legacy Socket.io client, player sync
+│   ├── terrain-sampling.ts  # Main-thread biome/height/surface sampling (mirrors terrain pipeline)
+│   ├── multiplayer.ts       # Socket.io client, player sync
+│   ├── world-api.ts         # World query API (block, biome, surface) for client/server
 │   ├── multiplayer/         # Multiplayer transport abstraction (Socket transport implemented)
 │   │   ├── types.ts         # Transport contracts and payload shapes
 │   │   └── transports/      # socket.ts (implemented), supabase.ts (placeholder)
@@ -134,6 +136,8 @@ After clicking: left-click = mine block, right-click = place block.
 └── scripts/
     └── generate-textures.cjs
 ```
+
+For a detailed file-by-file map, see **docs/PROJECT_MAP.md**.
 
 ## World & performance
 
