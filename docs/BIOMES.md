@@ -4,14 +4,15 @@ Central reference for all Voxely biomes: list, selection logic, scale/size, and 
 
 Related docs:
 
+- [VANILLA_BIOME_REFERENCE.md](VANILLA_BIOME_REFERENCE.md) – **single authoritative vanilla reference** (Minecraft Java 1.20.2): biomes, terrain/noise, caves
 - [TERRAIN_SPEC.md §5.7](TERRAIN_SPEC.md#57-biome-balance-and-distribution) – biome balance and distribution goals
 - [BIOME_TRANSITIONS.md](BIOME_TRANSITIONS.md) – how biome boundaries and transitions work
 - [PROJECT_MAP.md](PROJECT_MAP.md) – where biome code lives (`terrain/biomes/`)
-- [PLAINS_BIOME.md](PLAINS_BIOME.md), [FOREST_BIOME_TECHNICAL.md](FOREST_BIOME_TECHNICAL.md), [DESERT_BIOME_TECHNICAL.md](DESERT_BIOME_TECHNICAL.md) – per-biome technical deep dives
+- [PLAINS_BIOME.md](PLAINS_BIOME.md), [FOREST_BIOME_TECHNICAL.md](FOREST_BIOME_TECHNICAL.md), [DESERT_BIOME_TECHNICAL.md](DESERT_BIOME_TECHNICAL.md), [SAVANNA_BIOME.md](SAVANNA_BIOME.md) – per-biome technical deep dives
 
 ---
 
-## 1) All 18 biomes
+## 1) All 22 biomes
 
 | Biome | Category | Selection |
 |-------|----------|-----------|
@@ -22,6 +23,10 @@ Related docs:
 | jungle | Base land | Climate |
 | mountain | Base land | Climate |
 | snow | Base land | Climate |
+| badlands | Base land | Climate |
+| mushroom_fields | Base land | Climate |
+| mangrove_swamp | Base land | Climate |
+| old_growth_taiga | Base land | Climate |
 | ocean | Water | Continentalness < 0.44 |
 | meadow | Highland variant | Height + noise in mountain/snow regions |
 | grove | Highland variant | Height + noise in mountain/snow or cold upland |
@@ -34,7 +39,7 @@ Related docs:
 | windswept_forest | Highland variant | Height + humidity/variant noise |
 | windswept_gravelly_hills | Highland variant | Height + highland variant noise |
 
-**Base land (7)** are chosen by nearest-match in 2D climate (temperature, humidity). **Ocean** is chosen when continentalness (noise at `CONTINENTAL_SCALE`) is below 0.44. **Highland variants** appear mainly when the base biome is mountain or snow above certain world Y thresholds (see section 5); some variants (grove, snowy_slopes, frozen_peaks, windswept_*) can also appear for other bases at cold temperature and high elevation.
+**Base land (11)** are chosen by nearest-match in 2D climate (temperature, humidity). **Ocean** is chosen when continentalness (noise at `CONTINENTAL_SCALE`) is below 0.44. **Highland variants** appear mainly when the base biome is mountain or snow above certain world Y thresholds (see section 5); some variants (grove, snowy_slopes, frozen_peaks, windswept_*) can also appear for other bases at cold temperature and high elevation.
 
 ---
 
@@ -45,12 +50,16 @@ Used for nearest-match selection. Ranges are in normalized [0, 1] (or 0–1 for 
 | Biome | Temperature | Humidity |
 |-------|-------------|----------|
 | desert | 0.65 – 1.0 | 0 – 0.35 |
-| plains | 0.45 – 0.7 | 0.25 – 0.5 |
+| plains | 0.45 – 0.8 | 0.25 – 0.5 |
 | savanna | 0.55 – 0.75 | 0.35 – 0.55 |
-| forest | 0.3 – 0.55 | 0.5 – 0.8 |
-| jungle | 0.5 – 0.75 | 0.7 – 1.0 |
-| mountain | 0.25 – 0.5 | 0.2 – 0.55 |
+| forest | 0.25 – 0.7 | 0.55 – 0.85 |
+| jungle | 0.5 – 0.95 | 0.7 – 1.0 |
+| mountain | 0.2 – 0.5 | 0.2 – 0.55 |
 | snow | 0 – 0.35 | 0.2 – 0.6 |
+| badlands | 0.75 – 1.0 | 0 – 0.25 |
+| mushroom_fields | 0.5 – 0.6 | 0.9 – 1.0 |
+| mangrove_swamp | 0.6 – 0.85 | 0.75 – 1.0 |
+| old_growth_taiga | 0.2 – 0.4 | 0.55 – 0.85 |
 
 Ocean has climate bounds in code but is **not** selected by climate; it is selected by continentalness in terrain sampling (`getBiome` in `terrain-sampling.ts` and equivalent in `terrain/index.ts`).
 
@@ -90,8 +99,8 @@ Which animals can spawn in which biomes (from `ANIMAL_DEFS` in `src/entities/spa
 
 | Animal | Spawn biomes |
 |--------|----------------|
-| Sheep | plains, forest, jungle, meadow |
-| Pig | plains, forest, jungle, meadow |
+| Sheep | plains, forest, jungle, meadow, savanna |
+| Pig | plains, forest, jungle, meadow, savanna |
 | Wolf | forest, jungle, mountain, snow, grove |
 
 Spawn is deterministic per chunk and kind (seeded RNG). The world API’s `getBiome` is `getResolvedBiome`, so only positions whose **resolved** biome (including highland variants) is in that kind’s `spawnBiomes` list are allowed.

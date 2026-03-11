@@ -51,7 +51,7 @@ export const FOG_FAR_CHUNK_FACTOR = 1.15
 /** Global water level (block Y). Same as classic Minecraft (~sea level). */
 export const WATER_LEVEL = 64
 
-/** Minimum blocks of solid terrain between cave ceiling and surface. Avoids caves opening directly under grass. */
+/** Minimum blocks of solid terrain between cave ceiling and surface. Avoids caves opening directly under grass. Vanilla reference: docs/VANILLA_BIOME_REFERENCE.md §6. */
 export const MIN_CAVE_DEPTH_BELOW_SURFACE = 5
 /** Max block Y for filling broken blocks with water (hole in ocean/lake). Blocks at or below this Y get water when broken. */
 export const WATER_FILL_MAX_Y = WATER_LEVEL

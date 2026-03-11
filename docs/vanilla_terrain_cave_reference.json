@@ -1,0 +1,22 @@
+{
+  "source": "Minecraft Java 1.20.2 + Voxely",
+  "vanilla_terrain": {
+    "noise_router_notes": "overworld.json: continents, erosion, depth, temperature, vegetation use density functions; climate dimensions share xz_scale 0.25",
+    "density_function_sources": [
+      "worldgen/density_function/overworld/continents.json",
+      "worldgen/density_function/overworld/erosion.json",
+      "worldgen/density_function/overworld/depth.json"
+    ]
+  },
+  "vanilla_caves": {
+    "carvers_in_biomes": ["minecraft:cave", "minecraft:cave_extra_underground", "minecraft:canyon"],
+    "final_density_components": ["sloped_cheese", "caves/entrances", "caves/noodle", "caves/spaghetti_2d", "caves/spaghetti_roughness_function", "caves/pillars"],
+    "cave_cheese_noise": { "xz_scale": 1.0, "y_scale": 0.6666666666666666 }
+  },
+  "our_caves": {
+    "min_depth_below_surface": 5,
+    "carve_3d": { "carve_threshold": 0.56 },
+    "cheese": { "scale": 0.03, "threshold": 0.27, "note": "threshold aligned to vanilla 0.27; scale 0.03 (vanilla xz_scale 1.0)" },
+    "spaghetti": { "radius": 1.5, "cell_size": 48, "steps": 32, "max_y_offset_from_water_level": 48 }
+  }
+}

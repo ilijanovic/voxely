@@ -27,6 +27,10 @@ import { cherryGroveDefinition } from './cherry_grove'
 import { windsweptHillsDefinition } from './windswept_hills'
 import { windsweptGravellyHillsDefinition } from './windswept_gravelly_hills'
 import { windsweptForestDefinition } from './windswept_forest'
+import { badlandsDefinition } from './badlands'
+import { mushroomFieldsDefinition } from './mushroom_fields'
+import { mangroveSwampDefinition } from './mangrove_swamp'
+import { oldGrowthTaigaDefinition } from './old_growth_taiga'
 
 export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   plains: plainsDefinition,
@@ -47,6 +51,10 @@ export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   windswept_hills: windsweptHillsDefinition,
   windswept_gravelly_hills: windsweptGravellyHillsDefinition,
   windswept_forest: windsweptForestDefinition,
+  badlands: badlandsDefinition,
+  mushroom_fields: mushroomFieldsDefinition,
+  mangrove_swamp: mangroveSwampDefinition,
+  old_growth_taiga: oldGrowthTaigaDefinition,
 }
 
 /**
@@ -61,6 +69,10 @@ const BASE_LAND_BIOMES: Biome[] = [
   'jungle',
   'mountain',
   'snow',
+  'badlands',
+  'mushroom_fields',
+  'mangrove_swamp',
+  'old_growth_taiga',
 ]
 
 const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [

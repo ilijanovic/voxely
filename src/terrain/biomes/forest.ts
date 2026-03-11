@@ -14,6 +14,9 @@ export const forestLayers: LayerConfig = {
   subsurfaceDepth: 3,
 }
 
+/**
+ * Vanilla 1.20.2 forest.json: temperature 0.7, downfall 0.8. Climate bounds include vanilla temp; high humidity matches downfall.
+ */
 export const forestDefinition: BiomeDefinition = {
   blocks: {
     surface: 'grass',
@@ -23,13 +26,15 @@ export const forestDefinition: BiomeDefinition = {
     underwater: 'sand',
   },
   terrainParams: forestTerrain,
-  climate: { tempMin: 0.3, tempMax: 0.55, humidityMin: 0.5, humidityMax: 0.8 },
+  /** Cool, wet band. Center (0.4, 0.7) keeps forest distinct from mountain (cool/dry) and jungle (warm/wet). */
+  climate: { tempMin: 0.25, tempMax: 0.7, humidityMin: 0.55, humidityMax: 0.85 },
+  /** Used only for peak-variant and optional blend; base selection is climate-based. Aligned with climate center in signed space. */
   multiNoise: {
     center: {
       continentalness: 0.72,
       erosion: -0.05,
-      temperature: -0.15,
-      humidity: 0.3,
+      temperature: -0.2,
+      humidity: 0.4,
       weirdness: 0.0,
       y: 0.3,
     },

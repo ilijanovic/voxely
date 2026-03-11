@@ -14,6 +14,9 @@ export const jungleLayers: LayerConfig = {
   subsurfaceDepth: 4,
 }
 
+/**
+ * Vanilla 1.20.2 jungle.json: temperature 0.95, downfall 0.9. Bounds extended so vanilla temp lies inside.
+ */
 export const jungleDefinition: BiomeDefinition = {
   blocks: {
     surface: 'grass',
@@ -23,7 +26,7 @@ export const jungleDefinition: BiomeDefinition = {
     underwater: 'sand',
   },
   terrainParams: jungleTerrain,
-  climate: { tempMin: 0.5, tempMax: 0.75, humidityMin: 0.7, humidityMax: 1 },
+  climate: { tempMin: 0.5, tempMax: 0.95, humidityMin: 0.7, humidityMax: 1 },
   multiNoise: {
     center: {
       continentalness: 0.72,

@@ -14,6 +14,9 @@ export const snowLayers: LayerConfig = {
   subsurfaceDepth: 3,
 }
 
+/**
+ * Vanilla 1.20.2 snowy_plains.json: temperature 0.0, downfall 0.5. Our bounds already include these.
+ */
 export const snowDefinition: BiomeDefinition = {
   blocks: {
     surface: 'snow',

@@ -1,0 +1,170 @@
+{
+  "source": "Minecraft Java 1.20.2",
+  "url_template": "https://assets.mcasset.cloud/1.20.2/data/minecraft/worldgen/biome/{id}.json",
+  "biomes": [
+    {
+      "id": "plains",
+      "temperature": 0.8,
+      "downfall": 0.4,
+      "has_precipitation": true,
+      "spawners": [
+        { "type": "minecraft:sheep", "weight": 12, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:pig", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:chicken", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:cow", "weight": 8, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:horse", "weight": 5, "minCount": 2, "maxCount": 6 },
+        { "type": "minecraft:donkey", "weight": 1, "minCount": 1, "maxCount": 3 }
+      ],
+      "feature_ids": [
+        "minecraft:glow_lichen",
+        "minecraft:patch_tall_grass_2",
+        "minecraft:trees_plains",
+        "minecraft:flower_plains",
+        "minecraft:patch_grass_plain",
+        "minecraft:brown_mushroom_normal",
+        "minecraft:red_mushroom_normal",
+        "minecraft:patch_sugar_cane",
+        "minecraft:patch_pumpkin"
+      ]
+    },
+    {
+      "id": "forest",
+      "temperature": 0.7,
+      "downfall": 0.8,
+      "has_precipitation": true,
+      "spawners": [
+        { "type": "minecraft:sheep", "weight": 12, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:pig", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:chicken", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:cow", "weight": 8, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:wolf", "weight": 5, "minCount": 4, "maxCount": 4 }
+      ],
+      "feature_ids": [
+        "minecraft:glow_lichen",
+        "minecraft:forest_flowers",
+        "minecraft:trees_birch_and_oak",
+        "minecraft:flower_default",
+        "minecraft:patch_grass_forest",
+        "minecraft:brown_mushroom_normal",
+        "minecraft:red_mushroom_normal",
+        "minecraft:patch_sugar_cane",
+        "minecraft:patch_pumpkin"
+      ]
+    },
+    {
+      "id": "desert",
+      "temperature": 2.0,
+      "downfall": 0.0,
+      "has_precipitation": false,
+      "spawners": [
+        { "type": "minecraft:rabbit", "weight": 4, "minCount": 2, "maxCount": 3 }
+      ],
+      "feature_ids": [
+        "minecraft:glow_lichen",
+        "minecraft:flower_default",
+        "minecraft:patch_grass_badlands",
+        "minecraft:patch_dead_bush_2",
+        "minecraft:brown_mushroom_normal",
+        "minecraft:red_mushroom_normal",
+        "minecraft:patch_sugar_cane_desert",
+        "minecraft:patch_pumpkin",
+        "minecraft:patch_cactus_desert"
+      ]
+    },
+    {
+      "id": "savanna",
+      "temperature": 2.0,
+      "downfall": 0.0,
+      "has_precipitation": false,
+      "spawners": [
+        { "type": "minecraft:sheep", "weight": 12, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:pig", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:chicken", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:cow", "weight": 8, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:horse", "weight": 1, "minCount": 2, "maxCount": 6 },
+        { "type": "minecraft:donkey", "weight": 1, "minCount": 1, "maxCount": 1 }
+      ],
+      "feature_ids": [
+        "minecraft:glow_lichen",
+        "minecraft:patch_tall_grass",
+        "minecraft:trees_savanna",
+        "minecraft:flower_warm",
+        "minecraft:patch_grass_savanna",
+        "minecraft:brown_mushroom_normal",
+        "minecraft:red_mushroom_normal",
+        "minecraft:patch_sugar_cane",
+        "minecraft:patch_pumpkin"
+      ]
+    },
+    {
+      "id": "jungle",
+      "temperature": 0.95,
+      "downfall": 0.9,
+      "has_precipitation": true,
+      "spawners": [
+        { "type": "minecraft:sheep", "weight": 12, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:pig", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:chicken", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:cow", "weight": 8, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:parrot", "weight": 40, "minCount": 1, "maxCount": 2 },
+        { "type": "minecraft:panda", "weight": 1, "minCount": 1, "maxCount": 2 }
+      ],
+      "feature_ids": [
+        "minecraft:glow_lichen",
+        "minecraft:bamboo_light",
+        "minecraft:trees_jungle",
+        "minecraft:flower_warm",
+        "minecraft:patch_grass_jungle",
+        "minecraft:brown_mushroom_normal",
+        "minecraft:red_mushroom_normal",
+        "minecraft:patch_sugar_cane",
+        "minecraft:patch_pumpkin",
+        "minecraft:vines",
+        "minecraft:patch_melon"
+      ]
+    },
+    {
+      "id": "windswept_hills",
+      "temperature": 0.2,
+      "downfall": 0.3,
+      "has_precipitation": true,
+      "spawners": [
+        { "type": "minecraft:sheep", "weight": 12, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:pig", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:chicken", "weight": 10, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:cow", "weight": 8, "minCount": 4, "maxCount": 4 },
+        { "type": "minecraft:llama", "weight": 5, "minCount": 4, "maxCount": 6 }
+      ],
+      "feature_ids": [
+        "minecraft:glow_lichen",
+        "minecraft:trees_windswept_hills",
+        "minecraft:flower_default",
+        "minecraft:patch_grass_badlands",
+        "minecraft:brown_mushroom_normal",
+        "minecraft:red_mushroom_normal",
+        "minecraft:patch_sugar_cane",
+        "minecraft:patch_pumpkin"
+      ]
+    },
+    {
+      "id": "snowy_plains",
+      "temperature": 0.0,
+      "downfall": 0.5,
+      "has_precipitation": true,
+      "spawners": [
+        { "type": "minecraft:rabbit", "weight": 10, "minCount": 2, "maxCount": 3 },
+        { "type": "minecraft:polar_bear", "weight": 1, "minCount": 1, "maxCount": 2 }
+      ],
+      "feature_ids": [
+        "minecraft:glow_lichen",
+        "minecraft:trees_snowy",
+        "minecraft:flower_default",
+        "minecraft:patch_grass_badlands",
+        "minecraft:brown_mushroom_normal",
+        "minecraft:red_mushroom_normal",
+        "minecraft:patch_sugar_cane",
+        "minecraft:patch_pumpkin"
+      ]
+    }
+  ]
+}

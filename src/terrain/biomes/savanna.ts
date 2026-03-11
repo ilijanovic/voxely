@@ -14,6 +14,10 @@ export const savannaLayers: LayerConfig = {
   subsurfaceDepth: 2,
 }
 
+/**
+ * Vanilla 1.20.2 savanna.json: temperature 2.0, downfall 0.0, has_precipitation false.
+ * Our climate: warm, moderate humidity (vanilla 2.0 → high temp in [0,1]).
+ */
 export const savannaDefinition: BiomeDefinition = {
   blocks: {
     surface: 'grass_savanna',

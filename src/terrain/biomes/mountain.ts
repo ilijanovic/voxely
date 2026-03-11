@@ -14,6 +14,9 @@ export const mountainLayers: LayerConfig = {
   subsurfaceDepth: 3,
 }
 
+/**
+ * Vanilla reference: windswept_hills (1.20.2) temperature 0.2, downfall 0.3. No single "mountain" biome in vanilla; we use cold, dry band.
+ */
 export const mountainDefinition: BiomeDefinition = {
   blocks: {
     surface: 'grass',
@@ -23,7 +26,7 @@ export const mountainDefinition: BiomeDefinition = {
     underwater: 'gravel',
   },
   terrainParams: mountainTerrain,
-  climate: { tempMin: 0.25, tempMax: 0.5, humidityMin: 0.2, humidityMax: 0.55 },
+  climate: { tempMin: 0.2, tempMax: 0.5, humidityMin: 0.2, humidityMax: 0.55 },
   multiNoise: {
     center: {
       continentalness: 0.78,

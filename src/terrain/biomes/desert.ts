@@ -14,6 +14,10 @@ export const desertLayers: LayerConfig = {
   subsurfaceDepth: 4,
 }
 
+/**
+ * Vanilla 1.20.2 desert.json: temperature 2.0, downfall 0.0, has_precipitation false.
+ * Our climate uses [0,1]; we keep hot+dry band (vanilla 2.0 maps to high end of temp).
+ */
 export const desertDefinition: BiomeDefinition = {
   blocks: {
     surface: 'sand',

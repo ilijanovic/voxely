@@ -16,9 +16,14 @@ import { getSurfaceBlockFromRules } from './terrain/surface-rules'
 import { makeSeededRandom } from './terrain/utils'
 
 const BASE_HEIGHT = 64
-const CONTINENTAL_SCALE = 0.0012
+/**
+ * Horizontal sampling scale for climate parameters (temperature/humidity/continentalness/erosion).
+ * Vanilla Overworld uses the same xz_scale (0.25) for these dimensions; we use a shared scale to
+ * match that relative behaviour. See docs/VANILLA_BIOME_REFERENCE.md §5.
+ */
+const CLIMATE_PARAM_SCALE = 0.0012
 const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44
-const EROSION_SCALE = 0.018
+const EROSION_SCALE = CLIMATE_PARAM_SCALE
 const EROSION_AMPLITUDE = 7
 const EROSION_DETAIL_BOOST_MAX = 1.65
 const EROSION_JAGGEDNESS_START = 0.25 // erosionSigned <= -0.25 starts boosting
@@ -28,8 +33,8 @@ const MOUNTAIN_AMPLITUDE = 24
 const MOUNTAIN_THRESHOLD = 0.3
 const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1
 const SNOW_BIOME_HEIGHT_BOOST = 4.5
-const TEMP_SCALE = 0.001
-const HUMIDITY_SCALE = 0.0012
+const TEMP_SCALE = CLIMATE_PARAM_SCALE
+const HUMIDITY_SCALE = CLIMATE_PARAM_SCALE
 const WEIRDNESS_SCALE = 0.0016
 const WEIRDNESS_RIDGE_AMP = 6
 const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10
@@ -144,7 +149,7 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getContinentalness(x: number, z: number): number {
-    const n = continentalNoise2D(x * CONTINENTAL_SCALE, z * CONTINENTAL_SCALE)
+    const n = continentalNoise2D(x * CLIMATE_PARAM_SCALE, z * CLIMATE_PARAM_SCALE)
     return (n + 1) * 0.5
   }
 
@@ -162,7 +167,9 @@ export function createTerrainSampling(seed: number) {
   function getBiomeBlend(x: number, z: number): { primary: Biome; secondary: Biome; t: number } {
     const c = getContinentalness(x, z)
     const land = getLandBiomeBlendByClimate(getTemperature(x, z), getHumidity(x, z))
-    const USE_MULTI_NOISE_BASE_SELECTION = true
+    // Base land biome from climate only so main thread and worker agree (forest, spawn, colors).
+    // Multi-noise is still used for peak variant selection (frozen/jagged/stony_peaks).
+    const USE_MULTI_NOISE_BASE_SELECTION = false
     if (USE_MULTI_NOISE_BASE_SELECTION) {
       const pick = getBiomeByMultiNoise({
         continentalness: c,
@@ -442,6 +449,9 @@ export function createTerrainSampling(seed: number) {
     getResolvedBiome,
     getBlockTypeAt,
     isShore,
+    getTemperature,
+    getHumidity,
+    getContinentalness,
   }
 }
 

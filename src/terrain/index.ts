@@ -7,6 +7,11 @@ import type { Biome, BlockType } from '../types'
 import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from '../constants'
 import { getSurfaceBlockFromRules } from './surface-rules'
 import {
+  SNOW_LAYER_FLAT_SLOPE_MAX,
+  SNOW_LAYER_MODERATE_SLOPE_MAX,
+  SNOW_LAYER_STEEP_SLOPE_MIN,
+} from './surface-constants'
+import {
   BIOME_REGISTRY,
   BIOME_TERRAIN,
   getBiomeByMultiNoise,
@@ -28,7 +33,6 @@ import { createFlowersFeature } from './features/flowers'
 import { createGroundFeature } from './features/ground'
 import { localKey, typeToId, idToType, AIR_ID } from './block-ids'
 import {
-  BIOMES_WITHOUT_GRASS_SNOW,
   FOREST_DENSITY_SCALE,
   FOREST_DENSITY_THRESHOLD,
   TREE_PLACEMENT_SCALE,
@@ -38,6 +42,7 @@ import {
   TREE_PLACEMENT_PLAINS_THRESHOLD,
   TREE_PLACEMENT_MOUNTAIN_THRESHOLD,
   TREE_PLACEMENT_SNOW_THRESHOLD,
+  TREE_PLACEMENT_SNOWY_SLOPES_THRESHOLD,
   TREE_MAX_SLOPE,
   TREE_SHAPE_NOISE_SCALE,
   JUNGLE_TREE_SHAPE_OFFSET_X,
@@ -122,16 +127,24 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const cheeseNoise3D = createNoise3D(makeSeededRandom(seed + 401))
   const heightTransitionNoise2D = createNoise2D(makeSeededRandom(seed + 4242))
 
-  const TEMP_SCALE = 0.001
-  const HUMIDITY_SCALE = 0.0012
+  /**
+   * Horizontal sampling scale for climate parameters (temperature/humidity/continentalness/erosion).
+   * Vanilla Minecraft samples these dimensions at the same xz_scale in the Overworld noise router.
+   * Our generator is simplex-noise-on-blocks, so we keep a tuned value but share it across params
+   * to match vanilla's relative behaviour (erosion shouldn't be drastically higher-frequency).
+   */
+  const CLIMATE_PARAM_SCALE = 0.0012
+  const TEMP_SCALE = CLIMATE_PARAM_SCALE
+  const HUMIDITY_SCALE = CLIMATE_PARAM_SCALE
   const BASE_HEIGHT = 64
-  const CONTINENTAL_SCALE = 0.0012
+  const CONTINENTAL_SCALE = CLIMATE_PARAM_SCALE
   const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44
   const COAST_BLEND_BAND = 0.06
-  const USE_MULTI_NOISE_BASE_SELECTION = true
+  /** Base land biome from climate only so worker and main thread agree. Multi-noise still used for peak variants. */
+  const USE_MULTI_NOISE_BASE_SELECTION = false
   const CLIMATE_WARP_SCALE = 0.0014
   const CLIMATE_WARP_AMP = 42
-  const EROSION_SCALE = 0.018
+  const EROSION_SCALE = CLIMATE_PARAM_SCALE
   const EROSION_AMPLITUDE = 7
   const EROSION_DETAIL_BOOST_MAX = 1.65
   const EROSION_JAGGEDNESS_START = 0.25
@@ -156,7 +169,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const PEAK_Y_RANGE = 24
 
   const SNOW_BIOMES: Biome[] = ['snow', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks', 'grove']
-  /** 3D worm caves: higher = less carving (fewer/smaller caves). */
+  /** 3D noise caves: higher = less carving. Tuned for our pipeline; vanilla reference: docs/VANILLA_BIOME_REFERENCE.md §6. */
   const CAVE_THRESHOLD = 0.56
 
   function clamp01(v: number): number {
@@ -487,6 +500,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
       return placement > TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD
     }
     if (biome === 'snow' || biome === 'grove') return placement > TREE_PLACEMENT_SNOW_THRESHOLD
+    if (biome === 'snowy_slopes') return placement > TREE_PLACEMENT_SNOWY_SLOPES_THRESHOLD
     return false
   }
 
@@ -549,7 +563,6 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     if (topY < WATER_LEVEL) return false
     if (biome === 'mountain' && topY >= WATER_LEVEL + 18) return false
     if (
-      biome === 'snowy_slopes' ||
       biome === 'stony_peaks' ||
       biome === 'frozen_peaks' ||
       biome === 'jagged_peaks' ||
@@ -558,13 +571,14 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     )
       return false
     const surface = getSurfaceBlock(ctx, lx, lz)
-    if (
-      surface !== 'grass' &&
-      surface !== 'grass_snow' &&
-      surface !== 'grass_savanna' &&
-      surface !== 'dirt'
-    )
-      return false
+    const allowedSurface =
+      surface === 'grass' ||
+      surface === 'grass_snow' ||
+      surface === 'grass_savanna' ||
+      surface === 'dirt' ||
+      (biome === 'snowy_slopes' && surface === 'snow') ||
+      (biome === 'old_growth_taiga' && surface === 'podzol')
+    if (!allowedSurface) return false
     if (!isTerrainFlatEnough(wx, wz)) return false
     if (!getTreePlacementPass(wx, wz, biome, treeCache, forestCache)) return false
     if (!isLocalTreeMax(wx, wz, treeCache)) return false
@@ -731,10 +745,13 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
     getHeightAt: getHeightUncached,
   })
+  /** Cheese caves: vanilla cave_cheese uses constant 0.27 and xz_scale 1.0; we use threshold 0.27 (aligned) and scale 0.03 (vanilla 1.0 would be very dense; we keep lower for larger caverns). See docs/VANILLA_BIOME_REFERENCE.md §6. */
+  const CHEESE_SCALE = 0.03
+  const CHEESE_THRESHOLD = 0.27
   const stage2Cheese = createStage2Cheese({
     cheeseNoise3D,
-    scale: 0.02,
-    threshold: 0.52,
+    scale: CHEESE_SCALE,
+    threshold: CHEESE_THRESHOLD,
     minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
     getHeightAt: getHeightUncached,
   })
@@ -860,6 +877,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     }
 
     // Snow layer placement: on top of grass_snow/snow in snow biomes when air above (no trees).
+    // Layer count depends on slope: flatter surfaces get more layers, steep slopes get none.
     if (snowAccumulationHeight >= 1) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -872,7 +890,19 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
           if (surfaceType !== 'grass_snow' && surfaceType !== 'snow') continue
           const biome = ctx.biomeMap[lx][lz]
           if (!SNOW_BIOMES.includes(biome)) continue
-          const layers = Math.min(snowAccumulationHeight, 8)
+          const dN = lz > 0 ? Math.abs(ctx.heightmap[lx][lz - 1] - topY) : 0
+          const dS = lz < CHUNK_SIZE - 1 ? Math.abs(ctx.heightmap[lx][lz + 1] - topY) : 0
+          const dW = lx > 0 ? Math.abs(ctx.heightmap[lx - 1][lz] - topY) : 0
+          const dE = lx < CHUNK_SIZE - 1 ? Math.abs(ctx.heightmap[lx + 1][lz] - topY) : 0
+          const maxSlope = Math.max(dN, dS, dW, dE)
+          let layers: number
+          if (maxSlope >= SNOW_LAYER_STEEP_SLOPE_MIN) layers = 0
+          else if (maxSlope >= SNOW_LAYER_MODERATE_SLOPE_MAX)
+            layers = 1
+          else if (maxSlope >= SNOW_LAYER_FLAT_SLOPE_MAX)
+            layers = Math.max(1, Math.floor((Math.min(snowAccumulationHeight, 8) + 1) / 2))
+          else layers = Math.min(snowAccumulationHeight, 8)
+          if (layers < 1) continue
           ctx.voxelMap[aboveLk] = typeToId(`snow_layer_${layers}` as BlockType)
         }
       }

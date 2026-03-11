@@ -12,7 +12,10 @@ export const plainsTerrain: TerrainParams = {
   mountainAllowed: false,
 }
 
-/** Plains biome definition: blocks (surface/subsurface/shore), terrain params, and climate/multiNoise for selection. */
+/**
+ * Plains biome definition: blocks (surface/subsurface/shore), terrain params, and climate/multiNoise for selection.
+ * Vanilla 1.20.2 plains.json: temperature 0.8, downfall 0.4. Climate bounds chosen so vanilla value lies inside.
+ */
 export const plainsDefinition: BiomeDefinition = {
   blocks: {
     surface: 'grass',
@@ -22,7 +25,7 @@ export const plainsDefinition: BiomeDefinition = {
     underwater: 'sand',
   },
   terrainParams: plainsTerrain,
-  climate: { tempMin: 0.45, tempMax: 0.7, humidityMin: 0.25, humidityMax: 0.5 },
+  climate: { tempMin: 0.45, tempMax: 0.8, humidityMin: 0.25, humidityMax: 0.5 },
   multiNoise: {
     center: {
       continentalness: 0.68,
