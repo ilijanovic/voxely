@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.0.7
+
+[compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.6...v0.0.7)
+
+### 🩹 Fixes
+
+- **terrain:** Soften biome height edges at boundaries ([6208803a](https://github.com/ilijanovic/voxely/commit/6208803a))
+
+### 📖 Documentation
+
+- **terrain:** Add vanilla reference and align biome climate and cheese caves ([ec20b669](https://github.com/ilijanovic/voxely/commit/ec20b669))
+
+### 🏡 Chore
+
+- Sync blocks, entities, terrain, game, tests and docs ([8249181e](https://github.com/ilijanovic/voxely/commit/8249181e))
+
+### ❤️ Contributors
+
+- Ilijanovic <ilija.marijanovic@gmx.at>
+
 ## v0.0.6
 
 [compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.5...v0.0.6)
