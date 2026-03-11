@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const savannaTerrain: TerrainParams = {
   baseOffset: -0.3,
@@ -6,21 +6,21 @@ export const savannaTerrain: TerrainParams = {
   detailFreq: 0.012,
   flatness: 0.98,
   mountainAllowed: false,
-};
+}
 
 export const savannaLayers: LayerConfig = {
-  surface: "grass_savanna",
-  subsurface: "dirt",
+  surface: 'grass_savanna',
+  subsurface: 'dirt',
   subsurfaceDepth: 2,
-};
+}
 
 export const savannaDefinition: BiomeDefinition = {
   blocks: {
-    surface: "grass_savanna",
-    subsurface: "dirt",
+    surface: 'grass_savanna',
+    subsurface: 'dirt',
     subsurfaceDepth: 2,
-    shore: "sand",
-    underwater: "sand",
+    shore: 'sand',
+    underwater: 'sand',
   },
   terrainParams: savannaTerrain,
   climate: { tempMin: 0.55, tempMax: 0.75, humidityMin: 0.35, humidityMax: 0.55 },
@@ -40,4 +40,4 @@ export const savannaDefinition: BiomeDefinition = {
       erosion: 1.1,
     },
   },
-};
+}

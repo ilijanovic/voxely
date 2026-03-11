@@ -1,11 +1,5 @@
-import * as THREE from "three";
-import type {
-  BlockType,
-  ChunkData,
-  BlockPos,
-  TreeNoiseCaches,
-  Biome,
-} from "../../types";
+import * as THREE from 'three'
+import type { BlockType, ChunkData, BlockPos, TreeNoiseCaches, Biome } from '../../types'
 import {
   CHUNK_SIZE,
   WATER_LEVEL,
@@ -14,7 +8,7 @@ import {
   WORLD_HEIGHT,
   SNOW_GROWTH_INTERVAL_SEC,
   SNOW_GROWTH_CANDIDATES_PER_INTERVAL,
-} from "../../constants";
+} from '../../constants'
 import {
   WORLD_SEED,
   getHeight,
@@ -24,7 +18,7 @@ import {
   shouldPlaceTree,
   getTreePlacement,
   getForestDensity,
-} from "../../game-terrain";
+} from '../../game-terrain'
 import {
   chunks,
   blockModifications,
@@ -36,13 +30,13 @@ import {
   decodeLocalKey,
   invalidateColumnHeight,
   getBlockAt,
-} from "../../chunk-runtime";
-import { filterVisibleBlocks as filterVisibleBlocksPure } from "./visible-blocks";
+} from '../../chunk-runtime'
+import { filterVisibleBlocks as filterVisibleBlocksPure } from './visible-blocks'
 import {
   isSolidBlock as isBlockTypeSolid,
   isUnbreakableBlock,
   getBlockHeight,
-} from "../../block-registry";
+} from '../../block-registry'
 import {
   setGrassInstanceColors,
   setFoliageInstanceColors,
@@ -52,85 +46,73 @@ import {
   getMaterialForBlockType,
   getSnowLayerGeometry,
   isSharedBlockOrSnowLayerGeometry,
-} from "../../block-materials";
-import { despawnEntitiesInChunk } from "../../entities/spawn";
-import {
-  spawnDrop as spawnDropItem,
-  type Drop,
-} from "../world-interactions/drops";
-import {
-  placeTorch as placeTorchSystem,
-  type PlacedTorch,
-} from "../world-interactions/torches";
-import { breakBlock as breakBlockSystem } from "../world-interactions/mining";
-import { RaycastMeshCache } from "./raycast-cache";
+} from '../../block-materials'
+import { despawnEntitiesInChunk } from '../../entities/spawn'
+import { spawnDrop as spawnDropItem, type Drop } from '../world-interactions/drops'
+import { placeTorch as placeTorchSystem, type PlacedTorch } from '../world-interactions/torches'
+import { breakBlock as breakBlockSystem } from '../world-interactions/mining'
+import { RaycastMeshCache } from './raycast-cache'
 
 // Scratch buffers (reused every frame to avoid allocations)
-const _matrix = new THREE.Matrix4();
-const _position = new THREE.Vector3();
+const _matrix = new THREE.Matrix4()
+const _position = new THREE.Vector3()
 
-let _snowGrowthAccumulator = 0;
+let _snowGrowthAccumulator = 0
 
 const COLD_BIOMES: Set<Biome> = new Set([
-  "snow",
-  "grove",
-  "snowy_slopes",
-  "frozen_peaks",
-  "jagged_peaks",
-]);
+  'snow',
+  'grove',
+  'snowy_slopes',
+  'frozen_peaks',
+  'jagged_peaks',
+])
 
 /** Block types that can have snow layers on top (when it's snowing). */
 const BLOCKS_SNOW_CAN_LAY_ON: Set<BlockType> = new Set([
-  "grass",
-  "grass_snow",
-  "grass_savanna",
-  "dirt",
-  "sand",
-  "stone",
-  "gravel",
-  "grass_path",
-  "snow",
-]);
+  'grass',
+  'grass_snow',
+  'grass_savanna',
+  'dirt',
+  'sand',
+  'stone',
+  'gravel',
+  'grass_path',
+  'snow',
+])
 
 export interface ChunkSyncContext {
-  grassColormapData: ImageData | null;
-  foliageColormapData: ImageData | null;
-  tallGrassMaterial: THREE.MeshStandardMaterial | null;
-  raycastMeshCache: RaycastMeshCache;
-  frustumDirty: boolean;
-  scene: THREE.Scene;
-  drops: Drop[];
-  torchContainer: THREE.Group;
-  placedTorches: PlacedTorch[];
+  grassColormapData: ImageData | null
+  foliageColormapData: ImageData | null
+  tallGrassMaterial: THREE.MeshStandardMaterial | null
+  raycastMeshCache: RaycastMeshCache
+  frustumDirty: boolean
+  scene: THREE.Scene
+  drops: Drop[]
+  torchContainer: THREE.Group
+  placedTorches: PlacedTorch[]
 }
 
-function hasVertexColorsEnabled(
-  material: THREE.Material | THREE.Material[]
-): boolean {
+function hasVertexColorsEnabled(material: THREE.Material | THREE.Material[]): boolean {
   if (Array.isArray(material)) {
-    return material.some(
-      (m) => m instanceof THREE.MeshStandardMaterial && m.vertexColors
-    );
+    return material.some((m) => m instanceof THREE.MeshStandardMaterial && m.vertexColors)
   }
-  return (
-    material instanceof THREE.MeshStandardMaterial && material.vertexColors
-  );
+  return material instanceof THREE.MeshStandardMaterial && material.vertexColors
 }
 
 function ensureWhiteInstanceColorsForVertexColorMaterial(
   mesh: THREE.InstancedMesh,
   material: THREE.Material | THREE.Material[],
-  count: number
+  count: number,
 ): void {
-  if (!hasVertexColorsEnabled(material) || mesh.instanceColor) return;
-  const array = new Float32Array(count * 3);
+  if (!hasVertexColorsEnabled(material) || mesh.instanceColor) return
+  const array = new Float32Array(count * 3)
   for (let i = 0; i < count; i++) {
-    array[i * 3] = 1;
-    array[i * 3 + 1] = 1;
-    array[i * 3 + 2] = 1;
+    array[i * 3] = 1
+    array[i * 3 + 1] = 1
+    array[i * 3 + 2] = 1
   }
-  mesh.instanceColor = new THREE.InstancedBufferAttribute(array, 3);
-  mesh.instanceColor.needsUpdate = true;
+  mesh.instanceColor = new THREE.InstancedBufferAttribute(array, 3)
+  mesh.instanceColor.needsUpdate = true
 }
 
 /** Instance position (p.x, p.y, p.z) is the block's minimum corner (bottom at world y = p.y).
@@ -140,166 +122,152 @@ export function addInstancedLayer(
   positions: BlockPos[],
   material: THREE.Material | THREE.Material[],
   userData?: { chunkKeyNum: number; blockType: BlockType },
-  geometry?: THREE.BufferGeometry
+  geometry?: THREE.BufferGeometry,
 ): THREE.InstancedMesh | null {
-  const count = positions.length;
-  if (count === 0) return null;
+  const count = positions.length
+  if (count === 0) return null
 
-  const geom = geometry ?? sharedBlockGeometry;
-  const mesh = new THREE.InstancedMesh(geom, material as THREE.Material, count);
-  mesh.count = count;
+  const geom = geometry ?? sharedBlockGeometry
+  const mesh = new THREE.InstancedMesh(geom, material as THREE.Material, count)
+  mesh.count = count
 
   for (let i = 0; i < count; i++) {
-    const p = positions[i];
-    _position.set(p.x, p.y, p.z);
-    _matrix.makeTranslation(_position.x, _position.y, _position.z);
-    mesh.setMatrixAt(i, _matrix);
+    const p = positions[i]
+    _position.set(p.x, p.y, p.z)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
   }
-  mesh.instanceMatrix.needsUpdate = true;
-  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, count);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  if (userData) mesh.userData = userData;
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, count)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  if (userData) mesh.userData = userData
 
-  group.add(mesh);
-  return mesh;
+  group.add(mesh)
+  return mesh
 }
 
 export function buildChunkWaterGeometry(
   worldX: number,
   worldZ: number,
-  heightmap?: number[][]
+  heightmap?: number[][],
 ): THREE.BufferGeometry | null {
-  const waterY = WATER_LEVEL + WATER_BLOCK_HEIGHT + WATER_PLANE_Y_OFFSET;
-  const gridSize = CHUNK_SIZE + 1;
-  const positions = new Float32Array(gridSize * gridSize * 3);
-  const normals = new Float32Array(gridSize * gridSize * 3);
+  const waterY = WATER_LEVEL + WATER_BLOCK_HEIGHT + WATER_PLANE_Y_OFFSET
+  const gridSize = CHUNK_SIZE + 1
+  const positions = new Float32Array(gridSize * gridSize * 3)
+  const normals = new Float32Array(gridSize * gridSize * 3)
   for (let lz = 0; lz < gridSize; lz++) {
     for (let lx = 0; lx < gridSize; lx++) {
-      const i = (lx + lz * gridSize) * 3;
-      positions[i] = worldX + lx;
-      positions[i + 1] = waterY;
-      positions[i + 2] = worldZ + lz;
-      normals[i] = 0;
-      normals[i + 1] = 1;
-      normals[i + 2] = 0;
+      const i = (lx + lz * gridSize) * 3
+      positions[i] = worldX + lx
+      positions[i + 1] = waterY
+      positions[i + 2] = worldZ + lz
+      normals[i] = 0
+      normals[i + 1] = 1
+      normals[i + 2] = 0
     }
   }
-  const indices: number[] = [];
+  const indices: number[] = []
   for (let lz = 0; lz < CHUNK_SIZE; lz++) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-      const topY = heightmap
-        ? heightmap[lx][lz]
-        : getHeight(worldX + lx, worldZ + lz);
-      if (topY >= WATER_LEVEL) continue;
-      const i00 = lx + lz * gridSize;
-      const i10 = lx + 1 + lz * gridSize;
-      const i01 = lx + (lz + 1) * gridSize;
-      const i11 = lx + 1 + (lz + 1) * gridSize;
-      indices.push(i00, i10, i11, i00, i11, i01);
+      const topY = heightmap ? heightmap[lx][lz] : getHeight(worldX + lx, worldZ + lz)
+      if (topY >= WATER_LEVEL) continue
+      const i00 = lx + lz * gridSize
+      const i10 = lx + 1 + lz * gridSize
+      const i01 = lx + (lz + 1) * gridSize
+      const i11 = lx + 1 + (lz + 1) * gridSize
+      indices.push(i00, i10, i11, i00, i11, i01)
     }
   }
-  if (indices.length === 0) return null;
+  if (indices.length === 0) return null
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-  geo.setIndex(indices);
-  return geo;
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+  geo.setIndex(indices)
+  return geo
 }
 
 export function buildPositionsByType(
   worldX: number,
   worldZ: number,
-  voxelMapEntries: Array<[number, BlockType]>
+  voxelMapEntries: Array<[number, BlockType]>,
 ): Map<BlockType, BlockPos[]> {
-  const byType = new Map<BlockType, BlockPos[]>();
+  const byType = new Map<BlockType, BlockPos[]>()
   for (const [key, blockType] of voxelMapEntries) {
-    const { lx, ly, lz } = decodeLocalKey(key);
-    const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz };
-    const arr = byType.get(blockType) ?? [];
-    arr.push(pos);
-    byType.set(blockType, arr);
+    const { lx, ly, lz } = decodeLocalKey(key)
+    const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz }
+    const arr = byType.get(blockType) ?? []
+    arr.push(pos)
+    byType.set(blockType, arr)
   }
-  return byType;
+  return byType
 }
 
-const GRASS_BLOCK_TYPES_FOR_TALL_GRASS: BlockType[] = [
-  "grass",
-  "grass_savanna",
-];
-const TALL_GRASS_SPAWN_CHANCE = 0.05;
-const TALL_GRASS_Y_OFFSET = -0.02;
+const GRASS_BLOCK_TYPES_FOR_TALL_GRASS: BlockType[] = ['grass', 'grass_savanna']
+const TALL_GRASS_SPAWN_CHANCE = 0.05
+const TALL_GRASS_Y_OFFSET = -0.02
 
 function pseudoRandomFromBlockPos(x: number, y: number, z: number): number {
-  let h = WORLD_SEED >>> 0;
-  h ^= Math.imul((x | 0) >>> 0, 374761393);
-  h = (h << 13) | (h >>> 19);
-  h ^= Math.imul((y | 0) >>> 0, 668265263);
-  h = (h << 11) | (h >>> 21);
-  h ^= Math.imul((z | 0) >>> 0, 2147483647);
-  h = Math.imul(h ^ (h >>> 15), 2246822519);
-  return ((h >>> 0) & 0xffffffff) / 0x100000000;
+  let h = WORLD_SEED >>> 0
+  h ^= Math.imul((x | 0) >>> 0, 374761393)
+  h = (h << 13) | (h >>> 19)
+  h ^= Math.imul((y | 0) >>> 0, 668265263)
+  h = (h << 11) | (h >>> 21)
+  h ^= Math.imul((z | 0) >>> 0, 2147483647)
+  h = Math.imul(h ^ (h >>> 15), 2246822519)
+  return ((h >>> 0) & 0xffffffff) / 0x100000000
 }
 
 export function getTallGrassPositions(
   worldX: number,
   worldZ: number,
   voxelMap: Map<number, BlockType>,
-  positionsByType: Map<BlockType, BlockPos[]>
+  positionsByType: Map<BlockType, BlockPos[]>,
 ): BlockPos[] {
-  const out: BlockPos[] = [];
+  const out: BlockPos[] = []
   for (const blockType of GRASS_BLOCK_TYPES_FOR_TALL_GRASS) {
-    const positions = positionsByType.get(blockType);
-    if (!positions) continue;
+    const positions = positionsByType.get(blockType)
+    if (!positions) continue
     for (const p of positions) {
-      const lx = p.x - worldX;
-      const lz = p.z - worldZ;
-      const keyAbove = localKey(lx, p.y + 1, lz);
-      if (voxelMap.has(keyAbove)) continue;
-      if (pseudoRandomFromBlockPos(p.x, p.y, p.z) > TALL_GRASS_SPAWN_CHANCE)
-        continue;
-      out.push(p);
+      const lx = p.x - worldX
+      const lz = p.z - worldZ
+      const keyAbove = localKey(lx, p.y + 1, lz)
+      if (voxelMap.has(keyAbove)) continue
+      if (pseudoRandomFromBlockPos(p.x, p.y, p.z) > TALL_GRASS_SPAWN_CHANCE) continue
+      out.push(p)
     }
   }
-  return out;
+  return out
 }
 
 export function addTallGrassLayer(
   group: THREE.Group,
   positions: BlockPos[],
-  material: THREE.MeshStandardMaterial
+  material: THREE.MeshStandardMaterial,
 ): THREE.InstancedMesh | null {
-  if (positions.length === 0) return null;
-  const mesh = new THREE.InstancedMesh(
-    sharedTallGrassGeometry,
-    material,
-    positions.length
-  );
-  mesh.count = positions.length;
+  if (positions.length === 0) return null
+  const mesh = new THREE.InstancedMesh(sharedTallGrassGeometry, material, positions.length)
+  mesh.count = positions.length
   for (let i = 0; i < positions.length; i++) {
-    const p = positions[i];
-    _position.set(p.x + 0.5, p.y + 0.5 + TALL_GRASS_Y_OFFSET, p.z + 0.5);
-    _matrix.makeTranslation(_position.x, _position.y, _position.z);
-    mesh.setMatrixAt(i, _matrix);
+    const p = positions[i]
+    _position.set(p.x + 0.5, p.y + 0.5 + TALL_GRASS_Y_OFFSET, p.z + 0.5)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
   }
-  mesh.instanceMatrix.needsUpdate = true;
-  ensureWhiteInstanceColorsForVertexColorMaterial(
-    mesh,
-    material,
-    positions.length
-  );
-  mesh.castShadow = false;
-  mesh.receiveShadow = true;
-  group.add(mesh);
-  return mesh;
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, positions.length)
+  mesh.castShadow = false
+  mesh.receiveShadow = true
+  group.add(mesh)
+  return mesh
 }
 
 export function filterVisibleBlocks(
   worldX: number,
   worldZ: number,
   voxelMap: Map<number, BlockType>,
-  positions: BlockPos[]
+  positions: BlockPos[],
 ): BlockPos[] {
   return filterVisibleBlocksPure({
     worldX,
@@ -310,27 +278,23 @@ export function filterVisibleBlocks(
     positions,
     localKey,
     isSolidBlock: isBlockTypeSolid,
-  });
+  })
 }
 
-export function getLayerPositions(
-  data: ChunkData,
-  blockType: BlockType
-): BlockPos[] | null {
-  return data.blockPositionsByType.get(blockType) ?? null;
+export function getLayerPositions(data: ChunkData, blockType: BlockType): BlockPos[] | null {
+  return data.blockPositionsByType.get(blockType) ?? null
 }
 
 export function getBlockWorldPosition(
   chunkKeyNum: number,
   blockType: BlockType,
-  instanceId: number
+  instanceId: number,
 ): BlockPos | null {
-  const data = chunks.get(chunkKeyNum);
-  if (!data) return null;
-  const positions = getLayerPositions(data, blockType);
-  if (!positions || instanceId < 0 || instanceId >= positions.length)
-    return null;
-  return positions[instanceId];
+  const data = chunks.get(chunkKeyNum)
+  if (!data) return null
+  const positions = getLayerPositions(data, blockType)
+  if (!positions || instanceId < 0 || instanceId >= positions.length) return null
+  return positions[instanceId]
 }
 
 export function spawnDrop(
@@ -338,7 +302,7 @@ export function spawnDrop(
   worldX: number,
   worldY: number,
   worldZ: number,
-  blockType: BlockType
+  blockType: BlockType,
 ): void {
   spawnDropItem({
     scene: ctx.scene,
@@ -347,14 +311,14 @@ export function spawnDrop(
     worldY,
     worldZ,
     blockType,
-  });
+  })
 }
 
 export function placeTorch(
   ctx: ChunkSyncContext,
   worldX: number,
   worldY: number,
-  worldZ: number
+  worldZ: number,
 ): boolean {
   return placeTorchSystem({
     worldX,
@@ -363,44 +327,39 @@ export function placeTorch(
     torchContainer: ctx.torchContainer,
     placedTorches: ctx.placedTorches,
     blockKeyNumeric,
-  });
+  })
 }
 
 export function rebuildChunkLayer(
   ctx: ChunkSyncContext,
   data: ChunkData,
-  blockType: BlockType
+  blockType: BlockType,
 ): void {
-  const keyNum = chunkKeyNumeric(data.cx, data.cz);
-  const positions = getLayerPositions(data, blockType);
-  if (!positions) return;
+  const keyNum = chunkKeyNumeric(data.cx, data.cz)
+  const positions = getLayerPositions(data, blockType)
+  if (!positions) return
 
   for (let i = data.group.children.length - 1; i >= 0; i--) {
-    const child = data.group.children[i];
-    const ud = child.userData as { blockType?: BlockType };
+    const child = data.group.children[i]
+    const ud = child.userData as { blockType?: BlockType }
     if (
       ud.blockType === blockType &&
       (child instanceof THREE.InstancedMesh || child instanceof THREE.Mesh)
     ) {
-      data.group.remove(child);
+      data.group.remove(child)
       if (child instanceof THREE.InstancedMesh) {
-        child.dispose();
-      } else if (
-        child.geometry &&
-        !isSharedBlockOrSnowLayerGeometry(child.geometry)
-      ) {
-        child.geometry.dispose();
+        child.dispose()
+      } else if (child.geometry && !isSharedBlockOrSnowLayerGeometry(child.geometry)) {
+        child.geometry.dispose()
       }
     }
   }
 
-  if (positions.length === 0) return;
+  if (positions.length === 0) return
 
-  const snowLayerMatch = /^snow_layer_([1-8])$/.exec(blockType);
+  const snowLayerMatch = /^snow_layer_([1-8])$/.exec(blockType)
   const geometry =
-    snowLayerMatch != null
-      ? getSnowLayerGeometry(parseInt(snowLayerMatch[1], 10))
-      : undefined;
+    snowLayerMatch != null ? getSnowLayerGeometry(parseInt(snowLayerMatch[1], 10)) : undefined
 
   const mesh = addInstancedLayer(
     data.group,
@@ -410,82 +369,58 @@ export function rebuildChunkLayer(
       chunkKeyNum: keyNum,
       blockType,
     },
-    geometry
-  );
-  if (
-    mesh &&
-    (blockType === "grass" || blockType === "grass_savanna") &&
-    ctx.grassColormapData
-  ) {
-    setGrassInstanceColors(
-      mesh,
-      positions,
-      getResolvedBiome,
-      ctx.grassColormapData
-    );
+    geometry,
+  )
+  if (mesh && (blockType === 'grass' || blockType === 'grass_savanna') && ctx.grassColormapData) {
+    setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
   }
-  if (
-    mesh &&
-    FOLIAGE_BLOCK_TYPES.includes(blockType) &&
-    ctx.foliageColormapData
-  ) {
-    setFoliageInstanceColors(
-      mesh,
-      positions,
-      getResolvedBiome,
-      ctx.foliageColormapData
-    );
+  if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && ctx.foliageColormapData) {
+    setFoliageInstanceColors(mesh, positions, getResolvedBiome, ctx.foliageColormapData)
   }
 }
 
 export function refreshChunkVisibleMeshes(
   ctx: ChunkSyncContext,
   data: ChunkData,
-  affectedBlockTypes?: Set<BlockType>
+  affectedBlockTypes?: Set<BlockType>,
 ): void {
-  const worldX = data.cx * CHUNK_SIZE;
-  const worldZ = data.cz * CHUNK_SIZE;
+  const worldX = data.cx * CHUNK_SIZE
+  const worldZ = data.cz * CHUNK_SIZE
   const positionsByType = buildPositionsByType(
     worldX,
     worldZ,
-    Array.from(data.voxelMap.entries()) as Array<[number, BlockType]>
-  );
+    Array.from(data.voxelMap.entries()) as Array<[number, BlockType]>,
+  )
 
   if (affectedBlockTypes !== undefined) {
     for (const blockType of affectedBlockTypes) {
-      const positions = positionsByType.get(blockType) ?? [];
-      const visible = filterVisibleBlocks(
-        worldX,
-        worldZ,
-        data.voxelMap,
-        positions
-      );
-      data.blockPositionsByType.set(blockType, visible);
-      rebuildChunkLayer(ctx, data, blockType);
+      const positions = positionsByType.get(blockType) ?? []
+      const visible = filterVisibleBlocks(worldX, worldZ, data.voxelMap, positions)
+      data.blockPositionsByType.set(blockType, visible)
+      rebuildChunkLayer(ctx, data, blockType)
     }
   } else {
-    const previousTypes = new Set<BlockType>(data.blockPositionsByType.keys());
-    const nextVisibleByType = new Map<BlockType, BlockPos[]>();
+    const previousTypes = new Set<BlockType>(data.blockPositionsByType.keys())
+    const nextVisibleByType = new Map<BlockType, BlockPos[]>()
 
     for (const [blockType, positions] of positionsByType) {
       nextVisibleByType.set(
         blockType,
-        filterVisibleBlocks(worldX, worldZ, data.voxelMap, positions)
-      );
+        filterVisibleBlocks(worldX, worldZ, data.voxelMap, positions),
+      )
     }
     for (const blockType of previousTypes) {
-      if (!nextVisibleByType.has(blockType))
-        nextVisibleByType.set(blockType, []);
+      if (!nextVisibleByType.has(blockType)) nextVisibleByType.set(blockType, [])
     }
 
-    data.blockPositionsByType = nextVisibleByType;
+    data.blockPositionsByType = nextVisibleByType
     for (const blockType of nextVisibleByType.keys()) {
-      rebuildChunkLayer(ctx, data, blockType);
+      rebuildChunkLayer(ctx, data, blockType)
     }
   }
 
-  ctx.raycastMeshCache.markDirty();
-  ctx.frustumDirty = true;
+  ctx.raycastMeshCache.markDirty()
+  ctx.frustumDirty = true
 }
 
 export function breakBlock(
@@ -495,7 +430,7 @@ export function breakBlock(
   worldX: number,
   worldY: number,
   worldZ: number,
-  options?: { skipRefresh?: boolean }
+  options?: { skipRefresh?: boolean },
 ): void {
   breakBlockSystem({
     chunkKeyNum,
@@ -518,17 +453,17 @@ export function breakBlock(
       refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes),
     spawnDrop: (wx, wy, wz, bt) => spawnDrop(ctx, wx, wy, wz, bt),
     skipRefresh: options?.skipRefresh,
-  });
+  })
 }
 
 export function unloadChunk(
   scene: THREE.Scene,
   keyNum: number,
-  raycastMeshCache: RaycastMeshCache
+  raycastMeshCache: RaycastMeshCache,
 ): { frustumDirty: boolean } {
-  const data = chunks.get(keyNum);
-  if (!data) return { frustumDirty: false };
-  despawnEntitiesInChunk(scene, chunkKey(data.cx, data.cz));
+  const data = chunks.get(keyNum)
+  if (!data) return { frustumDirty: false }
+  despawnEntitiesInChunk(scene, chunkKey(data.cx, data.cz))
 
   data.group.traverse((obj) => {
     if (
@@ -536,86 +471,82 @@ export function unloadChunk(
       obj.geometry &&
       !isSharedBlockOrSnowLayerGeometry(obj.geometry)
     ) {
-      obj.geometry.dispose();
+      obj.geometry.dispose()
     }
-  });
-  scene.remove(data.group);
-  chunks.delete(keyNum);
-  raycastMeshCache.markDirty();
-  return { frustumDirty: true };
+  })
+  scene.remove(data.group)
+  chunks.delete(keyNum)
+  raycastMeshCache.markDirty()
+  return { frustumDirty: true }
 }
 
-export function generateChunk(
-  ctx: ChunkSyncContext,
-  chunkX: number,
-  chunkZ: number
-): ChunkData {
-  const keyNum = chunkKeyNumeric(chunkX, chunkZ);
-  const existing = chunks.get(keyNum);
-  if (existing) return existing;
+export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: number): ChunkData {
+  const keyNum = chunkKeyNumeric(chunkX, chunkZ)
+  const existing = chunks.get(keyNum)
+  if (existing) return existing
 
-  const worldX = chunkX * CHUNK_SIZE;
-  const worldZ = chunkZ * CHUNK_SIZE;
+  const worldX = chunkX * CHUNK_SIZE
+  const worldZ = chunkZ * CHUNK_SIZE
 
-  const heightmap: number[][] = [];
+  const heightmap: number[][] = []
   for (let x = 0; x < CHUNK_SIZE; x++) {
-    heightmap[x] = [];
+    heightmap[x] = []
     for (let z = 0; z < CHUNK_SIZE; z++) {
-      heightmap[x][z] = getHeight(worldX + x, worldZ + z);
+      heightmap[x][z] = getHeight(worldX + x, worldZ + z)
     }
   }
 
-  const voxelMap = new Map<number, BlockType>();
+  const voxelMap = new Map<number, BlockType>()
 
   for (let x = 0; x < CHUNK_SIZE; x++) {
     for (let z = 0; z < CHUNK_SIZE; z++) {
-      const wx = worldX + x;
-      const wz = worldZ + z;
-      const topY = heightmap[x][z];
-      const biome = getResolvedBiome(wx, wz);
+      const wx = worldX + x
+      const wz = worldZ + z
+      const topY = heightmap[x][z]
+      const biome = getResolvedBiome(wx, wz)
 
       for (let y = 0; y <= topY; y++) {
-        let type = getBlockTypeAt(biome, y, topY);
-        const mod = blockModifications.get(blockKeyString(wx, y, wz));
-        if (mod === "air") continue;
-        if (mod !== undefined) type = mod;
-        if (type === "water") continue;
-        voxelMap.set(localKey(x, y, z), type);
+        let type = getBlockTypeAt(biome, y, topY)
+        const mod = blockModifications.get(blockKeyString(wx, y, wz))
+        if (mod === 'air') continue
+        if (mod !== undefined) type = mod
+        if (type === 'water') continue
+        voxelMap.set(localKey(x, y, z), type)
       }
     }
   }
 
-  const group = new THREE.Group();
-  const minX = worldX;
-  const minZ = worldZ;
-  const maxX = worldX + CHUNK_SIZE - 1;
-  const maxZ = worldZ + CHUNK_SIZE - 1;
-  const treePlacementCache = new Map<string, number>();
-  const forestDensityCache = new Map<string, number>();
+  const group = new THREE.Group()
+  const minX = worldX
+  const minZ = worldZ
+  const maxX = worldX + CHUNK_SIZE - 1
+  const maxZ = worldZ + CHUNK_SIZE - 1
+  const treePlacementCache = new Map<string, number>()
+  const forestDensityCache = new Map<string, number>()
   for (let twx = minX; twx <= maxX; twx++) {
     for (let twz = minZ; twz <= maxZ; twz++) {
-      treePlacementCache.set(`${twx},${twz}`, getTreePlacement(twx, twz));
-      forestDensityCache.set(`${twx},${twz}`, getForestDensity(twx, twz));
+      treePlacementCache.set(`${twx},${twz}`, getTreePlacement(twx, twz))
+      forestDensityCache.set(`${twx},${twz}`, getForestDensity(twx, twz))
     }
   }
   const treeCaches: TreeNoiseCaches = {
     treePlacement: treePlacementCache,
     forestDensity: forestDensityCache,
-  };
+  }
   for (let twx = minX; twx <= maxX; twx++) {
     for (let twz = minZ; twz <= maxZ; twz++) {
-      if (!shouldPlaceTree(twx, twz, treeCaches)) continue;
-      const baseY = getHeight(twx, twz);
-      const { wood, leaves } = generateTree(twx, baseY, twz);
+      if (!shouldPlaceTree(twx, twz, treeCaches)) continue
+      const baseY = getHeight(twx, twz)
+      const { wood, leaves } = generateTree(twx, baseY, twz)
       for (const b of wood) {
         if (
           b.x >= worldX &&
           b.x < worldX + CHUNK_SIZE &&
           b.z >= worldZ &&
           b.z < worldZ + CHUNK_SIZE &&
-          blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== "air"
+          blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== 'air'
         ) {
-          voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), "wood");
+          voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), 'wood')
         }
       }
       for (const b of leaves) {
@@ -624,106 +555,69 @@ export function generateChunk(
           b.x < worldX + CHUNK_SIZE &&
           b.z >= worldZ &&
           b.z < worldZ + CHUNK_SIZE &&
-          blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== "air" &&
+          blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== 'air' &&
           b.y > getHeight(b.x, b.z)
         ) {
-          voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), "leaves");
+          voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), 'leaves')
         }
       }
     }
   }
 
-  const voxelMapEntries = Array.from(voxelMap.entries()) as Array<
-    [number, BlockType]
-  >;
-  const positionsByType = buildPositionsByType(worldX, worldZ, voxelMapEntries);
-  const blockPositionsByType = new Map<BlockType, BlockPos[]>();
-  group.userData = { chunkKeyNum: keyNum, cx: chunkX, cz: chunkZ };
+  const voxelMapEntries = Array.from(voxelMap.entries()) as Array<[number, BlockType]>
+  const positionsByType = buildPositionsByType(worldX, worldZ, voxelMapEntries)
+  const blockPositionsByType = new Map<BlockType, BlockPos[]>()
+  group.userData = { chunkKeyNum: keyNum, cx: chunkX, cz: chunkZ }
   for (const [blockType, positions] of positionsByType) {
-    const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions);
-    blockPositionsByType.set(blockType, visible);
-    const mesh = addInstancedLayer(
-      group,
-      visible,
-      getMaterialForBlockType(blockType),
-      {
-        chunkKeyNum: keyNum,
-        blockType,
-      }
-    );
-    if (
-      mesh &&
-      (blockType === "grass" || blockType === "grass_savanna") &&
-      ctx.grassColormapData
-    ) {
-      setGrassInstanceColors(
-        mesh,
-        visible,
-        getResolvedBiome,
-        ctx.grassColormapData
-      );
+    const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions)
+    blockPositionsByType.set(blockType, visible)
+    const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
+      chunkKeyNum: keyNum,
+      blockType,
+    })
+    if (mesh && (blockType === 'grass' || blockType === 'grass_savanna') && ctx.grassColormapData) {
+      setGrassInstanceColors(mesh, visible, getResolvedBiome, ctx.grassColormapData)
     }
-    if (
-      mesh &&
-      FOLIAGE_BLOCK_TYPES.includes(blockType) &&
-      ctx.foliageColormapData
-    ) {
-      setFoliageInstanceColors(
-        mesh,
-        visible,
-        getResolvedBiome,
-        ctx.foliageColormapData
-      );
+    if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && ctx.foliageColormapData) {
+      setFoliageInstanceColors(mesh, visible, getResolvedBiome, ctx.foliageColormapData)
     }
   }
 
-  const tallGrassPositions = getTallGrassPositions(
-    worldX,
-    worldZ,
-    voxelMap,
-    blockPositionsByType
-  );
+  const tallGrassPositions = getTallGrassPositions(worldX, worldZ, voxelMap, blockPositionsByType)
   if (ctx.tallGrassMaterial && tallGrassPositions.length > 0) {
-    const tallGrassMesh = addTallGrassLayer(
-      group,
-      tallGrassPositions,
-      ctx.tallGrassMaterial
-    );
+    const tallGrassMesh = addTallGrassLayer(group, tallGrassPositions, ctx.tallGrassMaterial)
     if (tallGrassMesh && ctx.grassColormapData) {
       setGrassInstanceColors(
         tallGrassMesh,
         tallGrassPositions,
         getResolvedBiome,
-        ctx.grassColormapData
-      );
+        ctx.grassColormapData,
+      )
     }
   }
 
-  const waterGeo = buildChunkWaterGeometry(worldX, worldZ, heightmap);
+  const waterGeo = buildChunkWaterGeometry(worldX, worldZ, heightmap)
   if (waterGeo) {
-    const waterMesh = new THREE.Mesh(
-      waterGeo,
-      getMaterialForBlockType("water")
-    );
-    waterMesh.castShadow = false;
-    waterMesh.receiveShadow = true;
-    waterMesh.renderOrder = 2;
-    waterMesh.frustumCulled = true;
-    group.add(waterMesh);
+    const waterMesh = new THREE.Mesh(waterGeo, getMaterialForBlockType('water'))
+    waterMesh.castShadow = false
+    waterMesh.receiveShadow = true
+    waterMesh.renderOrder = 2
+    waterMesh.frustumCulled = true
+    group.add(waterMesh)
   }
 
-  ctx.scene.add(group);
+  ctx.scene.add(group)
   const data: ChunkData = {
     group,
     cx: chunkX,
     cz: chunkZ,
     voxelMap,
     blockPositionsByType,
-  };
-  chunks.set(keyNum, data);
-  ctx.raycastMeshCache.markDirty();
-  ctx.frustumDirty = true;
-  return data;
+  }
+  chunks.set(keyNum, data)
+  ctx.raycastMeshCache.markDirty()
+  ctx.frustumDirty = true
+  return data
 }
 
 /**
@@ -737,92 +631,87 @@ export function tryUpdateSnowAccumulation(
   _playerX: number,
   _playerZ: number,
   snowForced: boolean | null,
-  waterSurfaceY: number
+  waterSurfaceY: number,
 ): void {
-  if (waterSurfaceY >= WORLD_HEIGHT) return;
+  if (waterSurfaceY >= WORLD_HEIGHT) return
 
-  _snowGrowthAccumulator += dt;
-  if (_snowGrowthAccumulator < SNOW_GROWTH_INTERVAL_SEC) return;
-  _snowGrowthAccumulator = 0;
+  _snowGrowthAccumulator += dt
+  if (_snowGrowthAccumulator < SNOW_GROWTH_INTERVAL_SEC) return
+  _snowGrowthAccumulator = 0
 
-  const loadedChunkKeys = Array.from(chunks.keys());
-  if (loadedChunkKeys.length === 0) return;
+  const loadedChunkKeys = Array.from(chunks.keys())
+  if (loadedChunkKeys.length === 0) return
 
   /** Chunks that were modified -> set of affected block types for refresh. */
-  const chunksToRefresh = new Map<number, Set<BlockType>>();
+  const chunksToRefresh = new Map<number, Set<BlockType>>()
 
   for (let c = 0; c < SNOW_GROWTH_CANDIDATES_PER_INTERVAL; c++) {
-    const keyNum =
-      loadedChunkKeys[Math.floor(Math.random() * loadedChunkKeys.length)];
-    const data = chunks.get(keyNum);
-    if (!data) continue;
+    const keyNum = loadedChunkKeys[Math.floor(Math.random() * loadedChunkKeys.length)]
+    const data = chunks.get(keyNum)
+    if (!data) continue
 
-    const lx = Math.floor(Math.random() * CHUNK_SIZE);
-    const lz = Math.floor(Math.random() * CHUNK_SIZE);
-    const bx = data.cx * CHUNK_SIZE + lx;
-    const bz = data.cz * CHUNK_SIZE + lz;
+    const lx = Math.floor(Math.random() * CHUNK_SIZE)
+    const lz = Math.floor(Math.random() * CHUNK_SIZE)
+    const bx = data.cx * CHUNK_SIZE + lx
+    const bz = data.cz * CHUNK_SIZE + lz
 
-    const isSnowingHere =
-      snowForced === true || COLD_BIOMES.has(getResolvedBiome(bx, bz));
-    if (!isSnowingHere) continue;
+    const isSnowingHere = snowForced === true || COLD_BIOMES.has(getResolvedBiome(bx, bz))
+    if (!isSnowingHere) continue
 
-    let topY = -1;
-    let topType: BlockType | "air" | null = null;
+    let topY = -1
+    let topType: BlockType | 'air' | null = null
     for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
-      const t = getBlockAt(bx, by, bz);
-      if (t !== null && t !== "air" && isBlockTypeSolid(t as BlockType)) {
-        topY = by;
-        topType = t as BlockType;
-        break;
+      const t = getBlockAt(bx, by, bz)
+      if (t !== null && t !== 'air' && isBlockTypeSolid(t as BlockType)) {
+        topY = by
+        topType = t as BlockType
+        break
       }
     }
-    if (topY < 0 || topType === null) continue;
+    if (topY < 0 || topType === null) continue
 
-    const above = topY + 1 < WORLD_HEIGHT ? getBlockAt(bx, topY + 1, bz) : null;
+    const above = topY + 1 < WORLD_HEIGHT ? getBlockAt(bx, topY + 1, bz) : null
 
-    let affectedBlockTypes = chunksToRefresh.get(keyNum);
+    let affectedBlockTypes = chunksToRefresh.get(keyNum)
     if (!affectedBlockTypes) {
-      affectedBlockTypes = new Set<BlockType>();
-      chunksToRefresh.set(keyNum, affectedBlockTypes);
+      affectedBlockTypes = new Set<BlockType>()
+      chunksToRefresh.set(keyNum, affectedBlockTypes)
     }
 
-    if (
-      BLOCKS_SNOW_CAN_LAY_ON.has(topType) &&
-      (above === null || above === "air")
-    ) {
-      const ny = topY + 1;
-      const newType: BlockType = "snow_layer_1";
-      blockModifications.set(blockKeyString(bx, ny, bz), newType);
-      const lk = localKey(lx, ny, lz);
-      data.voxelMap.set(lk, newType);
-      invalidateColumnHeight(bx, bz);
-      affectedBlockTypes.add(newType);
-      continue;
+    if (BLOCKS_SNOW_CAN_LAY_ON.has(topType) && (above === null || above === 'air')) {
+      const ny = topY + 1
+      const newType: BlockType = 'snow_layer_1'
+      blockModifications.set(blockKeyString(bx, ny, bz), newType)
+      const lk = localKey(lx, ny, lz)
+      data.voxelMap.set(lk, newType)
+      invalidateColumnHeight(bx, bz)
+      affectedBlockTypes.add(newType)
+      continue
     }
 
-    const snowLayerMatch = /^snow_layer_([1-7])$/.exec(topType);
+    const snowLayerMatch = /^snow_layer_([1-7])$/.exec(topType)
     if (snowLayerMatch != null) {
-      const k = parseInt(snowLayerMatch[1], 10);
-      const newType = `snow_layer_${k + 1}` as BlockType;
-      blockModifications.set(blockKeyString(bx, topY, bz), newType);
-      const lk = localKey(lx, topY, lz);
-      data.voxelMap.set(lk, newType);
-      invalidateColumnHeight(bx, bz);
-      affectedBlockTypes.add(topType);
-      affectedBlockTypes.add(newType);
+      const k = parseInt(snowLayerMatch[1], 10)
+      const newType = `snow_layer_${k + 1}` as BlockType
+      blockModifications.set(blockKeyString(bx, topY, bz), newType)
+      const lk = localKey(lx, topY, lz)
+      data.voxelMap.set(lk, newType)
+      invalidateColumnHeight(bx, bz)
+      affectedBlockTypes.add(topType)
+      affectedBlockTypes.add(newType)
     }
   }
 
   for (const [keyNum, affectedBlockTypes] of chunksToRefresh) {
-    const data = chunks.get(keyNum);
+    const data = chunks.get(keyNum)
     if (data && affectedBlockTypes.size > 0) {
-      refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes);
+      refreshChunkVisibleMeshes(ctx, data, affectedBlockTypes)
     }
   }
 }
 
 export function getRaycastMeshes(
-  raycastMeshCache: RaycastMeshCache
+  raycastMeshCache: RaycastMeshCache,
 ): Array<THREE.InstancedMesh | THREE.Mesh> {
-  return raycastMeshCache.get(chunks);
+  return raycastMeshCache.get(chunks)
 }

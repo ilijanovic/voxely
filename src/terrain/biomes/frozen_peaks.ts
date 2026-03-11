@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const frozenPeaksTerrain: TerrainParams = {
   baseOffset: 9,
@@ -7,21 +7,21 @@ export const frozenPeaksTerrain: TerrainParams = {
   detailFreq: 0.03,
   flatness: 0.18,
   mountainAllowed: true,
-};
+}
 
 export const frozenPeaksLayers: LayerConfig = {
-  surface: "snow",
-  subsurface: "stone",
+  surface: 'snow',
+  subsurface: 'stone',
   subsurfaceDepth: 3,
-};
+}
 
 export const frozenPeaksDefinition: BiomeDefinition = {
   blocks: {
-    surface: "snow",
-    subsurface: "stone",
+    surface: 'snow',
+    subsurface: 'stone',
     subsurfaceDepth: 3,
-    shore: "snow",
-    underwater: "stone",
+    shore: 'snow',
+    underwater: 'stone',
   },
   terrainParams: frozenPeaksTerrain,
   multiNoise: {
@@ -40,4 +40,4 @@ export const frozenPeaksDefinition: BiomeDefinition = {
       erosion: 1.5,
     },
   },
-};
+}

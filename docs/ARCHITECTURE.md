@@ -272,6 +272,7 @@ The multiplayer layer is currently **state replication for player transforms** +
 ## Extension Points (Practical Notes)
 
 - **Add/modify terrain**: keep `src/terrain/**` pure (no Three.js, no DOM). Prefer adding new pipeline stages or features rather than mixing generation logic into apply/render code.
+- **Terrain design rules**: see `docs/TERRAIN_SPEC.md` (LLM-first spec for how terrain/biomes should work and look, plus safety checklists).
 - **Chunk payload changes**: treat the payload as a contract between:
   - `src/terrain-core.ts` (payload producer)
   - `src/chunk.worker.ts` (transport)

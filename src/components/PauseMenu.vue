@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from "vue";
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import {
   getGraphicsState,
   setRenderDistance,
@@ -19,7 +19,7 @@ import {
   setBloomRadius,
   setBloomThreshold,
   type ShadowMapType,
-} from "../graphics-settings";
+} from '../graphics-settings'
 import {
   getKeyBindings,
   setKeyBinding,
@@ -28,41 +28,41 @@ import {
   keyActions,
   codeToDisplayName,
   type KeyAction,
-} from "../key-settings";
-import { applyGraphicsSettings } from "../game";
+} from '../key-settings'
+import { applyGraphicsSettings } from '../game'
 import {
   getAvailablePacks,
   getSelectedResourcePack,
   setSelectedResourcePack,
   type PackOption,
-} from "../resource-pack-settings";
+} from '../resource-pack-settings'
 
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: [] }>()
 
-const view = ref<"main" | "options">("main");
-const optionsTab = ref<"graphics" | "controls">("graphics");
+const view = ref<'main' | 'options'>('main')
+const optionsTab = ref<'graphics' | 'controls'>('graphics')
 
 // Graphics state
-const renderDistance = ref(getGraphicsState().renderDistance);
-const shadowsEnabled = ref(getGraphicsState().shadowsEnabled);
-const torchShadowsEnabled = ref(getGraphicsState().torchShadowsEnabled);
-const antialias = ref(getGraphicsState().antialias);
-const fovNormal = ref(getGraphicsState().fovNormal);
-const fovSprint = ref(getGraphicsState().fovSprint);
-const pointerSpeed = ref(getGraphicsState().pointerSpeed);
-const pointerSpeedSprint = ref(getGraphicsState().pointerSpeedSprint);
-const shadowMapSize = ref(getGraphicsState().shadowMapSize);
-const toneMappingEnabled = ref(getGraphicsState().toneMappingEnabled);
-const toneMappingExposure = ref(getGraphicsState().toneMappingExposure);
-const shadowMapType = ref<ShadowMapType>(getGraphicsState().shadowMapType);
-const bloomEnabled = ref(getGraphicsState().bloomEnabled);
-const bloomStrength = ref(getGraphicsState().bloomStrength);
-const bloomRadius = ref(getGraphicsState().bloomRadius);
-const bloomThreshold = ref(getGraphicsState().bloomThreshold);
+const renderDistance = ref(getGraphicsState().renderDistance)
+const shadowsEnabled = ref(getGraphicsState().shadowsEnabled)
+const torchShadowsEnabled = ref(getGraphicsState().torchShadowsEnabled)
+const antialias = ref(getGraphicsState().antialias)
+const fovNormal = ref(getGraphicsState().fovNormal)
+const fovSprint = ref(getGraphicsState().fovSprint)
+const pointerSpeed = ref(getGraphicsState().pointerSpeed)
+const pointerSpeedSprint = ref(getGraphicsState().pointerSpeedSprint)
+const shadowMapSize = ref(getGraphicsState().shadowMapSize)
+const toneMappingEnabled = ref(getGraphicsState().toneMappingEnabled)
+const toneMappingExposure = ref(getGraphicsState().toneMappingExposure)
+const shadowMapType = ref<ShadowMapType>(getGraphicsState().shadowMapType)
+const bloomEnabled = ref(getGraphicsState().bloomEnabled)
+const bloomStrength = ref(getGraphicsState().bloomStrength)
+const bloomRadius = ref(getGraphicsState().bloomRadius)
+const bloomThreshold = ref(getGraphicsState().bloomThreshold)
 
 // Controls: current bindings (reactive for UI)
-const keyBindings = ref<Record<KeyAction, string>>(getKeyBindings());
-const rebindingAction = ref<KeyAction | null>(null);
+const keyBindings = ref<Record<KeyAction, string>>(getKeyBindings())
+const rebindingAction = ref<KeyAction | null>(null)
 
 watch(
   [
@@ -84,108 +84,108 @@ watch(
     bloomThreshold,
   ],
   () => {
-    setRenderDistance(renderDistance.value);
-    setShadowsEnabled(shadowsEnabled.value);
-    setTorchShadowsEnabled(torchShadowsEnabled.value);
-    setAntialias(antialias.value);
-    setFovNormal(fovNormal.value);
-    setFovSprint(fovSprint.value);
-    setPointerSpeed(pointerSpeed.value);
-    setPointerSpeedSprint(pointerSpeedSprint.value);
-    setShadowMapSize(shadowMapSize.value as 512 | 1024 | 2048);
-    setToneMappingEnabled(toneMappingEnabled.value);
-    setToneMappingExposure(toneMappingExposure.value);
-    setShadowMapType(shadowMapType.value);
-    setBloomEnabled(bloomEnabled.value);
-    setBloomStrength(bloomStrength.value);
-    setBloomRadius(bloomRadius.value);
-    setBloomThreshold(bloomThreshold.value);
-    applyGraphicsSettings();
+    setRenderDistance(renderDistance.value)
+    setShadowsEnabled(shadowsEnabled.value)
+    setTorchShadowsEnabled(torchShadowsEnabled.value)
+    setAntialias(antialias.value)
+    setFovNormal(fovNormal.value)
+    setFovSprint(fovSprint.value)
+    setPointerSpeed(pointerSpeed.value)
+    setPointerSpeedSprint(pointerSpeedSprint.value)
+    setShadowMapSize(shadowMapSize.value as 512 | 1024 | 2048)
+    setToneMappingEnabled(toneMappingEnabled.value)
+    setToneMappingExposure(toneMappingExposure.value)
+    setShadowMapType(shadowMapType.value)
+    setBloomEnabled(bloomEnabled.value)
+    setBloomStrength(bloomStrength.value)
+    setBloomRadius(bloomRadius.value)
+    setBloomThreshold(bloomThreshold.value)
+    applyGraphicsSettings()
   },
-  { deep: true }
-);
+  { deep: true },
+)
 
 function openOptions() {
-  view.value = "options";
-  optionsTab.value = "graphics";
-  loadPackOptions();
-  const g = getGraphicsState();
-  renderDistance.value = g.renderDistance;
-  shadowsEnabled.value = g.shadowsEnabled;
-  torchShadowsEnabled.value = g.torchShadowsEnabled;
-  antialias.value = g.antialias;
-  fovNormal.value = g.fovNormal;
-  fovSprint.value = g.fovSprint;
-  pointerSpeed.value = g.pointerSpeed;
-  pointerSpeedSprint.value = g.pointerSpeedSprint;
-  shadowMapSize.value = g.shadowMapSize;
-  toneMappingEnabled.value = g.toneMappingEnabled;
-  toneMappingExposure.value = g.toneMappingExposure;
-  shadowMapType.value = g.shadowMapType;
-  bloomEnabled.value = g.bloomEnabled;
-  bloomStrength.value = g.bloomStrength;
-  bloomRadius.value = g.bloomRadius;
-  bloomThreshold.value = g.bloomThreshold;
-  keyBindings.value = getKeyBindings();
-  rebindingAction.value = null;
+  view.value = 'options'
+  optionsTab.value = 'graphics'
+  loadPackOptions()
+  const g = getGraphicsState()
+  renderDistance.value = g.renderDistance
+  shadowsEnabled.value = g.shadowsEnabled
+  torchShadowsEnabled.value = g.torchShadowsEnabled
+  antialias.value = g.antialias
+  fovNormal.value = g.fovNormal
+  fovSprint.value = g.fovSprint
+  pointerSpeed.value = g.pointerSpeed
+  pointerSpeedSprint.value = g.pointerSpeedSprint
+  shadowMapSize.value = g.shadowMapSize
+  toneMappingEnabled.value = g.toneMappingEnabled
+  toneMappingExposure.value = g.toneMappingExposure
+  shadowMapType.value = g.shadowMapType
+  bloomEnabled.value = g.bloomEnabled
+  bloomStrength.value = g.bloomStrength
+  bloomRadius.value = g.bloomRadius
+  bloomThreshold.value = g.bloomThreshold
+  keyBindings.value = getKeyBindings()
+  rebindingAction.value = null
 }
 
 function back() {
-  view.value = "main";
-  rebindingAction.value = null;
+  view.value = 'main'
+  rebindingAction.value = null
 }
 
 function startRebind(action: KeyAction) {
-  rebindingAction.value = action;
+  rebindingAction.value = action
 }
 
 function onRebindKey(e: KeyboardEvent) {
-  if (rebindingAction.value == null) return;
-  e.preventDefault();
-  e.stopPropagation();
-  setKeyBinding(rebindingAction.value, e.code);
-  keyBindings.value = getKeyBindings();
-  rebindingAction.value = null;
+  if (rebindingAction.value == null) return
+  e.preventDefault()
+  e.stopPropagation()
+  setKeyBinding(rebindingAction.value, e.code)
+  keyBindings.value = getKeyBindings()
+  rebindingAction.value = null
 }
 
 function resetKeys() {
-  resetKeyBindingsToDefaults();
-  keyBindings.value = getKeyBindings();
+  resetKeyBindingsToDefaults()
+  keyBindings.value = getKeyBindings()
 }
 
 const shadowMapSizeOptions = [
-  { value: 512, label: "512 (schnell)" },
-  { value: 1024, label: "1024" },
-  { value: 2048, label: "2048 (qualität)" },
-];
+  { value: 512, label: '512 (schnell)' },
+  { value: 1024, label: '1024' },
+  { value: 2048, label: '2048 (qualität)' },
+]
 
 // Resource pack: list loaded async, selection persisted; change triggers reload
-const packOptions = ref<PackOption[]>([]);
-const selectedResourcePack = ref(getSelectedResourcePack());
+const packOptions = ref<PackOption[]>([])
+const selectedResourcePack = ref(getSelectedResourcePack())
 
 function loadPackOptions() {
   getAvailablePacks().then((list) => {
-    packOptions.value = list;
-    selectedResourcePack.value = getSelectedResourcePack();
-  });
+    packOptions.value = list
+    selectedResourcePack.value = getSelectedResourcePack()
+  })
 }
 
 function onResourcePackChange(newPath: string) {
-  setSelectedResourcePack(newPath);
-  selectedResourcePack.value = newPath;
-  window.location.reload();
+  setSelectedResourcePack(newPath)
+  selectedResourcePack.value = newPath
+  window.location.reload()
 }
 
-let rebindListener: ((e: KeyboardEvent) => void) | null = null;
+let rebindListener: ((e: KeyboardEvent) => void) | null = null
 onMounted(() => {
   rebindListener = (e: KeyboardEvent) => {
-    if (rebindingAction.value != null) onRebindKey(e);
-  };
-  window.addEventListener("keydown", rebindListener, true);
-});
+    if (rebindingAction.value != null) onRebindKey(e)
+  }
+  window.addEventListener('keydown', rebindListener, true)
+})
 onUnmounted(() => {
-  if (rebindListener) window.removeEventListener("keydown", rebindListener, true);
-});
+  if (rebindListener) window.removeEventListener('keydown', rebindListener, true)
+})
 </script>
 
 <template>
@@ -195,18 +195,10 @@ onUnmounted(() => {
       <template v-if="view === 'main'">
         <h1 class="pause-title">Pause</h1>
         <div class="pause-buttons">
-          <button
-            type="button"
-            class="pause-btn pause-btn-resume"
-            @click="emit('close')"
-          >
+          <button type="button" class="pause-btn pause-btn-resume" @click="emit('close')">
             Resume
           </button>
-          <button
-            type="button"
-            class="pause-btn pause-btn-options"
-            @click="openOptions"
-          >
+          <button type="button" class="pause-btn pause-btn-options" @click="openOptions">
             Options
           </button>
         </div>
@@ -215,14 +207,7 @@ onUnmounted(() => {
       <!-- Options -->
       <template v-else>
         <div class="options-header">
-          <button
-            type="button"
-            class="options-back"
-            @click="back"
-            aria-label="Back"
-          >
-            ←
-          </button>
+          <button type="button" class="options-back" @click="back" aria-label="Back">←</button>
           <h1 class="pause-title">Options</h1>
         </div>
         <div class="options-tabs">
@@ -253,11 +238,7 @@ onUnmounted(() => {
               class="option-select"
               @change="onResourcePackChange(($event.target as HTMLSelectElement).value)"
             >
-              <option
-                v-for="opt in packOptions"
-                :key="opt.path"
-                :value="opt.path"
-              >
+              <option v-for="opt in packOptions" :key="opt.path" :value="opt.path">
                 {{ opt.name }}
               </option>
             </select>
@@ -267,11 +248,7 @@ onUnmounted(() => {
           </p>
           <label class="option-row option-row-toggle">
             <span class="option-label">Tone mapping</span>
-            <input
-              v-model="toneMappingEnabled"
-              type="checkbox"
-              class="option-checkbox"
-            />
+            <input v-model="toneMappingEnabled" type="checkbox" class="option-checkbox" />
           </label>
           <label v-show="toneMappingEnabled" class="option-row">
             <span class="option-label">Exposure</span>
@@ -366,19 +343,11 @@ onUnmounted(() => {
           </label>
           <label class="option-row option-row-toggle">
             <span class="option-label">Schatten</span>
-            <input
-              v-model="shadowsEnabled"
-              type="checkbox"
-              class="option-checkbox"
-            />
+            <input v-model="shadowsEnabled" type="checkbox" class="option-checkbox" />
           </label>
           <label class="option-row option-row-toggle">
             <span class="option-label">Torch shadows</span>
-            <input
-              v-model="torchShadowsEnabled"
-              type="checkbox"
-              class="option-checkbox"
-            />
+            <input v-model="torchShadowsEnabled" type="checkbox" class="option-checkbox" />
           </label>
           <p class="option-hint option-hint-inline">
             Torch shadows may impact performance with many torches.
@@ -386,22 +355,14 @@ onUnmounted(() => {
           <label class="option-row">
             <span class="option-label">Schatten-Qualität</span>
             <select v-model.number="shadowMapSize" class="option-select">
-              <option
-                v-for="opt in shadowMapSizeOptions"
-                :key="opt.value"
-                :value="opt.value"
-              >
+              <option v-for="opt in shadowMapSizeOptions" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
               </option>
             </select>
           </label>
           <label class="option-row option-row-toggle">
             <span class="option-label">Bloom</span>
-            <input
-              v-model="bloomEnabled"
-              type="checkbox"
-              class="option-checkbox"
-            />
+            <input v-model="bloomEnabled" type="checkbox" class="option-checkbox" />
           </label>
           <template v-show="bloomEnabled">
             <label class="option-row">
@@ -452,15 +413,9 @@ onUnmounted(() => {
           </p>
           <label class="option-row option-row-toggle">
             <span class="option-label">Antialiasing</span>
-            <input
-              v-model="antialias"
-              type="checkbox"
-              class="option-checkbox"
-            />
+            <input v-model="antialias" type="checkbox" class="option-checkbox" />
           </label>
-          <p class="option-hint">
-            Antialiasing wirkt erst nach Neustart.
-          </p>
+          <p class="option-hint">Antialiasing wirkt erst nach Neustart.</p>
         </div>
 
         <!-- Controls (key bindings) -->
@@ -473,12 +428,12 @@ onUnmounted(() => {
             :class="{ rebinding: rebindingAction === action }"
           >
             <span class="key-label">{{ keyActionLabels[action] }}</span>
-            <button
-              type="button"
-              class="key-btn"
-              @click="startRebind(action)"
-            >
-              {{ rebindingAction === action ? "… drücke Taste …" : codeToDisplayName(keyBindings[action]) }}
+            <button type="button" class="key-btn" @click="startRebind(action)">
+              {{
+                rebindingAction === action
+                  ? '… drücke Taste …'
+                  : codeToDisplayName(keyBindings[action])
+              }}
             </button>
           </div>
           <button type="button" class="pause-btn pause-btn-reset" @click="resetKeys">
@@ -508,7 +463,9 @@ onUnmounted(() => {
   border-radius: var(--ui-radius-lg);
   padding: 2rem 2.5rem;
   min-width: 280px;
-  box-shadow: var(--ui-shadow-panel), 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    var(--ui-shadow-panel),
+    0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .pause-title {
@@ -533,7 +490,9 @@ onUnmounted(() => {
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
   font-family: var(--ui-font);
 }
 
@@ -606,7 +565,9 @@ onUnmounted(() => {
   border-radius: var(--ui-radius-md);
   color: var(--ui-text-muted);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
   font-family: var(--ui-font);
 }
 

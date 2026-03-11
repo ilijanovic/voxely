@@ -2,31 +2,31 @@
  * Biome registry: single source of truth for biome definitions.
  * Exports climate-based land biome selection and compatibility helpers.
  */
-import type { Biome } from "../../types";
+import type { Biome } from '../../types'
 import type {
   BiomeDefinition,
   ClimateBounds,
   MultiNoise6Point,
   MultiNoiseSelector6D,
-} from "./types";
-import { desertDefinition } from "./desert";
-import { oceanDefinition } from "./ocean";
-import { plainsDefinition } from "./plains";
-import { savannaDefinition } from "./savanna";
-import { forestDefinition } from "./forest";
-import { jungleDefinition } from "./jungle";
-import { mountainDefinition } from "./mountain";
-import { snowDefinition } from "./snow";
-import { meadowDefinition } from "./meadow";
-import { groveDefinition } from "./grove";
-import { snowySlopesDefinition } from "./snowy_slopes";
-import { stonyPeaksDefinition } from "./stony_peaks";
-import { frozenPeaksDefinition } from "./frozen_peaks";
-import { jaggedPeaksDefinition } from "./jagged_peaks";
-import { cherryGroveDefinition } from "./cherry_grove";
-import { windsweptHillsDefinition } from "./windswept_hills";
-import { windsweptGravellyHillsDefinition } from "./windswept_gravelly_hills";
-import { windsweptForestDefinition } from "./windswept_forest";
+} from './types'
+import { desertDefinition } from './desert'
+import { oceanDefinition } from './ocean'
+import { plainsDefinition } from './plains'
+import { savannaDefinition } from './savanna'
+import { forestDefinition } from './forest'
+import { jungleDefinition } from './jungle'
+import { mountainDefinition } from './mountain'
+import { snowDefinition } from './snow'
+import { meadowDefinition } from './meadow'
+import { groveDefinition } from './grove'
+import { snowySlopesDefinition } from './snowy_slopes'
+import { stonyPeaksDefinition } from './stony_peaks'
+import { frozenPeaksDefinition } from './frozen_peaks'
+import { jaggedPeaksDefinition } from './jagged_peaks'
+import { cherryGroveDefinition } from './cherry_grove'
+import { windsweptHillsDefinition } from './windswept_hills'
+import { windsweptGravellyHillsDefinition } from './windswept_gravelly_hills'
+import { windsweptForestDefinition } from './windswept_forest'
 
 export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   plains: plainsDefinition,
@@ -47,52 +47,45 @@ export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   windswept_hills: windsweptHillsDefinition,
   windswept_gravelly_hills: windsweptGravellyHillsDefinition,
   windswept_forest: windsweptForestDefinition,
-};
+}
 
 /**
  * Base land biomes that have climate bounds.
  * Ocean is selected by continentalness in terrain sampling/generation, not by climate.
  */
 const BASE_LAND_BIOMES: Biome[] = [
-  "desert",
-  "plains",
-  "savanna",
-  "forest",
-  "jungle",
-  "mountain",
-  "snow",
-];
+  'desert',
+  'plains',
+  'savanna',
+  'forest',
+  'jungle',
+  'mountain',
+  'snow',
+]
 
 const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [
-  "continentalness",
-  "erosion",
-  "temperature",
-  "humidity",
-  "weirdness",
-  "y",
-];
+  'continentalness',
+  'erosion',
+  'temperature',
+  'humidity',
+  'weirdness',
+  'y',
+]
 
-function distSqMultiNoise(
-  query: MultiNoise6Point,
-  selector: MultiNoiseSelector6D
-): number {
-  let d = 0;
+function distSqMultiNoise(query: MultiNoise6Point, selector: MultiNoiseSelector6D): number {
+  let d = 0
   for (const k of MULTI_NOISE_KEYS) {
-    const w = selector.weights?.[k] ?? 1;
-    const diff = query[k] - selector.center[k];
-    d += w * diff * diff;
+    const w = selector.weights?.[k] ?? 1
+    const diff = query[k] - selector.center[k]
+    d += w * diff * diff
   }
-  return d;
+  return d
 }
 
-function distSq(
-  temp: number,
-  humidity: number,
-  c: ClimateBounds
-): number {
-  const tMid = (c.tempMin + c.tempMax) / 2;
-  const hMid = (c.humidityMin + c.humidityMax) / 2;
-  return (temp - tMid) ** 2 + (humidity - hMid) ** 2;
+function distSq(temp: number, humidity: number, c: ClimateBounds): number {
+  const tMid = (c.tempMin + c.tempMax) / 2
+  const hMid = (c.humidityMin + c.humidityMax) / 2
+  return (temp - tMid) ** 2 + (humidity - hMid) ** 2
 }
 
 /**
@@ -101,25 +94,25 @@ function distSq(
  * high temperature + low humidity => desert, etc.
  */
 export function getLandBiomeByClimate(temp: number, humidity: number): Biome {
-  let best: Biome = "plains";
-  let bestD = Infinity;
+  let best: Biome = 'plains'
+  let bestD = Infinity
   for (const b of BASE_LAND_BIOMES) {
-    const def = BIOME_REGISTRY[b];
-    if (!def.climate) continue;
-    const d = distSq(temp, humidity, def.climate);
+    const def = BIOME_REGISTRY[b]
+    if (!def.climate) continue
+    const d = distSq(temp, humidity, def.climate)
     if (d < bestD) {
-      bestD = d;
-      best = b;
+      bestD = d
+      best = b
     }
   }
-  return best;
+  return best
 }
 
 export interface LandBiomeBlend {
-  primary: Biome;
-  secondary: Biome;
+  primary: Biome
+  secondary: Biome
   /** Weight for secondary biome in [0,1]. */
-  t: number;
+  t: number
 }
 
 /**
@@ -127,32 +120,32 @@ export interface LandBiomeBlend {
  * This is meant to soften biome transitions (avoid hard edges).
  */
 export function getLandBiomeBlendByClimate(temp: number, humidity: number): LandBiomeBlend {
-  let best: Biome = "plains";
-  let bestD = Infinity;
-  let second: Biome = "plains";
-  let secondD = Infinity;
+  let best: Biome = 'plains'
+  let bestD = Infinity
+  let second: Biome = 'plains'
+  let secondD = Infinity
 
   for (const b of BASE_LAND_BIOMES) {
-    const def = BIOME_REGISTRY[b];
-    if (!def.climate) continue;
-    const d = distSq(temp, humidity, def.climate);
+    const def = BIOME_REGISTRY[b]
+    if (!def.climate) continue
+    const d = distSq(temp, humidity, def.climate)
     if (d < bestD) {
-      second = best;
-      secondD = bestD;
-      best = b;
-      bestD = d;
+      second = best
+      secondD = bestD
+      best = b
+      bestD = d
     } else if (d < secondD) {
-      second = b;
-      secondD = d;
+      second = b
+      secondD = d
     }
   }
 
   // Convert distances to a stable, bounded secondary weight.
   // Far from any boundary: bestD << secondD => t ~ 0.
   // Exactly between: bestD == secondD => t = 0.5.
-  const denom = bestD + secondD;
-  const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0;
-  return { primary: best, secondary: second, t };
+  const denom = bestD + secondD
+  const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0
+  return { primary: best, secondary: second, t }
 }
 
 /**
@@ -160,7 +153,7 @@ export function getLandBiomeBlendByClimate(temp: number, humidity: number): Land
  * Returns land biomes only.
  */
 export function getBiomeByClimate(temp: number, humidity: number): Biome {
-  return getLandBiomeByClimate(temp, humidity);
+  return getLandBiomeByClimate(temp, humidity)
 }
 
 /**
@@ -171,17 +164,15 @@ export function getBiomeByClimate(temp: number, humidity: number): Biome {
  * for specific selections (e.g. peak variants).
  */
 export function getBiomeByMultiNoise(point: MultiNoise6Point): Biome {
-  let best: Biome = "plains";
-  let bestD = Infinity;
-  for (const [b, def] of Object.entries(BIOME_REGISTRY) as Array<
-    [Biome, BiomeDefinition]
-  >) {
-    if (!def.multiNoise) continue;
-    const d = distSqMultiNoise(point, def.multiNoise);
+  let best: Biome = 'plains'
+  let bestD = Infinity
+  for (const [b, def] of Object.entries(BIOME_REGISTRY) as Array<[Biome, BiomeDefinition]>) {
+    if (!def.multiNoise) continue
+    const d = distSqMultiNoise(point, def.multiNoise)
     if (d < bestD) {
-      bestD = d;
-      best = b;
+      bestD = d
+      best = b
     }
   }
-  return best;
+  return best
 }

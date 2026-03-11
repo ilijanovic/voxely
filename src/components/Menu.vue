@@ -1,8 +1,8 @@
 <script setup lang="ts">
 defineProps<{
-  onSingleplayer: () => void;
-  onMultiplayer: () => void;
-}>();
+  onSingleplayer: () => void
+  onMultiplayer: () => void
+}>()
 </script>
 
 <template>
@@ -11,18 +11,10 @@ defineProps<{
       <h1 class="menu-title">Start game</h1>
       <p class="menu-subtitle">Choose a game mode</p>
       <div class="menu-buttons">
-        <button
-          type="button"
-          class="menu-btn menu-btn-single"
-          @click="onSingleplayer"
-        >
+        <button type="button" class="menu-btn menu-btn-single" @click="onSingleplayer">
           Singleplayer
         </button>
-        <button
-          type="button"
-          class="menu-btn menu-btn-multi"
-          @click="onMultiplayer"
-        >
+        <button type="button" class="menu-btn menu-btn-multi" @click="onMultiplayer">
           Multiplayer
         </button>
       </div>
@@ -47,7 +39,9 @@ defineProps<{
   border-radius: var(--ui-radius-lg);
   padding: 2.5rem 3rem;
   text-align: center;
-  box-shadow: var(--ui-shadow-panel), 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    var(--ui-shadow-panel),
+    0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .menu-title {
@@ -79,7 +73,9 @@ defineProps<{
   border: none;
   border-radius: 10px;
   cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
   font-family: var(--ui-font);
 }
 

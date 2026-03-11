@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const windsweptHillsTerrain: TerrainParams = {
   baseOffset: 2,
@@ -6,21 +6,21 @@ export const windsweptHillsTerrain: TerrainParams = {
   detailFreq: 0.014,
   flatness: 0.6,
   mountainAllowed: true,
-};
+}
 
 export const windsweptHillsLayers: LayerConfig = {
-  surface: "grass",
-  subsurface: "stone",
+  surface: 'grass',
+  subsurface: 'stone',
   subsurfaceDepth: 3,
-};
+}
 
 export const windsweptHillsDefinition: BiomeDefinition = {
   blocks: {
-    surface: "grass",
-    subsurface: "stone",
+    surface: 'grass',
+    subsurface: 'stone',
     subsurfaceDepth: 3,
-    shore: "gravel",
-    underwater: "gravel",
+    shore: 'gravel',
+    underwater: 'gravel',
   },
   terrainParams: windsweptHillsTerrain,
-};
+}

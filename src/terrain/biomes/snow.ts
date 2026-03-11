@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const snowTerrain: TerrainParams = {
   baseOffset: 6,
@@ -6,21 +6,21 @@ export const snowTerrain: TerrainParams = {
   detailFreq: 0.022,
   flatness: 0.35,
   mountainAllowed: true,
-};
+}
 
 export const snowLayers: LayerConfig = {
-  surface: "snow",
-  subsurface: "dirt",
+  surface: 'snow',
+  subsurface: 'dirt',
   subsurfaceDepth: 3,
-};
+}
 
 export const snowDefinition: BiomeDefinition = {
   blocks: {
-    surface: "snow",
-    subsurface: "dirt",
+    surface: 'snow',
+    subsurface: 'dirt',
     subsurfaceDepth: 3,
-    shore: "sand",
-    underwater: "sand",
+    shore: 'sand',
+    underwater: 'sand',
   },
   terrainParams: snowTerrain,
   climate: { tempMin: 0, tempMax: 0.35, humidityMin: 0.2, humidityMax: 0.6 },
@@ -40,4 +40,4 @@ export const snowDefinition: BiomeDefinition = {
       erosion: 1.6,
     },
   },
-};
+}

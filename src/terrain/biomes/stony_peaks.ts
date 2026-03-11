@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const stonyPeaksTerrain: TerrainParams = {
   baseOffset: 8,
@@ -6,21 +6,21 @@ export const stonyPeaksTerrain: TerrainParams = {
   detailFreq: 0.024,
   flatness: 0.3,
   mountainAllowed: true,
-};
+}
 
 export const stonyPeaksLayers: LayerConfig = {
-  surface: "stone",
-  subsurface: "stone",
+  surface: 'stone',
+  subsurface: 'stone',
   subsurfaceDepth: 3,
-};
+}
 
 export const stonyPeaksDefinition: BiomeDefinition = {
   blocks: {
-    surface: "stone",
-    subsurface: "stone",
+    surface: 'stone',
+    subsurface: 'stone',
     subsurfaceDepth: 3,
-    shore: "gravel",
-    underwater: "gravel",
+    shore: 'gravel',
+    underwater: 'gravel',
   },
   terrainParams: stonyPeaksTerrain,
   multiNoise: {
@@ -38,4 +38,4 @@ export const stonyPeaksDefinition: BiomeDefinition = {
       continentalness: 1.5,
     },
   },
-};
+}

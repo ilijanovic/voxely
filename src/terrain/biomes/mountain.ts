@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const mountainTerrain: TerrainParams = {
   baseOffset: 1.0,
@@ -6,21 +6,21 @@ export const mountainTerrain: TerrainParams = {
   detailFreq: 0.012,
   flatness: 0.85,
   mountainAllowed: true,
-};
+}
 
 export const mountainLayers: LayerConfig = {
-  surface: "grass",
-  subsurface: "stone",
+  surface: 'grass',
+  subsurface: 'stone',
   subsurfaceDepth: 3,
-};
+}
 
 export const mountainDefinition: BiomeDefinition = {
   blocks: {
-    surface: "grass",
-    subsurface: "stone",
+    surface: 'grass',
+    subsurface: 'stone',
     subsurfaceDepth: 3,
-    shore: "gravel",
-    underwater: "gravel",
+    shore: 'gravel',
+    underwater: 'gravel',
   },
   terrainParams: mountainTerrain,
   climate: { tempMin: 0.25, tempMax: 0.5, humidityMin: 0.2, humidityMax: 0.55 },
@@ -42,4 +42,4 @@ export const mountainDefinition: BiomeDefinition = {
       humidity: 1.2,
     },
   },
-};
+}

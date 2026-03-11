@@ -15,9 +15,11 @@ The app uses the same scale as Minecraft so resource packs look correct. Referen
 - **Format**: A resource pack is a folder or a `.zip` file with a fixed structure.
 - **Root files**: `pack.mcmeta` (JSON metadata: description, `pack_format`) and optionally `pack.png` (thumbnail).
 - **Assets path**: All block textures live under:
+
   ```
   assets/minecraft/textures/block/<name>.png
   ```
+
   So the full URL for a texture named `oak_planks` is  
   `{packRoot}/assets/minecraft/textures/block/oak_planks.png`.
 
@@ -45,7 +47,7 @@ Packs like **Alacrity** follow this layout (e.g. `assets/minecraft/models/block/
      `/packs/Alacrity/assets/minecraft/textures/block/<name>.png`.
    - **Serving the pack**: Place the pack (e.g. Alacrity folder or zip contents) under `public/packs/Alacrity/` so that `public/packs/Alacrity/assets/minecraft/textures/block/` is served at `/packs/Alacrity/assets/minecraft/textures/block/`.
 
-3. **Using Alacrity (or any pack)**  
+3. **Using Alacrity (or any pack)**
    - Copy the pack into `public/packs/<packname>/` (e.g. `public/packs/Alacrity/`) so that `assets/minecraft/textures/block/` exists under it.
    - Open the app with `?resource_pack=/packs/Alacrity`.
    - Only blocks whose texture names exist in the pack will show that pack’s art; others fall back to the default path if you implement fallback, or show missing texture.

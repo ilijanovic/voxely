@@ -51,9 +51,9 @@ Both must use **http://localhost:…** with the port from `npm run dev`.
 
 ## Common issues
 
-| Problem | Solution |
-|--------|----------|
-| "Multiplayer: disconnected" | Start and keep the server running with `npm run server`. |
-| CORS errors in console | Restart the server (CORS allows all localhost ports). |
-| Only 1 player shown | Open both tabs/windows with the same URL and reload if needed. |
-| Can’t see other player | Press V for third-person to see your own character; then look around – the other is near spawn. |
+| Problem                     | Solution                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------- |
+| "Multiplayer: disconnected" | Start and keep the server running with `npm run server`.                                        |
+| CORS errors in console      | Restart the server (CORS allows all localhost ports).                                           |
+| Only 1 player shown         | Open both tabs/windows with the same URL and reload if needed.                                  |
+| Can’t see other player      | Press V for third-person to see your own character; then look around – the other is near spawn. |

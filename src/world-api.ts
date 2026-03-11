@@ -1,29 +1,29 @@
-import type { Biome } from "./types";
+import type { Biome } from './types'
 
 export type GetBlockAtFn = (
   bx: number,
   by: number,
-  bz: number
-) => import("./types").BlockType | "air" | null;
+  bz: number,
+) => import('./types').BlockType | 'air' | null
 
-export type GetSurfaceYFn = (x: number, z: number) => number;
+export type GetSurfaceYFn = (x: number, z: number) => number
 
-export type GetBiomeFn = (x: number, z: number) => Biome;
+export type GetBiomeFn = (x: number, z: number) => Biome
 
 export interface WorldApi {
-  getBlockAt: GetBlockAtFn;
-  getSurfaceY: GetSurfaceYFn;
-  getColumnSurfaceY: GetSurfaceYFn;
-  getBiome: GetBiomeFn;
+  getBlockAt: GetBlockAtFn
+  getSurfaceY: GetSurfaceYFn
+  getColumnSurfaceY: GetSurfaceYFn
+  getBiome: GetBiomeFn
 }
 
-let worldApi: WorldApi | null = null;
+let worldApi: WorldApi | null = null
 
 export function setWorldApi(api: WorldApi): void {
-  worldApi = api;
+  worldApi = api
 }
 
 export function getWorldApi(): WorldApi {
-  if (!worldApi) throw new Error("WorldApi not set – init game first");
-  return worldApi;
+  if (!worldApi) throw new Error('WorldApi not set – init game first')
+  return worldApi
 }

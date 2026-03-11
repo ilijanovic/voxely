@@ -1,26 +1,26 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const desertTerrain: TerrainParams = {
   baseOffset: -1.5,
   detailAmp: 0.8,
   detailFreq: 0.01,
-  flatness: 0.99,
+  flatness: 0.97,
   mountainAllowed: false,
-};
+}
 
 export const desertLayers: LayerConfig = {
-  surface: "sand",
-  subsurface: "sand",
-  subsurfaceDepth: 3,
-};
+  surface: 'sand',
+  subsurface: 'sandstone',
+  subsurfaceDepth: 4,
+}
 
 export const desertDefinition: BiomeDefinition = {
   blocks: {
-    surface: "sand",
-    subsurface: "sand",
-    subsurfaceDepth: 3,
-    shore: "sand",
-    underwater: "sand",
+    surface: 'sand',
+    subsurface: 'sandstone',
+    subsurfaceDepth: 4,
+    shore: 'sand',
+    underwater: 'sand',
   },
   terrainParams: desertTerrain,
   climate: { tempMin: 0.65, tempMax: 1, humidityMin: 0, humidityMax: 0.35 },
@@ -39,4 +39,4 @@ export const desertDefinition: BiomeDefinition = {
       continentalness: 1.2,
     },
   },
-};
+}

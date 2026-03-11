@@ -30,14 +30,14 @@ A browser-based voxel game – procedurally generated worlds, mine and place blo
 
 ## Tech stack
 
-| Area        | Technology           |
-|------------|----------------------|
-| Build      | Vite 7               |
-| Frontend   | Vue 3, TypeScript    |
-| 3D         | Three.js             |
-| Styling    | Tailwind CSS 4       |
-| Multiplayer| Socket.io (client)   |
-| Terrain    | Simplex-noise, Web Worker (chunks) |
+| Area        | Technology                         |
+| ----------- | ---------------------------------- |
+| Build       | Vite 7                             |
+| Frontend    | Vue 3, TypeScript                  |
+| 3D          | Three.js                           |
+| Styling     | Tailwind CSS 4                     |
+| Multiplayer | Socket.io (client)                 |
+| Terrain     | Simplex-noise, Web Worker (chunks) |
 
 ## Requirements
 
@@ -52,15 +52,15 @@ npm install
 
 ## Scripts
 
-| Command             | Description                                |
-|---------------------|--------------------------------------------|
-| `npm run dev`       | Dev server (see terminal output for URL)   |
-| `npm run build`     | TypeScript check + production build        |
-| `npm run preview`   | Preview the build                          |
-| `npm run textures`  | Texture generation script                  |
-| `npm run server`    | Multiplayer server (http://localhost:3000) |
-| `npm run test`      | Run tests in watch mode                    |
-| `npm run test:run`  | Run tests once                             |
+| Command            | Description                                |
+| ------------------ | ------------------------------------------ |
+| `npm run dev`      | Dev server (see terminal output for URL)   |
+| `npm run build`    | TypeScript check + production build        |
+| `npm run preview`  | Preview the build                          |
+| `npm run textures` | Texture generation script                  |
+| `npm run server`   | Multiplayer server (http://localhost:3000) |
+| `npm run test`     | Run tests in watch mode                    |
+| `npm run test:run` | Run tests once                             |
 
 ## Running the game
 
@@ -73,17 +73,17 @@ npm install
 
 ## Controls
 
-| Action              | Key / Mouse                    |
-|---------------------|--------------------------------|
-| Start / focus mouse | Click once                      |
-| Move                | **W A S D**                    |
-| Jump                | **Space**                      |
-| Look around         | Mouse                          |
-| Third-person        | **V**                          |
-| Chat                | **T**                          |
-| Select block        | **1–9** or scroll wheel        |
-| Pause / options     | **ESC** or **O**               |
-| Inventory           | **I**                          |
+| Action              | Key / Mouse             |
+| ------------------- | ----------------------- |
+| Start / focus mouse | Click once              |
+| Move                | **W A S D**             |
+| Jump                | **Space**               |
+| Look around         | Mouse                   |
+| Third-person        | **V**                   |
+| Chat                | **T**                   |
+| Select block        | **1–9** or scroll wheel |
+| Pause / options     | **ESC** or **O**        |
+| Inventory           | **I**                   |
 
 After clicking: left-click = mine block, right-click = place block.
 

@@ -2,361 +2,343 @@
  * Terrain sampling, biomes, spawn search, and tree generation for the main thread.
  * Uses chunk-runtime for height cache and block lookup; no THREE scene dependency.
  */
-import * as THREE from "three";
-import { createNoise2D } from "simplex-noise";
-import type { BlockType, TreeNoiseCaches } from "./types";
-import type { Biome } from "./types";
-import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from "./constants";
-import {
-  columnHeightCache,
-  columnCacheKey,
-  getBlockAt,
-} from "./chunk-runtime";
-import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from "./block-registry";
-import { createTerrainSampling } from "./terrain-sampling";
-import { BIOME_REGISTRY } from "./terrain/biomes";
+import * as THREE from 'three'
+import { createNoise2D } from 'simplex-noise'
+import type { BlockType, TreeNoiseCaches } from './types'
+import type { Biome } from './types'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from './constants'
+import { columnHeightCache, columnCacheKey, getBlockAt } from './chunk-runtime'
+import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from './block-registry'
+import { createTerrainSampling } from './terrain-sampling'
+import { BIOME_REGISTRY } from './terrain/biomes'
 
-export type { Biome };
+export type { Biome }
 
 /** Seeded RNG for deterministic noise (same seed = same world). */
 function makeSeededRandom(seed: number) {
   return function () {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return seed / 0x7fffffff
+  }
 }
 
-const WORLD_SEED_KEY = "voxel-world-seed";
+const WORLD_SEED_KEY = 'voxel-world-seed'
 function getOrCreateWorldSeed(): number {
-  const stored = localStorage.getItem(WORLD_SEED_KEY);
+  const stored = localStorage.getItem(WORLD_SEED_KEY)
   if (stored != null) {
-    const n = parseInt(stored, 10);
-    if (Number.isFinite(n)) return n;
+    const n = parseInt(stored, 10)
+    if (Number.isFinite(n)) return n
   }
-  const seed = (Date.now() >>> 0) ^ ((Math.random() * 0xffffffff) >>> 0);
-  localStorage.setItem(WORLD_SEED_KEY, String(seed));
-  return seed;
+  const seed = (Date.now() >>> 0) ^ ((Math.random() * 0xffffffff) >>> 0)
+  localStorage.setItem(WORLD_SEED_KEY, String(seed))
+  return seed
 }
 
 /** World seed: persisted so reloads keep same terrain; new session gets new seed. */
-export const WORLD_SEED = getOrCreateWorldSeed();
+export const WORLD_SEED = getOrCreateWorldSeed()
 
-const terrainSampling = createTerrainSampling(WORLD_SEED);
+const terrainSampling = createTerrainSampling(WORLD_SEED)
 
 /** Noise for tree generation only (forest density + placement). */
-const forestDensityNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 777));
-const treePlacementNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 888));
-const detailNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 456));
+const forestDensityNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 777))
+const treePlacementNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 888))
+const detailNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 456))
 
 /** Biomes that can be chosen for spawn; each has equal probability (deterministic per WORLD_SEED). */
 export const SPAWNABLE_BIOMES: Biome[] = [
-  "desert",
-  "plains",
-  "savanna",
-  "forest",
-  "jungle",
-  "mountain",
-  "snow",
-];
+  'desert',
+  'plains',
+  'savanna',
+  'forest',
+  'jungle',
+  'mountain',
+  'snow',
+]
 /** Spawn biome for this world: one of SPAWNABLE_BIOMES chosen by seeded RNG. */
 export const SPAWN_BIOME: Biome = (() => {
-  const rng = makeSeededRandom(WORLD_SEED + 5050);
-  const idx = Math.floor(rng() * SPAWNABLE_BIOMES.length);
-  return SPAWNABLE_BIOMES[idx];
-})();
+  const rng = makeSeededRandom(WORLD_SEED + 5050)
+  const idx = Math.floor(rng() * SPAWNABLE_BIOMES.length)
+  return SPAWNABLE_BIOMES[idx]
+})()
 
 /**
  * Terrain height at world (x, z). Clamped to integer block Y.
  * Uses columnHeightCache to avoid recomputing noise for the same column.
  */
 export function getHeight(x: number, z: number): number {
-  const bx = Math.floor(x);
-  const bz = Math.floor(z);
-  const key = columnCacheKey(bx, bz);
-  const cached = columnHeightCache.get(key);
-  if (cached !== undefined) return cached;
+  const bx = Math.floor(x)
+  const bz = Math.floor(z)
+  const key = columnCacheKey(bx, bz)
+  const cached = columnHeightCache.get(key)
+  if (cached !== undefined) return cached
 
-  const h = terrainSampling.getSmoothedHeight(x, z);
-  const result = Math.floor(THREE.MathUtils.clamp(h, 0, WORLD_HEIGHT));
-  columnHeightCache.set(key, result);
-  return result;
+  const h = terrainSampling.getSmoothedHeight(x, z)
+  const result = Math.floor(THREE.MathUtils.clamp(h, 0, WORLD_HEIGHT))
+  columnHeightCache.set(key, result)
+  return result
 }
 
 /** Resolved biome for surface/blocks (delegates to terrain sampler with cached getHeight). */
 export function getResolvedBiome(x: number, z: number): Biome {
-  return terrainSampling.getResolvedBiome(x, z, getHeight);
+  return terrainSampling.getResolvedBiome(x, z, getHeight)
 }
 
 /** Surface block type at (biome, y, topY). Used by chunk generation and debug overlay. */
 export function getBlockTypeAt(biome: Biome, y: number, topY: number): BlockType {
-  return terrainSampling.getBlockTypeAt(biome, y, topY);
+  return terrainSampling.getBlockTypeAt(biome, y, topY)
 }
 
 /** Foot half-extent for spawn surface search (matches player AABB in XZ). */
-const SPAWN_FOOT_HALF = 0.3;
+const SPAWN_FOOT_HALF = 0.3
 
 /**
  * World Y of the top face of solid terrain under the given XZ area (voxel-based).
  * Only for spawn height. Excludes leaves. When getBlockAt returns null, falls back to getHeight.
  */
 function getSurfaceYVoxel(px: number, pz: number, searchMaxY: number): number {
-  const minBx = Math.ceil(px - SPAWN_FOOT_HALF - 0.5);
-  const maxBx = Math.floor(px + SPAWN_FOOT_HALF + 0.5);
-  const minBz = Math.ceil(pz - SPAWN_FOOT_HALF - 0.5);
-  const maxBz = Math.floor(pz + SPAWN_FOOT_HALF + 0.5);
-  let maxSurfaceY = -0.5;
-  const top = Math.min(searchMaxY, WORLD_HEIGHT - 1);
+  const minBx = Math.ceil(px - SPAWN_FOOT_HALF - 0.5)
+  const maxBx = Math.floor(px + SPAWN_FOOT_HALF + 0.5)
+  const minBz = Math.ceil(pz - SPAWN_FOOT_HALF - 0.5)
+  const maxBz = Math.floor(pz + SPAWN_FOOT_HALF + 0.5)
+  let maxSurfaceY = -0.5
+  const top = Math.min(searchMaxY, WORLD_HEIGHT - 1)
   for (let bx = minBx; bx <= maxBx; bx++) {
     for (let bz = minBz; bz <= maxBz; bz++) {
-      let columnTop = -0.5;
+      let columnTop = -0.5
       for (let by = top; by >= 0; by--) {
-        const type = getBlockAt(bx, by, bz);
+        const type = getBlockAt(bx, by, bz)
         if (type === null) {
-          columnTop = getHeight(bx, bz) + 0.5;
-          break;
+          columnTop = getHeight(bx, bz) + 0.5
+          break
         }
-        if (type !== "wood" && isBlockTypeSolid(type as BlockType)) {
-          columnTop = by + getBlockHeight(type as BlockType);
-          break;
+        if (type !== 'wood' && isBlockTypeSolid(type as BlockType)) {
+          columnTop = by + getBlockHeight(type as BlockType)
+          break
         }
       }
-      if (columnTop > maxSurfaceY) maxSurfaceY = columnTop;
+      if (columnTop > maxSurfaceY) maxSurfaceY = columnTop
     }
   }
-  return maxSurfaceY;
+  return maxSurfaceY
 }
 
 /**
  * World Y of the top face of solid terrain at (x, z). Only for spawn – do not use for physics/grounded/jump.
  */
 export function getSurfaceY(x: number, z: number): number {
-  return getSurfaceYVoxel(x, z, WORLD_HEIGHT);
+  return getSurfaceYVoxel(x, z, WORLD_HEIGHT)
 }
 
 /** Surface Y for a single block column (no foot-area expansion). Used for entity spawns. */
 export function getColumnSurfaceY(wx: number, wz: number): number {
-  const bx = Math.floor(wx);
-  const bz = Math.floor(wz);
+  const bx = Math.floor(wx)
+  const bz = Math.floor(wz)
   for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
-    const type = getBlockAt(bx, by, bz);
-    if (type === null) return getHeight(bx, bz) + 0.5;
-    if (
-      type !== "wood" &&
-      type !== "leaves" &&
-      isBlockTypeSolid(type as BlockType)
-    ) {
-      return by + getBlockHeight(type as BlockType);
+    const type = getBlockAt(bx, by, bz)
+    if (type === null) return getHeight(bx, bz) + 0.5
+    if (type !== 'wood' && type !== 'leaves' && isBlockTypeSolid(type as BlockType)) {
+      return by + getBlockHeight(type as BlockType)
     }
   }
-  return getHeight(bx, bz) + 0.5;
+  return getHeight(bx, bz) + 0.5
 }
 
-const SPAWN_BIOME_MIN_RADIUS = 2 * CHUNK_SIZE;
-const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38;
-export const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26;
-export const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16;
+const SPAWN_BIOME_MIN_RADIUS = 2 * CHUNK_SIZE
+const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
+export const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26
+export const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16
 
 function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
-  const def = BIOME_REGISTRY[biome];
-  const surface = def.blocks.surface as BlockType;
+  const def = BIOME_REGISTRY[biome]
+  const surface = def.blocks.surface as BlockType
 
   const getMaxSlopeDelta = (x: number, z: number): number => {
-    const h = getHeight(x, z);
-    const dN = Math.abs(getHeight(x, z - 1) - h);
-    const dS = Math.abs(getHeight(x, z + 1) - h);
-    const dW = Math.abs(getHeight(x - 1, z) - h);
-    const dE = Math.abs(getHeight(x + 1, z) - h);
-    return Math.max(dN, dS, dW, dE);
-  };
+    const h = getHeight(x, z)
+    const dN = Math.abs(getHeight(x, z - 1) - h)
+    const dS = Math.abs(getHeight(x, z + 1) - h)
+    const dW = Math.abs(getHeight(x - 1, z) - h)
+    const dE = Math.abs(getHeight(x + 1, z) - h)
+    return Math.max(dN, dS, dW, dE)
+  }
 
-  if (topY < WATER_LEVEL) return def.blocks.underwater as BlockType;
-  if (topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1) return def.blocks.shore as BlockType;
+  if (topY < WATER_LEVEL) return def.blocks.underwater as BlockType
+  if (topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1) return def.blocks.shore as BlockType
 
-  const blend = terrainSampling.getBiomeBlend(wx, wz);
-  if (blend.primary === "ocean" && blend.secondary !== "ocean") {
-    const landSurface = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType;
-    const n = (detailNoise2D(wx * 0.11 + 19.3, wz * 0.11 - 71.7) + 1) * 0.5;
-    return n < blend.t ? landSurface : "sand";
+  const blend = terrainSampling.getBiomeBlend(wx, wz)
+  if (blend.primary === 'ocean' && blend.secondary !== 'ocean') {
+    const landSurface = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
+    const n = (detailNoise2D(wx * 0.11 + 19.3, wz * 0.11 - 71.7) + 1) * 0.5
+    return n < blend.t ? landSurface : 'sand'
   }
 
   if (
     blend.primary !== blend.secondary &&
-    blend.primary !== "ocean" &&
-    blend.secondary !== "ocean"
+    blend.primary !== 'ocean' &&
+    blend.secondary !== 'ocean'
   ) {
-    const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType;
-    const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType;
+    const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType
+    const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
     if (a !== b && blend.t > 0.1 && blend.t < 0.9) {
-      const n = (detailNoise2D(wx * 0.13 - 33.1, wz * 0.13 + 5.7) + 1) * 0.5;
-      return n < blend.t ? b : a;
+      const n = (detailNoise2D(wx * 0.13 - 33.1, wz * 0.13 + 5.7) + 1) * 0.5
+      return n < blend.t ? b : a
     }
   }
 
   if (
-    (biome === "mountain" || biome === "windswept_hills" || biome === "windswept_forest") &&
+    (biome === 'mountain' || biome === 'windswept_hills' || biome === 'windswept_forest') &&
     topY >= MOUNTAIN_STONE_SURFACE_HEIGHT
   )
-    return "stone";
-  if (biome === "meadow" && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return "stone";
-  if (topY >= SURFACE_STONE_HEIGHT && biome !== "frozen_peaks" && biome !== "jagged_peaks")
-    return "stone";
+    return 'stone'
+  if (biome === 'meadow' && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return 'stone'
+  if (topY >= SURFACE_STONE_HEIGHT && biome !== 'frozen_peaks' && biome !== 'jagged_peaks')
+    return 'stone'
 
-  if (biome === "frozen_peaks") {
-    const slope = getMaxSlopeDelta(wx, wz);
-    const steep = slope >= 6;
-    const verySteep = slope >= 9;
-    const high = topY >= WATER_LEVEL + 30;
-    const n = (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5;
-    const blob = (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5;
-    if (high && (verySteep || (steep && n < 0.62))) return "packed_ice";
-    if (high && steep && blob < 0.12) return "ice";
-    return "snow";
+  if (biome === 'frozen_peaks') {
+    const slope = getMaxSlopeDelta(wx, wz)
+    const steep = slope >= 6
+    const verySteep = slope >= 9
+    const high = topY >= WATER_LEVEL + 30
+    const n = (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5
+    const blob = (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5
+    if (high && (verySteep || (steep && n < 0.62))) return 'packed_ice'
+    if (high && steep && blob < 0.12) return 'ice'
+    return 'snow'
   }
 
   if (
     topY >= WATER_LEVEL + 20 &&
-    biome !== "desert" &&
-    biome !== "savanna" &&
-    biome !== "mountain" &&
-    biome !== "jungle" &&
-    biome !== "cherry_grove" &&
-    biome !== "windswept_forest" &&
-    biome !== "meadow" &&
-    biome !== "plains"
+    biome !== 'desert' &&
+    biome !== 'savanna' &&
+    biome !== 'mountain' &&
+    biome !== 'jungle' &&
+    biome !== 'cherry_grove' &&
+    biome !== 'windswept_forest' &&
+    biome !== 'meadow' &&
+    biome !== 'plains'
   )
-    return "grass_snow";
+    return 'grass_snow'
 
-  if (surface === "snow") return "grass_snow";
-  if (biome === "savanna" && surface === "grass") return "grass_savanna";
+  if (surface === 'snow') return 'grass_snow'
+  if (biome === 'savanna' && surface === 'grass') return 'grass_savanna'
 
-  if (surface === "grass") {
+  if (surface === 'grass') {
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
-        if (dx === 0 && dz === 0) continue;
-        const n = getResolvedBiome(wx + dx, wz + dz);
-        if (n === "snow" || n === "grove" || n === "snowy_slopes" || n === "frozen_peaks")
-          return "grass_snow";
+        if (dx === 0 && dz === 0) continue
+        const n = getResolvedBiome(wx + dx, wz + dz)
+        if (n === 'snow' || n === 'grove' || n === 'snowy_slopes' || n === 'frozen_peaks')
+          return 'grass_snow'
       }
     }
   }
 
-  return surface;
+  return surface
 }
 
 /** Check that all 4 cardinal points 1 chunk away are also in the target biome. */
 function isBiomeSolid(wx: number, wz: number, biome: Biome): boolean {
-  const r = CHUNK_SIZE * 1;
+  const r = CHUNK_SIZE * 1
   return (
     getResolvedBiome(wx + r, wz) === biome &&
     getResolvedBiome(wx - r, wz) === biome &&
     getResolvedBiome(wx, wz + r) === biome &&
     getResolvedBiome(wx, wz - r) === biome
-  );
+  )
 }
 
 /** Max height for spawn so surface is grass (not stone). */
 function getSpawnMaxHeightForGrass(biome: Biome): number {
-  if (biome === "mountain" || biome === "meadow")
-    return MOUNTAIN_STONE_SURFACE_HEIGHT - 1;
-  if (
-    biome === "forest" ||
-    biome === "plains" ||
-    biome === "savanna" ||
-    biome === "jungle"
-  )
-    return SURFACE_STONE_HEIGHT - 1;
-  return SPAWN_MAX_HEIGHT;
+  if (biome === 'mountain' || biome === 'meadow') return MOUNTAIN_STONE_SURFACE_HEIGHT - 1
+  if (biome === 'forest' || biome === 'plains' || biome === 'savanna' || biome === 'jungle')
+    return SURFACE_STONE_HEIGHT - 1
+  return SPAWN_MAX_HEIGHT
 }
 
 /** Find next spawn position in the given biome (spiral from (0,0)). Prefers land and grass surface. */
 export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
-  const step = CHUNK_SIZE;
-  const maxRadius = 80 * CHUNK_SIZE;
-  const maxHeightPreferGrass = getSpawnMaxHeightForGrass(biome);
+  const step = CHUNK_SIZE
+  const maxRadius = 80 * CHUNK_SIZE
+  const maxHeightPreferGrass = getSpawnMaxHeightForGrass(biome)
 
   const tryFind = (maxHeight: number): { x: number; z: number } | null => {
-    for (
-      let radius = SPAWN_BIOME_MIN_RADIUS;
-      radius <= maxRadius;
-      radius += step
-    ) {
-      const half = radius;
+    for (let radius = SPAWN_BIOME_MIN_RADIUS; radius <= maxRadius; radius += step) {
+      const half = radius
       for (let x = -half; x <= half; x += step) {
-        const h1 = getHeight(x, -half);
+        const h1 = getHeight(x, -half)
         if (
           getResolvedBiome(x, -half) === biome &&
           isBiomeSolid(x, -half, biome) &&
           h1 >= WATER_LEVEL - 1 &&
           h1 <= maxHeight
         )
-          return { x, z: -half };
+          return { x, z: -half }
         if (half > 0) {
-          const h2 = getHeight(x, half);
+          const h2 = getHeight(x, half)
           if (
             getResolvedBiome(x, half) === biome &&
             isBiomeSolid(x, half, biome) &&
             h2 >= WATER_LEVEL - 1 &&
             h2 <= maxHeight
           )
-            return { x, z: half };
+            return { x, z: half }
         }
       }
       for (let z = -half + step; z < half; z += step) {
-        const h1 = getHeight(-half, z);
+        const h1 = getHeight(-half, z)
         if (
           getResolvedBiome(-half, z) === biome &&
           isBiomeSolid(-half, z, biome) &&
           h1 >= WATER_LEVEL - 1 &&
           h1 <= maxHeight
         )
-          return { x: -half, z };
-        const h2 = getHeight(half, z);
+          return { x: -half, z }
+        const h2 = getHeight(half, z)
         if (
           getResolvedBiome(half, z) === biome &&
           isBiomeSolid(half, z, biome) &&
           h2 >= WATER_LEVEL - 1 &&
           h2 <= maxHeight
         )
-          return { x: half, z };
+          return { x: half, z }
       }
     }
-    return null;
-  };
+    return null
+  }
 
-  const withGrass = tryFind(maxHeightPreferGrass);
-  if (withGrass) return withGrass;
-  const fallback = tryFind(SPAWN_MAX_HEIGHT);
-  return fallback ?? { x: 0, z: 0 };
+  const withGrass = tryFind(maxHeightPreferGrass)
+  if (withGrass) return withGrass
+  const fallback = tryFind(SPAWN_MAX_HEIGHT)
+  return fallback ?? { x: 0, z: 0 }
 }
 
 // ================= TREE GENERATION =================
 
-const FOREST_DENSITY_SCALE = 0.028;
-const TREE_PLACEMENT_SCALE = 0.12;
-const FOREST_DENSITY_THRESHOLD = 0.0;
-const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1;
-const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0;
-const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.65;
-const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93;
-const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97;
-const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55;
-const TREE_MAX_SLOPE = 2;
+const FOREST_DENSITY_SCALE = 0.028
+const TREE_PLACEMENT_SCALE = 0.12
+const FOREST_DENSITY_THRESHOLD = 0.0
+const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1
+const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0
+const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.65
+const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93
+const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97
+const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
+const TREE_MAX_SLOPE = 2
 
 type TreeShapeConfig = {
-  trunkMin: number;
-  trunkMax: number;
-  leafRadiusMin: number;
-  leafRadiusMax: number;
-  leafHeightMin: number;
-  leafHeightMax: number;
-  leafDensityMin: number;
-  leafDensityMax: number;
-  giantChance: number;
-  giantTrunkBonusMax: number;
-  giantLeafRadiusBonusMax: number;
-  giantLeafHeightBonusMax: number;
-  giantDensityBonusMax: number;
-};
+  trunkMin: number
+  trunkMax: number
+  leafRadiusMin: number
+  leafRadiusMax: number
+  leafHeightMin: number
+  leafHeightMax: number
+  leafDensityMin: number
+  leafDensityMax: number
+  giantChance: number
+  giantTrunkBonusMax: number
+  giantLeafRadiusBonusMax: number
+  giantLeafHeightBonusMax: number
+  giantDensityBonusMax: number
+}
 
 const TREE_SHAPE_DEFAULT: TreeShapeConfig = {
   trunkMin: 4,
@@ -372,7 +354,7 @@ const TREE_SHAPE_DEFAULT: TreeShapeConfig = {
   giantLeafRadiusBonusMax: 2,
   giantLeafHeightBonusMax: 3,
   giantDensityBonusMax: 0.05,
-};
+}
 const TREE_SHAPE_FOREST: TreeShapeConfig = {
   trunkMin: 5,
   trunkMax: 10,
@@ -387,7 +369,7 @@ const TREE_SHAPE_FOREST: TreeShapeConfig = {
   giantLeafRadiusBonusMax: 2,
   giantLeafHeightBonusMax: 3,
   giantDensityBonusMax: 0.04,
-};
+}
 const TREE_SHAPE_JUNGLE: TreeShapeConfig = {
   trunkMin: 8,
   trunkMax: 14,
@@ -402,7 +384,7 @@ const TREE_SHAPE_JUNGLE: TreeShapeConfig = {
   giantLeafRadiusBonusMax: 2,
   giantLeafHeightBonusMax: 4,
   giantDensityBonusMax: 0.03,
-};
+}
 const TREE_SHAPE_MOUNTAIN: TreeShapeConfig = {
   trunkMin: 4,
   trunkMax: 7,
@@ -417,7 +399,7 @@ const TREE_SHAPE_MOUNTAIN: TreeShapeConfig = {
   giantLeafRadiusBonusMax: 1,
   giantLeafHeightBonusMax: 2,
   giantDensityBonusMax: 0.06,
-};
+}
 const TREE_SHAPE_SNOW: TreeShapeConfig = {
   trunkMin: 8,
   trunkMax: 14,
@@ -432,214 +414,170 @@ const TREE_SHAPE_SNOW: TreeShapeConfig = {
   giantLeafRadiusBonusMax: 2,
   giantLeafHeightBonusMax: 3,
   giantDensityBonusMax: 0.05,
-};
+}
 
 function treeSeedValue(x: number, z: number): number {
-  const n = treePlacementNoise2D(x * 0.7 + 100, z * 0.7);
-  return (n + 1) * 0.5;
+  const n = treePlacementNoise2D(x * 0.7 + 100, z * 0.7)
+  return (n + 1) * 0.5
 }
 
 /** Forest density at (wx, wz). Exported for generateChunk cache. */
 export function getForestDensity(wx: number, wz: number): number {
-  return forestDensityNoise2D(
-    wx * FOREST_DENSITY_SCALE,
-    wz * FOREST_DENSITY_SCALE
-  );
+  return forestDensityNoise2D(wx * FOREST_DENSITY_SCALE, wz * FOREST_DENSITY_SCALE)
 }
 
 /** Tree placement value at (wx, wz). Exported for generateChunk cache. */
 export function getTreePlacement(wx: number, wz: number): number {
-  return treePlacementNoise2D(
-    wx * TREE_PLACEMENT_SCALE,
-    wz * TREE_PLACEMENT_SCALE
-  );
+  return treePlacementNoise2D(wx * TREE_PLACEMENT_SCALE, wz * TREE_PLACEMENT_SCALE)
 }
 
-function getTreePlacementCached(
-  wx: number,
-  wz: number,
-  cache?: Map<string, number>
-): number {
+function getTreePlacementCached(wx: number, wz: number, cache?: Map<string, number>): number {
   if (cache) {
-    const k = `${wx},${wz}`;
-    let v = cache.get(k);
+    const k = `${wx},${wz}`
+    let v = cache.get(k)
     if (v === undefined) {
-      v = getTreePlacement(wx, wz);
-      cache.set(k, v);
+      v = getTreePlacement(wx, wz)
+      cache.set(k, v)
     }
-    return v;
+    return v
   }
-  return getTreePlacement(wx, wz);
+  return getTreePlacement(wx, wz)
 }
 
-function getForestDensityCached(
-  wx: number,
-  wz: number,
-  cache?: Map<string, number>
-): number {
+function getForestDensityCached(wx: number, wz: number, cache?: Map<string, number>): number {
   if (cache) {
-    const k = `${wx},${wz}`;
-    let v = cache.get(k);
+    const k = `${wx},${wz}`
+    let v = cache.get(k)
     if (v === undefined) {
-      v = getForestDensity(wx, wz);
-      cache.set(k, v);
+      v = getForestDensity(wx, wz)
+      cache.set(k, v)
     }
-    return v;
+    return v
   }
-  return getForestDensity(wx, wz);
+  return getForestDensity(wx, wz)
 }
 
 function getTreePlacementPass(
   wx: number,
   wz: number,
   biome: Biome,
-  caches?: TreeNoiseCaches
+  caches?: TreeNoiseCaches,
 ): boolean {
-  const placement = getTreePlacementCached(wx, wz, caches?.treePlacement);
-  if (biome === "forest") {
-    const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity);
-    if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false;
-    return placement > TREE_PLACEMENT_FOREST_THRESHOLD;
+  const placement = getTreePlacementCached(wx, wz, caches?.treePlacement)
+  if (biome === 'forest') {
+    const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity)
+    if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false
+    return placement > TREE_PLACEMENT_FOREST_THRESHOLD
   }
-  if (biome === "jungle") {
-    const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity);
-    if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false;
-    return placement > TREE_PLACEMENT_JUNGLE_THRESHOLD;
+  if (biome === 'jungle') {
+    const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity)
+    if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false
+    return placement > TREE_PLACEMENT_JUNGLE_THRESHOLD
   }
-  if (biome === "mountain")
-    return placement > TREE_PLACEMENT_MOUNTAIN_THRESHOLD;
-  if (
-    biome === "plains" ||
-    biome === "meadow" ||
-    biome === "savanna" ||
-    biome === "cherry_grove"
-  )
-    return placement > TREE_PLACEMENT_PLAINS_THRESHOLD;
-  if (biome === "windswept_forest") {
-    const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity);
-    if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false;
-    return placement > TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD;
+  if (biome === 'mountain') return placement > TREE_PLACEMENT_MOUNTAIN_THRESHOLD
+  if (biome === 'plains' || biome === 'meadow' || biome === 'savanna' || biome === 'cherry_grove')
+    return placement > TREE_PLACEMENT_PLAINS_THRESHOLD
+  if (biome === 'windswept_forest') {
+    const forestDensity = getForestDensityCached(wx, wz, caches?.forestDensity)
+    if (forestDensity <= FOREST_DENSITY_THRESHOLD) return false
+    return placement > TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD
   }
-  if (biome === "snow" || biome === "grove")
-    return placement > TREE_PLACEMENT_SNOW_THRESHOLD;
-  return false;
+  if (biome === 'snow' || biome === 'grove') return placement > TREE_PLACEMENT_SNOW_THRESHOLD
+  return false
 }
 
-function isLocalTreeMax(
-  wx: number,
-  wz: number,
-  treePlacementCache?: Map<string, number>
-): boolean {
-  const center = getTreePlacementCached(wx, wz, treePlacementCache);
+function isLocalTreeMax(wx: number, wz: number, treePlacementCache?: Map<string, number>): boolean {
+  const center = getTreePlacementCached(wx, wz, treePlacementCache)
   for (let dx = -1; dx <= 1; dx++) {
     for (let dz = -1; dz <= 1; dz++) {
-      if (dx === 0 && dz === 0) continue;
-      if (
-        getTreePlacementCached(wx + dx, wz + dz, treePlacementCache) >= center
-      )
-        return false;
+      if (dx === 0 && dz === 0) continue
+      if (getTreePlacementCached(wx + dx, wz + dz, treePlacementCache) >= center) return false
     }
   }
-  return true;
+  return true
 }
 
 function isTerrainFlatEnough(wx: number, wz: number): boolean {
-  const h = getHeight(wx, wz);
+  const h = getHeight(wx, wz)
   for (const [dx, dz] of [
     [-1, 0],
     [1, 0],
     [0, -1],
     [0, 1],
   ]) {
-    if (Math.abs(getHeight(wx + dx, wz + dz) - h) > TREE_MAX_SLOPE)
-      return false;
+    if (Math.abs(getHeight(wx + dx, wz + dz) - h) > TREE_MAX_SLOPE) return false
   }
-  return true;
+  return true
 }
 
 /** Whether a tree should be placed at (wx, wz): grass above water, biome, two-layer noise, spacing, no cliffs. */
-export function shouldPlaceTree(
-  wx: number,
-  wz: number,
-  caches?: TreeNoiseCaches
-): boolean {
-  const biome = getResolvedBiome(wx, wz);
-  if (biome === "desert") return false;
-  if (biome === "snow" || biome === "grove") return false;
-  const topY = getHeight(wx, wz);
-  if (topY < WATER_LEVEL) return false;
-  if (biome === "mountain" && topY >= WATER_LEVEL + 18) return false;
+export function shouldPlaceTree(wx: number, wz: number, caches?: TreeNoiseCaches): boolean {
+  const biome = getResolvedBiome(wx, wz)
+  if (biome === 'desert') return false
+  if (biome === 'snow' || biome === 'grove') return false
+  const topY = getHeight(wx, wz)
+  if (topY < WATER_LEVEL) return false
+  if (biome === 'mountain' && topY >= WATER_LEVEL + 18) return false
   if (
-    biome === "snowy_slopes" ||
-    biome === "stony_peaks" ||
-    biome === "frozen_peaks" ||
-    biome === "jagged_peaks" ||
-    biome === "windswept_hills" ||
-    biome === "windswept_gravelly_hills"
+    biome === 'snowy_slopes' ||
+    biome === 'stony_peaks' ||
+    biome === 'frozen_peaks' ||
+    biome === 'jagged_peaks' ||
+    biome === 'windswept_hills' ||
+    biome === 'windswept_gravelly_hills'
   )
-    return false;
-  const surfaceType = getSurfaceBlockAt(wx, wz, biome, topY);
+    return false
+  const surfaceType = getSurfaceBlockAt(wx, wz, biome, topY)
   if (
-    surfaceType !== "grass" &&
-    surfaceType !== "grass_snow" &&
-    surfaceType !== "grass_savanna" &&
-    surfaceType !== "dirt"
+    surfaceType !== 'grass' &&
+    surfaceType !== 'grass_snow' &&
+    surfaceType !== 'grass_savanna' &&
+    surfaceType !== 'dirt'
   )
-    return false;
-  if (!isTerrainFlatEnough(wx, wz)) return false;
-  if (!getTreePlacementPass(wx, wz, biome, caches)) return false;
-  if (!isLocalTreeMax(wx, wz, caches?.treePlacement)) return false;
-  return true;
+    return false
+  if (!isTerrainFlatEnough(wx, wz)) return false
+  if (!getTreePlacementPass(wx, wz, biome, caches)) return false
+  if (!isLocalTreeMax(wx, wz, caches?.treePlacement)) return false
+  return true
 }
 
-function shouldPlaceLeafAtCorner(
-  wx: number,
-  wz: number,
-  lx: number,
-  lz: number
-): boolean {
-  const v = treeSeedValue(wx + lx, wz + lz);
-  return v >= 0.5;
+function shouldPlaceLeafAtCorner(wx: number, wz: number, lx: number, lz: number): boolean {
+  const v = treeSeedValue(wx + lx, wz + lz)
+  return v >= 0.5
 }
 
 function getTreeShapeConfig(biome: Biome): TreeShapeConfig {
-  if (biome === "snow" || biome === "grove") return TREE_SHAPE_SNOW;
-  if (biome === "forest" || biome === "windswept_forest") return TREE_SHAPE_FOREST;
-  if (biome === "jungle") return TREE_SHAPE_JUNGLE;
-  if (biome === "mountain") return TREE_SHAPE_MOUNTAIN;
-  return TREE_SHAPE_DEFAULT;
+  if (biome === 'snow' || biome === 'grove') return TREE_SHAPE_SNOW
+  if (biome === 'forest' || biome === 'windswept_forest') return TREE_SHAPE_FOREST
+  if (biome === 'jungle') return TREE_SHAPE_JUNGLE
+  if (biome === 'mountain') return TREE_SHAPE_MOUNTAIN
+  return TREE_SHAPE_DEFAULT
 }
 
 function getIntInRange(min: number, max: number, sample: number): number {
-  const rangeMin = Math.min(min, max);
-  const rangeMax = Math.max(min, max);
-  return rangeMin + Math.floor(sample * (rangeMax - rangeMin + 1));
+  const rangeMin = Math.min(min, max)
+  const rangeMax = Math.max(min, max)
+  return rangeMin + Math.floor(sample * (rangeMax - rangeMin + 1))
 }
 
 function getFloatInRange(min: number, max: number, sample: number): number {
-  const rangeMin = Math.min(min, max);
-  const rangeMax = Math.max(min, max);
-  return rangeMin + sample * (rangeMax - rangeMin);
+  const rangeMin = Math.min(min, max)
+  const rangeMax = Math.max(min, max)
+  return rangeMin + sample * (rangeMax - rangeMin)
 }
 
 function clampValue(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+  return Math.max(min, Math.min(max, value))
 }
 
-function leafNoiseValue(
-  wx: number,
-  wz: number,
-  dx: number,
-  dy: number,
-  dz: number
-): number {
-  const sampleX = wx + dx * 17 + dy * 31;
-  const sampleZ = wz + dz * 17 - dy * 19;
-  return treeSeedValue(sampleX, sampleZ);
+function leafNoiseValue(wx: number, wz: number, dx: number, dy: number, dz: number): number {
+  const sampleX = wx + dx * 17 + dy * 31
+  const sampleZ = wz + dz * 17 - dy * 19
+  return treeSeedValue(sampleX, sampleZ)
 }
 
 function leafDistSq(dx: number, dy: number, dz: number): number {
-  return dx * dx + dy * dy + dz * dz;
+  return dx * dx + dy * dy + dz * dz
 }
 
 /**
@@ -649,103 +587,74 @@ export function getTreeBlocks(
   wx: number,
   baseY: number,
   wz: number,
-  biome: Biome
+  biome: Biome,
 ): {
-  wood: Array<{ x: number; y: number; z: number }>;
-  leaves: Array<{ x: number; y: number; z: number }>;
+  wood: Array<{ x: number; y: number; z: number }>
+  leaves: Array<{ x: number; y: number; z: number }>
 } {
-  const wood: Array<{ x: number; y: number; z: number }> = [];
-  const leaves: Array<{ x: number; y: number; z: number }> = [];
-  const shape = getTreeShapeConfig(biome);
-  const giantRoll = treeSeedValue(wx + 83, wz - 79);
-  const isGiant = giantRoll < shape.giantChance;
+  const wood: Array<{ x: number; y: number; z: number }> = []
+  const leaves: Array<{ x: number; y: number; z: number }> = []
+  const shape = getTreeShapeConfig(biome)
+  const giantRoll = treeSeedValue(wx + 83, wz - 79)
+  const isGiant = giantRoll < shape.giantChance
   const trunkHeight =
     getIntInRange(shape.trunkMin, shape.trunkMax, treeSeedValue(wx + 19, wz - 23)) +
-    (isGiant
-      ? getIntInRange(1, shape.giantTrunkBonusMax, treeSeedValue(wx - 97, wz + 101))
-      : 0);
+    (isGiant ? getIntInRange(1, shape.giantTrunkBonusMax, treeSeedValue(wx - 97, wz + 101)) : 0)
   const leafRadius =
-    getIntInRange(
-      shape.leafRadiusMin,
-      shape.leafRadiusMax,
-      treeSeedValue(wx - 31, wz + 13)
-    ) +
-    (isGiant
-      ? getIntInRange(
-          1,
-          shape.giantLeafRadiusBonusMax,
-          treeSeedValue(wx + 61, wz + 67)
-        )
-      : 0);
+    getIntInRange(shape.leafRadiusMin, shape.leafRadiusMax, treeSeedValue(wx - 31, wz + 13)) +
+    (isGiant ? getIntInRange(1, shape.giantLeafRadiusBonusMax, treeSeedValue(wx + 61, wz + 67)) : 0)
   const leafHeight =
-    getIntInRange(
-      shape.leafHeightMin,
-      shape.leafHeightMax,
-      treeSeedValue(wx + 7, wz + 37)
-    ) +
-    (isGiant
-      ? getIntInRange(
-          1,
-          shape.giantLeafHeightBonusMax,
-          treeSeedValue(wx - 73, wz - 89)
-        )
-      : 0);
+    getIntInRange(shape.leafHeightMin, shape.leafHeightMax, treeSeedValue(wx + 7, wz + 37)) +
+    (isGiant ? getIntInRange(1, shape.giantLeafHeightBonusMax, treeSeedValue(wx - 73, wz - 89)) : 0)
   const leafDensity =
-    getFloatInRange(
-      shape.leafDensityMin,
-      shape.leafDensityMax,
-      treeSeedValue(wx - 41, wz - 29)
-    ) +
+    getFloatInRange(shape.leafDensityMin, shape.leafDensityMax, treeSeedValue(wx - 41, wz - 29)) +
     (isGiant
       ? getFloatInRange(0, shape.giantDensityBonusMax, treeSeedValue(wx + 109, wz - 113))
-      : 0);
-  const canopyStyleSample = treeSeedValue(wx + 59, wz - 47);
-  const topY = baseY + trunkHeight;
-  const canopyCenterY = topY + Math.floor(leafHeight * 0.5);
-  const maxLeafDistSq = (leafRadius + 0.5) * (leafRadius + 0.5);
+      : 0)
+  const canopyStyleSample = treeSeedValue(wx + 59, wz - 47)
+  const topY = baseY + trunkHeight
+  const canopyCenterY = topY + Math.floor(leafHeight * 0.5)
+  const maxLeafDistSq = (leafRadius + 0.5) * (leafRadius + 0.5)
 
   for (let h = 1; h <= trunkHeight; h++) {
-    wood.push({ x: wx, y: baseY + h, z: wz });
+    wood.push({ x: wx, y: baseY + h, z: wz })
   }
   for (let dy = 0; dy < leafHeight; dy++) {
-    const y = topY + dy;
-    const layerT = leafHeight <= 1 ? 1 : dy / (leafHeight - 1);
-    const isCone = canopyStyleSample < 0.33;
-    const isWide = canopyStyleSample >= 0.66;
-    let r = leafRadius;
+    const y = topY + dy
+    const layerT = leafHeight <= 1 ? 1 : dy / (leafHeight - 1)
+    const isCone = canopyStyleSample < 0.33
+    const isWide = canopyStyleSample >= 0.66
+    let r = leafRadius
     if (isCone) {
-      r = Math.max(0, leafRadius - Math.floor(layerT * (leafRadius + 1)));
+      r = Math.max(0, leafRadius - Math.floor(layerT * (leafRadius + 1)))
     } else if (isWide) {
-      const extra = dy < Math.ceil(leafHeight * 0.5) ? 1 : 0;
-      r = leafRadius + extra - (dy === leafHeight - 1 ? 1 : 0);
+      const extra = dy < Math.ceil(leafHeight * 0.5) ? 1 : 0
+      r = leafRadius + extra - (dy === leafHeight - 1 ? 1 : 0)
     } else {
-      r = leafRadius - (layerT > 0.8 ? 1 : 0);
+      r = leafRadius - (layerT > 0.8 ? 1 : 0)
     }
-    r = Math.max(0, r);
-    const densityBias = isCone ? -0.12 * layerT : isWide ? 0.08 * (1 - layerT) : 0;
-    const effectiveLeafDensity = clampValue(leafDensity + densityBias, 0.35, 0.98);
+    r = Math.max(0, r)
+    const densityBias = isCone ? -0.12 * layerT : isWide ? 0.08 * (1 - layerT) : 0
+    const effectiveLeafDensity = clampValue(leafDensity + densityBias, 0.35, 0.98)
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
-        if (dx === 0 && dz === 0 && dy === 0) continue;
+        if (dx === 0 && dz === 0 && dy === 0) continue
         if (r > 0 && Math.abs(dx) === r && Math.abs(dz) === r) {
-          if (!shouldPlaceLeafAtCorner(wx, wz, dx, dz)) continue;
+          if (!shouldPlaceLeafAtCorner(wx, wz, dx, dz)) continue
         }
         if (
-          (biome === "forest" || biome === "jungle") &&
+          (biome === 'forest' || biome === 'jungle') &&
           leafDistSq(dx, y - canopyCenterY, dz) > maxLeafDistSq
         )
-          continue;
-        if (
-          !(dx === 0 && dz === 0) &&
-          leafNoiseValue(wx, wz, dx, dy, dz) > effectiveLeafDensity
-        ) {
-          continue;
+          continue
+        if (!(dx === 0 && dz === 0) && leafNoiseValue(wx, wz, dx, dy, dz) > effectiveLeafDensity) {
+          continue
         }
-        leaves.push({ x: wx + dx, y, z: wz + dz });
+        leaves.push({ x: wx + dx, y, z: wz + dz })
       }
     }
   }
-  return { wood, leaves };
+  return { wood, leaves }
 }
 
 /**
@@ -754,11 +663,11 @@ export function getTreeBlocks(
 export function generateTree(
   worldX: number,
   worldY: number,
-  worldZ: number
+  worldZ: number,
 ): {
-  wood: Array<{ x: number; y: number; z: number }>;
-  leaves: Array<{ x: number; y: number; z: number }>;
+  wood: Array<{ x: number; y: number; z: number }>
+  leaves: Array<{ x: number; y: number; z: number }>
 } {
-  const biome = getResolvedBiome(worldX, worldZ);
-  return getTreeBlocks(worldX, worldY, worldZ, biome);
+  const biome = getResolvedBiome(worldX, worldZ)
+  return getTreeBlocks(worldX, worldY, worldZ, biome)
 }

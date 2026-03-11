@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const jaggedPeaksTerrain: TerrainParams = {
   baseOffset: 10,
@@ -6,21 +6,21 @@ export const jaggedPeaksTerrain: TerrainParams = {
   detailFreq: 0.027,
   flatness: 0.2,
   mountainAllowed: true,
-};
+}
 
 export const jaggedPeaksLayers: LayerConfig = {
-  surface: "snow",
-  subsurface: "stone",
+  surface: 'snow',
+  subsurface: 'stone',
   subsurfaceDepth: 4,
-};
+}
 
 export const jaggedPeaksDefinition: BiomeDefinition = {
   blocks: {
-    surface: "snow",
-    subsurface: "stone",
+    surface: 'snow',
+    subsurface: 'stone',
     subsurfaceDepth: 4,
-    shore: "gravel",
-    underwater: "stone",
+    shore: 'gravel',
+    underwater: 'stone',
   },
   terrainParams: jaggedPeaksTerrain,
   multiNoise: {
@@ -38,4 +38,4 @@ export const jaggedPeaksDefinition: BiomeDefinition = {
       continentalness: 1.5,
     },
   },
-};
+}

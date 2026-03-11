@@ -1,4 +1,4 @@
-import type { TerrainParams, LayerConfig, BiomeDefinition } from "./types";
+import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const groveTerrain: TerrainParams = {
   baseOffset: 6,
@@ -6,21 +6,21 @@ export const groveTerrain: TerrainParams = {
   detailFreq: 0.022,
   flatness: 0.35,
   mountainAllowed: true,
-};
+}
 
 export const groveLayers: LayerConfig = {
-  surface: "snow",
-  subsurface: "dirt",
+  surface: 'snow',
+  subsurface: 'dirt',
   subsurfaceDepth: 3,
-};
+}
 
 export const groveDefinition: BiomeDefinition = {
   blocks: {
-    surface: "snow",
-    subsurface: "dirt",
+    surface: 'snow',
+    subsurface: 'dirt',
     subsurfaceDepth: 3,
-    shore: "sand",
-    underwater: "sand",
+    shore: 'sand',
+    underwater: 'sand',
   },
   terrainParams: groveTerrain,
-};
+}
