@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.0.6
+
+[compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.5...v0.0.6)
+
+### 🚀 Enhancements
+
+- **entities:** Add entity hit detection and extend game systems ([9981a74e](https://github.com/ilijanovic/voxely/commit/9981a74e))
+
+### 💅 Refactors
+
+- **terrain:** Surface stone height single source of truth ([1aa2c358](https://github.com/ilijanovic/voxely/commit/1aa2c358))
+
+### 📖 Documentation
+
+- Add JSDoc and clarify game systems ([49a20826](https://github.com/ilijanovic/voxely/commit/49a20826))
+- Update README with project structure and PROJECT_MAP link ([43519c85](https://github.com/ilijanovic/voxely/commit/43519c85))
+
+### 🏡 Chore
+
+- Add quality-manager skill, extend docs and game systems (recipes, inventory, fluid, terrain) ([b6d85e77](https://github.com/ilijanovic/voxely/commit/b6d85e77))
+
+### ❤️ Contributors
+
+- Ilijanovic <ilija.marijanovic@gmx.at>
+
 ## v0.0.5
 
 [compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.4...v0.0.5)
