@@ -26,6 +26,10 @@ const ALL_BIOMES: Biome[] = [
   'windswept_hills',
   'windswept_gravelly_hills',
   'windswept_forest',
+  'badlands',
+  'mushroom_fields',
+  'mangrove_swamp',
+  'old_growth_taiga',
 ]
 
 const BASE_LAND_BIOMES: Biome[] = [
@@ -36,6 +40,10 @@ const BASE_LAND_BIOMES: Biome[] = [
   'jungle',
   'mountain',
   'snow',
+  'badlands',
+  'mushroom_fields',
+  'mangrove_swamp',
+  'old_growth_taiga',
 ]
 
 function climateCenter(b: Biome): { temp: number; humidity: number } {

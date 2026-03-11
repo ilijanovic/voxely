@@ -383,7 +383,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 0, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: 1, blockHeight: bh },
+            { face: 0, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
             id,
           )
           continue
@@ -411,7 +411,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 1, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: 1, blockHeight: bh },
+            { face: 1, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
             id,
           )
           continue
@@ -501,7 +501,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 4, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: 1, blockHeight: bh },
+            { face: 4, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
             id,
           )
           continue
@@ -529,7 +529,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 5, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: 1, blockHeight: bh },
+            { face: 5, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
             id,
           )
           continue

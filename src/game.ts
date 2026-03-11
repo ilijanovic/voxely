@@ -1543,23 +1543,26 @@ function updateShadowCameraForPlayer(
 
 // ================= GAME LOOP =================
 
-// FPS-Anzeige (gleitender Durchschnitt) – Element wird in init() gesetzt, sobald DOM (Vue) bereit ist
+// FPS display (rolling average). fpsEl set in init(); lastFps passed to debug overlay.
 let fpsFrameCount = 0
 let fpsLastTime = performance.now()
 let fpsEl: HTMLElement | null = null
+/** Last computed FPS; updated every 500 ms, passed to terrain debug overlay when enabled. */
+let lastFps: number | null = null
 const terrainDebug: TerrainDebugState = createTerrainDebugState()
 
 /**
- * Applies pending spawn or load when worker chunks are ready, updates terrain debug overlay, and refreshes FPS display every 500 ms.
+ * Applies pending spawn or load when worker chunks are ready, updates terrain debug overlay (with FPS), and refreshes FPS display every 500 ms.
  */
 function updateFPSAndSpawn(time: number): void {
   applyPendingSpawnIfReady()
   applyPendingLoadIfReady()
-  updateTerrainDebugOverlaySystem(terrainDebug, time, player)
+  updateTerrainDebugOverlaySystem(terrainDebug, time, player, { fps: lastFps })
   fpsFrameCount++
   const fpsElapsed = time * 1000 - fpsLastTime
   if (fpsElapsed >= 500) {
     const fps = Math.round((fpsFrameCount * 1000) / fpsElapsed)
+    lastFps = fps
     if (fpsEl) fpsEl.textContent = `${fps} FPS`
     fpsFrameCount = 0
     fpsLastTime = time * 1000

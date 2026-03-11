@@ -15,6 +15,7 @@ A browser-based voxel game – procedurally generated worlds, mine and place blo
 
 ![Forest biome screenshot](docs/forest-biome.png)
 ![Gameplay at golden hour – forest, hotbar, chat](docs/gameplay-sunset.png)
+![Terrain debug overlay – windswept forest, FPS, biome and surface info](docs/terrain-debug-windswept-forest.png)
 
 ## Features
 

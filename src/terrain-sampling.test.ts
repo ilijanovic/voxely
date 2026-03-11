@@ -23,6 +23,10 @@ const ALL_BIOMES: Biome[] = [
   'windswept_hills',
   'windswept_gravelly_hills',
   'windswept_forest',
+  'badlands',
+  'mushroom_fields',
+  'mangrove_swamp',
+  'old_growth_taiga',
 ]
 
 describe('createTerrainSampling().getBiomeBlend', () => {

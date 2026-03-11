@@ -8,6 +8,10 @@ import {
   getResolvedBiome,
   getHeight,
   getBlockTypeAt,
+  getTemperature,
+  getHumidity,
+  getContinentalness,
+  getErosion,
   SURFACE_STONE_HEIGHT,
   MOUNTAIN_STONE_SURFACE_HEIGHT,
 } from '../../game-terrain'
@@ -176,10 +180,19 @@ export function createTerrainDebugOverlay(state: TerrainDebugState): void {
   state.el = el
 }
 
+/** Optional extra values passed from the game loop (e.g. FPS). */
+export interface TerrainDebugExtra {
+  fps?: number | null
+}
+
+/**
+ * Updates the terrain debug overlay with position, biome, climate, and optional FPS.
+ */
 export function updateTerrainDebugOverlay(
   state: TerrainDebugState,
   time: number,
   player: THREE.Group,
+  extra?: TerrainDebugExtra,
 ): void {
   if (!state.enabled || !state.el || !player) return
   if (time < state.nextUpdateAt) return
@@ -194,14 +207,24 @@ export function updateTerrainDebugOverlay(
   const loadedSurface = getBlockAt(wx, topY, wz)
   const reason = getSurfaceDecisionReason(biome, topY, finalSurface)
 
+  const temp = getTemperature(wx, wz)
+  const humidity = getHumidity(wx, wz)
+  const continentalness = getContinentalness(wx, wz)
+  const erosion = getErosion(wx, wz)
+  const fpsStr = extra?.fps != null ? String(extra.fps) : '--'
+  const fpsLine = `\nFPS: ${fpsStr}`
+
   state.el.textContent =
     `P Terrain Debug` +
+    fpsLine +
     `\nxyz: ${player.position.x.toFixed(1)} ${player.position.y.toFixed(
       1,
     )} ${player.position.z.toFixed(1)}` +
     `\ncolumn: ${wx}, ${wz}` +
     `\nbiome: ${biome}` +
     `\ntopY: ${topY}` +
+    `\ntemp: ${temp.toFixed(3)}  humidity: ${humidity.toFixed(3)}` +
+    `\ncontinentalness: ${continentalness.toFixed(3)}  erosion: ${erosion.toFixed(3)}` +
     `\nlayer.surface: ${layerSurface}` +
     `\nfinalSurface: ${finalSurface}` +
     `\nloaded@top: ${loadedSurface ?? 'unloaded'}` +

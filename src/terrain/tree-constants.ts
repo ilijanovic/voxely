@@ -28,11 +28,13 @@ export const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.88
 export const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93
 export const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97
 export const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
+/** Very sparse trees on snowy_slopes (high threshold so only a few conifers appear). */
+export const TREE_PLACEMENT_SNOWY_SLOPES_THRESHOLD = 0.88
 
 /** Max height difference between column and 4 neighbours for tree placement. */
 export const TREE_MAX_SLOPE = 2
 
-/** Biomes that do not get grass_snow at high elevation (WATER_LEVEL + 20). Used by game-terrain and terrain-sampling. */
+/** Biomes that do not get grass_snow at high elevation (WATER_LEVEL + 20). Used by game-terrain and terrain-sampling. Includes snow-peak biomes so they keep snow/ice, not grass_snow. */
 export const BIOMES_WITHOUT_GRASS_SNOW: ReadonlySet<Biome> = new Set([
   'desert',
   'savanna',
@@ -42,6 +44,13 @@ export const BIOMES_WITHOUT_GRASS_SNOW: ReadonlySet<Biome> = new Set([
   'windswept_forest',
   'meadow',
   'plains',
+  'frozen_peaks',
+  'jagged_peaks',
+  'snowy_slopes',
+  'badlands',
+  'mushroom_fields',
+  'mangrove_swamp',
+  'old_growth_taiga',
 ])
 
 /** Per-biome tree placement: use forest density check and threshold, or threshold only. */
@@ -62,6 +71,11 @@ export const TREE_PLACEMENT_CONFIG: Partial<Record<Biome, TreePlacementConfig>> 
   windswept_forest: { useForestDensity: true, threshold: TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD },
   snow: { useForestDensity: false, threshold: TREE_PLACEMENT_SNOW_THRESHOLD },
   grove: { useForestDensity: false, threshold: TREE_PLACEMENT_SNOW_THRESHOLD },
+  snowy_slopes: {
+    useForestDensity: false,
+    threshold: TREE_PLACEMENT_SNOWY_SLOPES_THRESHOLD,
+  },
+  old_growth_taiga: { useForestDensity: true, threshold: TREE_PLACEMENT_FOREST_THRESHOLD },
 }
 
 export interface TreeShapeConfig {
@@ -165,8 +179,10 @@ export const TREE_SHAPE_SNOW: TreeShapeConfig = {
 export const BIOME_TO_TREE_SHAPE: Partial<Record<Biome, TreeShapeConfig>> = {
   snow: TREE_SHAPE_SNOW,
   grove: TREE_SHAPE_SNOW,
+  snowy_slopes: TREE_SHAPE_SNOW,
   forest: TREE_SHAPE_FOREST,
   windswept_forest: TREE_SHAPE_FOREST,
+  old_growth_taiga: TREE_SHAPE_FOREST,
   jungle: TREE_SHAPE_JUNGLE,
   mountain: TREE_SHAPE_MOUNTAIN,
 }

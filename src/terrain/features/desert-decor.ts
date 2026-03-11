@@ -40,11 +40,13 @@ export function createDeadBushFeature(): FeatureFn {
         const topY = heightmap[lx][lz]
         if (topY <= WATER_LEVEL) continue
         const biome = biomeMap[lx][lz]
-        if (biome !== 'desert' && biome !== 'savanna') continue
+        if (biome !== 'desert' && biome !== 'savanna' && biome !== 'badlands') continue
 
         const surfaceKey = localKey(lx, topY, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as string
-        if (surfaceType !== 'sand') continue
+        const allowedForDeadBush =
+          surfaceType === 'sand' || (biome === 'badlands' && surfaceType === 'red_sand')
+        if (!allowedForDeadBush) continue
 
         const keyAbove = localKey(lx, topY + 1, lz)
         if (voxelMap[keyAbove]) continue
@@ -70,11 +72,13 @@ export function createCactusFeature(): FeatureFn {
         const topY = heightmap[lx][lz]
         if (topY <= WATER_LEVEL) continue
         const biome = biomeMap[lx][lz]
-        if (biome !== 'desert') continue
+        if (biome !== 'desert' && biome !== 'badlands') continue
 
         const surfaceKey = localKey(lx, topY, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as string
-        if (surfaceType !== 'sand') continue
+        const allowedForCactus =
+          surfaceType === 'sand' || (biome === 'badlands' && surfaceType === 'red_sand')
+        if (!allowedForCactus) continue
 
         const wx = worldX + lx
         const wz = worldZ + lz

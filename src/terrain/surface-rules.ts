@@ -5,7 +5,9 @@
 import type { Biome, BlockType } from '../types'
 import { WATER_LEVEL } from '../constants'
 import {
+  JAGGED_PEAKS_STONE_SLOPE_MIN,
   MOUNTAIN_STONE_SURFACE_HEIGHT,
+  SNOWY_SLOPES_STONE_SLOPE_MIN,
   SURFACE_STONE_HEIGHT,
 } from './surface-constants'
 import { BIOMES_WITHOUT_GRASS_SNOW } from './tree-constants'
@@ -44,7 +46,11 @@ export function getSurfaceBlockFromRules(
     topY >= SURFACE_STONE_HEIGHT &&
     biome !== 'frozen_peaks' &&
     biome !== 'jagged_peaks' &&
-    biome !== 'jungle'
+    biome !== 'jungle' &&
+    biome !== 'badlands' &&
+    biome !== 'mushroom_fields' &&
+    biome !== 'mangrove_swamp' &&
+    biome !== 'old_growth_taiga'
   )
     return 'stone'
 
@@ -60,13 +66,23 @@ export function getSurfaceBlockFromRules(
     return 'snow'
   }
 
+  if (biome === 'jagged_peaks' && (options.slope ?? 0) >= JAGGED_PEAKS_STONE_SLOPE_MIN)
+    return 'stone'
+
+  if (biome === 'snowy_slopes' && (options.slope ?? 0) >= SNOWY_SLOPES_STONE_SLOPE_MIN)
+    return 'stone'
+
   if (
     topY >= WATER_LEVEL + 20 &&
     !BIOMES_WITHOUT_GRASS_SNOW.has(biome)
   )
     return 'grass_snow'
 
-  if (effectiveSurface === 'snow') return 'grass_snow'
+  if (
+    effectiveSurface === 'snow' &&
+    !BIOMES_WITHOUT_GRASS_SNOW.has(biome)
+  )
+    return 'grass_snow'
   if (biome === 'savanna' && effectiveSurface === 'grass') return 'grass_savanna'
 
   if (

@@ -56,6 +56,11 @@ const TERRAIN_BLOCK_TYPES: (BlockType | 'air')[] = [
   'hay_block',
   'ice',
   'packed_ice',
+  'red_sand',
+  'mycelium',
+  'podzol',
+  'mud',
+  'coarse_dirt',
   // Flowing water: source + levels 1–7 (Minecraft-style spread)
   'water_source',
   'water_flowing_1',

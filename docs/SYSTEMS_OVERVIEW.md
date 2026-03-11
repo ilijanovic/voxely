@@ -95,7 +95,7 @@ For a breakdown of block type categories—solid, plant, crop, fluid—see [BLOC
 
 ## Entities (mobs)
 
-Entities spawn when a **chunk is loaded**. For each animal kind (e.g. sheep, pig, wolf), the spawn logic uses a **seeded RNG** per chunk and kind, then for each candidate position calls the world API’s **`getBiome(x,z)`**. Only positions whose biome is in that kind’s **`spawnBiomes`** get an entity (e.g. sheep: plains, forest, jungle, meadow; wolf: forest, jungle, mountain, snow, grove). So biomes directly control where mobs appear. Despawn happens when the chunk is unloaded.
+Entities spawn when a **chunk is loaded**. For each animal kind (e.g. sheep, pig, wolf), the spawn logic uses a **seeded RNG** per chunk and kind, then for each candidate position calls the world API’s **`getBiome(x,z)`**. Only positions whose biome is in that kind’s **`spawnBiomes`** get an entity (e.g. sheep: plains, forest, jungle, meadow; wolf: forest, jungle, mountain, snow, grove). Spawn height is taken from the world API’s **`getColumnSurfaceY(x,z)`** (or `getSurfaceY`; both denote the same surface height). So biomes directly control where mobs appear. Despawn happens when the chunk is unloaded.
 
 Hostile mobs and spawn rules (e.g. light level) are not implemented yet; they are design targets in [GAMEPLAY_LLM.md](./GAMEPLAY_LLM.md). Code: [src/entities/spawn.ts](../src/entities/spawn.ts) (`ANIMAL_DEFS`, `spawnEntitiesForChunk`).
 

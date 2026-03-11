@@ -137,7 +137,19 @@ describe('createChunkGenerator', () => {
 describe('getBiomeByClimate', () => {
   it('returns a base biome for any (temp, humidity) in [0,1]', () => {
     const base = getBiomeByClimate(0.5, 0.5)
-    expect(['desert', 'plains', 'savanna', 'forest', 'jungle', 'mountain', 'snow']).toContain(base)
+    expect([
+      'desert',
+      'plains',
+      'savanna',
+      'forest',
+      'jungle',
+      'mountain',
+      'snow',
+      'badlands',
+      'mushroom_fields',
+      'mangrove_swamp',
+      'old_growth_taiga',
+    ]).toContain(base)
   })
 
   it('low temp tends to snow', () => {
@@ -145,8 +157,8 @@ describe('getBiomeByClimate', () => {
     expect(b).toBe('snow')
   })
 
-  it('high temp low humidity tends to desert', () => {
+  it('high temp low humidity tends to desert or badlands', () => {
     const b = getBiomeByClimate(0.9, 0.1)
-    expect(b).toBe('desert')
+    expect(['desert', 'badlands']).toContain(b)
   })
 })

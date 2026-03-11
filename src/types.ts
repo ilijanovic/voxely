@@ -23,6 +23,10 @@ export type Biome =
   | 'windswept_hills'
   | 'windswept_gravelly_hills'
   | 'windswept_forest'
+  | 'badlands'
+  | 'mushroom_fields'
+  | 'mangrove_swamp'
+  | 'old_growth_taiga'
 
 /** Integer block position in world space. */
 export type BlockPos = { x: number; y: number; z: number }

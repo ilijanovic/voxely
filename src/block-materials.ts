@@ -297,6 +297,10 @@ const BIOME_GRASS_TEMP_HUMIDITY: Record<Biome, { temp: number; humidity: number 
   windswept_hills: { temp: 0.3, humidity: 0.5 },
   windswept_gravelly_hills: { temp: 0.3, humidity: 0.4 },
   windswept_forest: { temp: 0.2, humidity: 0.3 },
+  badlands: { temp: 1, humidity: 0.1 },
+  mushroom_fields: { temp: 0.5, humidity: 0.95 },
+  mangrove_swamp: { temp: 0.8, humidity: 0.95 },
+  old_growth_taiga: { temp: 0.2, humidity: 0.7 },
 }
 
 const TINT_BLEND_KERNEL_5_TAP: ReadonlyArray<readonly [number, number]> = Object.freeze([

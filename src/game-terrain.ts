@@ -24,7 +24,6 @@ import {
   TREE_SHAPE_NOISE_SCALE,
   JUNGLE_TREE_SHAPE_OFFSET_X,
   JUNGLE_TREE_SHAPE_OFFSET_Z,
-  BIOMES_WITHOUT_GRASS_SNOW,
   TREE_PLACEMENT_CONFIG,
   getTreeShapeConfigForBiome,
   type TreeShapeConfig,
@@ -108,6 +107,26 @@ export function getResolvedBiome(x: number, z: number): Biome {
 /** Surface block type at (biome, y, topY). Used by chunk generation and debug overlay. */
 export function getBlockTypeAt(biome: Biome, y: number, topY: number): BlockType {
   return terrainSampling.getBlockTypeAt(biome, y, topY)
+}
+
+/** Temperature at (x, z) in [0, 1]. Used by debug overlay. */
+export function getTemperature(x: number, z: number): number {
+  return terrainSampling.getTemperature(x, z)
+}
+
+/** Humidity at (x, z) in [0, 1]. Used by debug overlay. */
+export function getHumidity(x: number, z: number): number {
+  return terrainSampling.getHumidity(x, z)
+}
+
+/** Continentalness at (x, z) in [0, 1]. Used by debug overlay. */
+export function getContinentalness(x: number, z: number): number {
+  return terrainSampling.getContinentalness(x, z)
+}
+
+/** Erosion at (x, z). Used by debug overlay. */
+export function getErosion(x: number, z: number): number {
+  return terrainSampling.getErosion(x, z)
 }
 
 /** Foot half-extent for spawn surface search (matches player AABB in XZ). */

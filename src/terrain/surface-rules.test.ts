@@ -5,7 +5,9 @@
 import { describe, it, expect } from 'vitest'
 import { WATER_LEVEL } from '../constants'
 import {
+  JAGGED_PEAKS_STONE_SLOPE_MIN,
   MOUNTAIN_STONE_SURFACE_HEIGHT,
+  SNOWY_SLOPES_STONE_SLOPE_MIN,
   SURFACE_STONE_HEIGHT,
 } from './surface-constants'
 import { getSurfaceBlockFromRules } from './surface-rules'
@@ -53,5 +55,45 @@ describe('getSurfaceBlockFromRules', () => {
     expect(
       getSurfaceBlockFromRules('plains', 70, 'grass', { hasSnowNeighbor: true }),
     ).toBe('grass_snow')
+  })
+
+  it('returns stone for jagged_peaks when slope >= JAGGED_PEAKS_STONE_SLOPE_MIN', () => {
+    const topY = SURFACE_STONE_HEIGHT + 5
+    expect(
+      getSurfaceBlockFromRules('jagged_peaks', topY, 'snow', {
+        slope: JAGGED_PEAKS_STONE_SLOPE_MIN,
+      }),
+    ).toBe('stone')
+    expect(
+      getSurfaceBlockFromRules('jagged_peaks', topY, 'snow', { slope: 9 }),
+    ).toBe('stone')
+  })
+
+  it('returns snow for jagged_peaks when slope is below threshold', () => {
+    const topY = SURFACE_STONE_HEIGHT + 5
+    expect(
+      getSurfaceBlockFromRules('jagged_peaks', topY, 'snow', { slope: 0 }),
+    ).toBe('snow')
+    expect(
+      getSurfaceBlockFromRules('jagged_peaks', topY, 'snow', {
+        slope: JAGGED_PEAKS_STONE_SLOPE_MIN - 1,
+      }),
+    ).toBe('snow')
+  })
+
+  it('returns stone for snowy_slopes when slope >= SNOWY_SLOPES_STONE_SLOPE_MIN', () => {
+    expect(
+      getSurfaceBlockFromRules('snowy_slopes', WATER_LEVEL + 20, 'snow', {
+        slope: SNOWY_SLOPES_STONE_SLOPE_MIN,
+      }),
+    ).toBe('stone')
+  })
+
+  it('returns snow for snowy_slopes when slope is below threshold', () => {
+    expect(
+      getSurfaceBlockFromRules('snowy_slopes', WATER_LEVEL + 20, 'snow', {
+        slope: SNOWY_SLOPES_STONE_SLOPE_MIN - 1,
+      }),
+    ).toBe('snow')
   })
 })
