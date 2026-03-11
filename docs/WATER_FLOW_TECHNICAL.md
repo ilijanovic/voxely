@@ -60,12 +60,16 @@ In Java Edition, when:
 
 then that block is turned into a **new water source block**. This is how a 2×2 pool creates an "infinite" water source in the middle.
 
-### 2.5 Block Updates
+### 2.5 Block Updates (Scheduled Ticks vs Global Tick)
 
-- Flow is triggered by **post-placement updates** and **neighbour-changed updates**: when you place or remove a block next to water, that water block is scheduled for an update.
-- Fluids do **not** spread on random tick; they spread when they are in the "pending update" set. So the engine maintains a list (or queue) of fluid blocks that need to be processed.
+- In Minecraft, flow is triggered by **post-placement updates** and **neighbour-changed updates**: when you place or remove a block next to water, that water block is **scheduled for a tick**. Only blocks in this pending set are processed each tick; the game does not iterate every fluid block every tick.
+- This **scheduled-tick queue** gives deterministic propagation order and spreads load over time. Newly placed falling water is processed again immediately, so a column of air fills downward in one tick.
+- **Voxely** uses a **global tick**: every N game ticks, all water block positions in loaded chunks (and block mods) are collected and passed once to the spread function. No per-block queue. Simpler, but vertical fall is at most one block per tick per column unless we add internal sub-passes or sort order.
 
-For a simpler implementation, we can **tick all water blocks** in loaded chunks every N game ticks instead of maintaining an update queue; that still gives Minecraft-like behaviour.
+### 2.6 Level 8 ("Falling") in Minecraft
+
+- If bit 0x8 is set (level 8 or higher), the block is treated as **falling**: it spreads **only downward** and often renders as a full block. The lower bits are ignored for spread; this is mainly a rendering/behaviour flag.
+- Voxely does not implement level 8; falling water is represented as level 1–7 and spreads down and horizontally in the same pass.
 
 ---
 
@@ -133,3 +137,31 @@ So we do **not** fill caves below sea level with flowing water by default; only 
 | Save/Load         | Same as other blocks (blockModifications + chunk buffer) |
 
 This yields Minecraft-like water flow with minimal new systems and clear, testable rules.
+
+---
+
+## 6. Voxely vs Minecraft (Quick Reference)
+
+| Aspect            | Minecraft                          | Voxely                                      |
+|-------------------|------------------------------------|---------------------------------------------|
+| Level 0–7         | Yes                                | Yes                                         |
+| Level 8 falling   | Yes (render + down-only spread)    | No                                          |
+| Spread order      | Down first, then horizontal        | Same in one pass; order of positions matters |
+| Tick interval     | 5 ticks                           | 5 ticks                                     |
+| Update model      | Scheduled ticks per fluid block    | Global tick over all water positions        |
+| 2-source rule     | Yes                                | Yes                                         |
+| Chunk boundaries  | Only loaded chunks                 | Spread into null skipped                    |
+| "In water"       | Per-block (voxel)                  | Height-based only (WATER_LEVEL + height)     |
+
+---
+
+## 7. Known Gaps and Refactor Options
+
+- **Processing order:** Water positions are processed in iteration order (chunk/map). Sorting by **Y descending, then level ascending** makes "fall first" deterministic and can improve perceived behaviour.
+- **Vertical fall speed:** One block per tick per column; Minecraft falls multiple blocks per tick via scheduled updates. Option: multiple sub-passes for down-spread only, or prioritising positions with air below.
+- **Level 8 / falling:** Not implemented; optional for MC-accurate rendering or down-only spread.
+- **Update queue:** Replacing "tick all water" with a scheduled fluid queue would align with Minecraft and can reduce cost when little water is moving.
+- **"In water" and swimming:** Currently `isPlayerInWater()` uses only `WATER_LEVEL + WATER_BLOCK_HEIGHT`. Placed or flowing water above/below sea level does not trigger swimming, atmosphere, or step-up. A voxel-based check (AABB vs water blocks) would be needed for that.
+- **Entities:** No drowning, pathfinding around water, or "in water" for mobs; they fall through water blocks (non-solid).
+- **Water does not destroy blocks:** Spread only fills air or higher-level water; flowers, torches, etc. are not replaced. Minecraft can destroy some blocks when water flows in.
+- **Save/load:** Water blocks are stored in `blockModifications` and serialised as `placedBlocks`; flow resumes on next tick after load.

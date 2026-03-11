@@ -10,7 +10,7 @@ const FLOWER_NOISE_SEED = 919291
 /** Seed for "place flower or not" noise; must differ from FLOWER_NOISE_SEED so type and density are independent. */
 const FLOWER_PLACE_NOISE_SEED = 717171
 /** Fraction of eligible surface blocks that get any flower (0–1). Lower = sparser flowers. */
-const FLOWER_DENSITY = 0.18
+const FLOWER_DENSITY = 0.02
 const SURFACE_BLOCKS_FOR_FLOWERS: BlockType[] = ['grass', 'grass_snow', 'grass_savanna', 'dirt']
 
 function flowerNoiseKey(wx: number, wz: number): string {

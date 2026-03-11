@@ -12,7 +12,7 @@ import {
   getLandBiomeByClimate,
 } from './terrain/biomes'
 import { BIOME_LAYERS, BIOME_TERRAIN, BIOME_VALUE } from './terrain/biomes'
-import { BIOMES_WITHOUT_GRASS_SNOW } from './terrain/tree-constants'
+import { getSurfaceBlockFromRules } from './terrain/surface-rules'
 import { makeSeededRandom } from './terrain/utils'
 
 const BASE_HEIGHT = 64
@@ -39,8 +39,6 @@ const COLD_HIGHLAND_TEMP_MAX = 0.42
 const COLD_UPLAND_TEMP_MAX = 0.5
 const HIGHLAND_VARIANT_SCALE = 0.004
 const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55
-const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26
-const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16
 const PEAK_Y_MIN = WATER_LEVEL + 30
 const PEAK_Y_RANGE = 24
 const HEIGHT_TRANSITION_SCALE = 0.0016
@@ -425,18 +423,7 @@ export function createTerrainSampling(seed: number) {
     if (y === topY) {
       const surface = layers.surface
       if (surface === 'snow' && topY <= WATER_LEVEL + 2) return 'sand'
-      if (
-        (biome === 'mountain' || biome === 'windswept_hills' || biome === 'windswept_forest') &&
-        topY >= MOUNTAIN_STONE_SURFACE_HEIGHT
-      )
-        return 'stone'
-      if (biome === 'meadow' && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return 'stone'
-      if (topY >= SURFACE_STONE_HEIGHT && biome !== 'frozen_peaks' && biome !== 'jagged_peaks')
-        return 'stone'
-      if (topY >= WATER_LEVEL + 20 && !BIOMES_WITHOUT_GRASS_SNOW.has(biome)) return 'grass_snow'
-      if (surface === 'snow') return 'grass_snow'
-      if (biome === 'savanna' && surface === 'grass') return 'grass_savanna'
-      return surface
+      return getSurfaceBlockFromRules(biome, topY, surface)
     }
     if (y >= topY - layers.subsurfaceDepth) return layers.subsurface
     return 'stone'

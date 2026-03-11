@@ -27,6 +27,17 @@ function isEmpty(id: number): boolean {
   return id === 0 || id === CARVED_ID
 }
 
+/**
+ * True if a face from block id toward neighbor nid should be drawn.
+ * We draw when the neighbor is air/carved OR when it is a different block type,
+ * so boundaries between e.g. dirt and stone are visible (no "solid holes").
+ * Do not reduce to isEmpty(nid) only – that causes visible holes with correct collision.
+ * See chunk-payload-contract.test.ts "draws faces between different block types".
+ */
+function isFaceVisibleTowardNeighbor(id: number, nid: number): boolean {
+  return isEmpty(nid) || nid !== id
+}
+
 function getNeighborId(
   buffer: Uint8Array,
   i: number,
@@ -325,7 +336,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
 
     for (let f: FaceIndex = 0 as FaceIndex; f < 6; f = (f + 1) as FaceIndex) {
       const nid = getNeighborId(buffer, i, lx, ly, lz, f)
-      if (isEmpty(nid)) {
+      if (isFaceVisibleTowardNeighbor(id, nid)) {
         anyVisible = true
       }
     }
@@ -368,7 +379,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         if (isEmpty(id)) continue
         if (isWaterBlockId(id)) continue
         const nid = lx + 1 < CHUNK_SIZE ? buffer[i + 1] : 0
-        if (!isEmpty(nid)) continue
+        if (!isFaceVisibleTowardNeighbor(id, nid)) continue
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
@@ -396,7 +407,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         if (isEmpty(id)) continue
         if (isWaterBlockId(id)) continue
         const nid = lx - 1 >= 0 ? buffer[i - 1] : 0
-        if (!isEmpty(nid)) continue
+        if (!isFaceVisibleTowardNeighbor(id, nid)) continue
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
@@ -427,7 +438,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         if (isEmpty(id)) continue
         if (isWaterBlockId(id)) continue
         const nid = ly + 1 < WORLD_HEIGHT ? buffer[i + STRIDE_Y] : 0
-        if (!isEmpty(nid)) continue
+        if (!isFaceVisibleTowardNeighbor(id, nid)) continue
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
@@ -455,7 +466,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         if (isEmpty(id)) continue
         if (isWaterBlockId(id)) continue
         const nid = ly - 1 >= 0 ? buffer[i - STRIDE_Y] : 0
-        if (!isEmpty(nid)) continue
+        if (!isFaceVisibleTowardNeighbor(id, nid)) continue
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
@@ -486,7 +497,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         if (isEmpty(id)) continue
         if (isWaterBlockId(id)) continue
         const nid = lz + 1 < CHUNK_SIZE ? buffer[i + STRIDE_Z] : 0
-        if (!isEmpty(nid)) continue
+        if (!isFaceVisibleTowardNeighbor(id, nid)) continue
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
@@ -514,7 +525,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         if (isEmpty(id)) continue
         if (isWaterBlockId(id)) continue
         const nid = lz - 1 >= 0 ? buffer[i - STRIDE_Z] : 0
-        if (!isEmpty(nid)) continue
+        if (!isFaceVisibleTowardNeighbor(id, nid)) continue
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
@@ -593,7 +604,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     let anyVisible = false
     for (let f: FaceIndex = 0 as FaceIndex; f < 6; f = (f + 1) as FaceIndex) {
       const nid = getNeighborId(buffer, i, lx, ly, lz, f)
-      if (isEmpty(nid)) {
+      if (isFaceVisibleTowardNeighbor(id, nid)) {
         anyVisible = true
         break
       }

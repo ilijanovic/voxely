@@ -40,8 +40,19 @@ export const RENDER_DISTANCE_SQ = RENDER_DISTANCE * RENDER_DISTANCE
 /** World height in blocks (Y 0 to WORLD_HEIGHT), like original Minecraft. */
 export const WORLD_HEIGHT = 128
 
+/**
+ * Fog range is scaled with render distance (chunks). Near = start of fog; far = full fog at horizon.
+ * Higher FOG_NEAR_CHUNK_FACTOR starts fog later so the blue haze is confined to the far distance (avoids terrain looking foggy while trees stay clear).
+ */
+export const FOG_NEAR_CHUNK_FACTOR = 0.95
+/** Multiplier for fog far distance in chunks (slightly beyond render distance for smooth fade). */
+export const FOG_FAR_CHUNK_FACTOR = 1.15
+
 /** Global water level (block Y). Same as classic Minecraft (~sea level). */
 export const WATER_LEVEL = 64
+
+/** Minimum blocks of solid terrain between cave ceiling and surface. Avoids caves opening directly under grass. */
+export const MIN_CAVE_DEPTH_BELOW_SURFACE = 5
 /** Max block Y for filling broken blocks with water (hole in ocean/lake). Blocks at or below this Y get water when broken. */
 export const WATER_FILL_MAX_Y = WATER_LEVEL
 

@@ -98,6 +98,8 @@ All **pure** terrain logic (no THREE, no DOM) lives under **`src/terrain/`**:
 
 ### Biomes
 
+For a single overview of all biomes, scale/size, spawn probability, and highland logic, see **[docs/BIOMES.md](docs/BIOMES.md)**.
+
 Registry: **`terrain/biomes/index.ts`** (exports `BIOME_TERRAIN`, `BIOME_LAYERS`, `BIOME_REGISTRY`), types in **`terrain/biomes/types.ts`**, runtime registry in **`terrain/biomes/registry.ts`**.
 
 Per-biome files in `terrain/biomes/`:

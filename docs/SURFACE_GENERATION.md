@@ -73,19 +73,19 @@ So the “top” of the terrain is always at topY; stratigraphy fills upward to 
 
 ### 4.2 getSurfaceBlock (order of checks)
 
-Implemented in [`src/terrain/index.ts`](src/terrain/index.ts) (around lines 699–795). The following order is authoritative:
+The worker’s `getSurfaceBlock` is implemented in [`src/terrain/index.ts`](src/terrain/index.ts): it handles underwater, shore, and blend (steps 1–4), then calls [`getSurfaceBlockFromRules`](src/terrain/surface-rules.ts) for the rest. The following order is authoritative:
 
 1. **Underwater:** `topY < WATER_LEVEL` → `def.blocks.underwater`.
 2. **Shore band:** `WATER_LEVEL - 1 ≤ topY ≤ WATER_LEVEL + 1` → `def.blocks.shore`.
 3. **Coast blend (ocean ↔ land):** If `getBiomeBlendAt` has primary=ocean and secondary≠ocean, dither between land’s surface and `sand` using `detailNoise2D` and blend `t`.
 4. **Land biome boundary:** If primary≠secondary, both not ocean, and **both not desert** (Minecraft-style: no dithering when desert is involved—sharp sand/grass boundary), and the two surfaces differ and `0.1 < t < 0.9`, dither between the two surface types with `detailNoise2D`.
-5. **Stone by height (mountains / highland):** If (mountain or windswept_hills or windswept_forest) and `topY >= MOUNTAIN_STONE_SURFACE_HEIGHT` (WATER_LEVEL + 16) → `stone`. If meadow and `topY >= MOUNTAIN_STONE_SURFACE_HEIGHT` → `stone`. If `topY >= SURFACE_STONE_HEIGHT` (WATER_LEVEL + 26) and biome is not frozen_peaks or jagged_peaks → `stone`.
+5. **Stone by height (mountains / highland):** If (mountain or windswept_hills or windswept_forest) and `topY >= MOUNTAIN_STONE_SURFACE_HEIGHT` (WATER_LEVEL + 16) → `stone`. If meadow and `topY >= MOUNTAIN_STONE_SURFACE_HEIGHT` → `stone`. If `topY >= SURFACE_STONE_HEIGHT` (WATER_LEVEL + 26) and biome is not frozen_peaks, jagged_peaks, or jungle → `stone`.
 6. **Frozen peaks:** Uses `getMaxSlopeDelta` (max of cardinal height differences). Steep/verySteep thresholds (6 and 9), high = `topY >= WATER_LEVEL + 30`. Then packed_ice / ice / snow by slope and noise.
 7. **Snow at altitude:** If `topY >= WATER_LEVEL + 20` and biome is not in the “warm/low” set (desert, savanna, mountain, jungle, cherry_grove, windswept_forest, meadow, plains) → `grass_snow`.
 8. **Biome default variants:** If surface is snow → `grass_snow`. If savanna and surface is grass → `grass_savanna`. If surface is grass and any 3×3 neighbor (via `getResolvedBiome`) is in `SNOW_BIOMES` → `grass_snow`.
 9. **Default:** `def.blocks.surface`.
 
-Relevant constants (see also §6): `WATER_LEVEL` (64), `MOUNTAIN_STONE_SURFACE_HEIGHT`, `SURFACE_STONE_HEIGHT`, `SNOW_BIOMES` = `['snow', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks', 'grove']`.
+Steps 5–9 are implemented in **[`src/terrain/surface-rules.ts`](src/terrain/surface-rules.ts)** (`getSurfaceBlockFromRules`). The worker’s `getSurfaceBlock` and main-thread `getSurfaceBlockAt` apply underwater/shore/blend first, then call this shared function. Relevant constants (see §6): `WATER_LEVEL` (64), `MOUNTAIN_STONE_SURFACE_HEIGHT`, `SURFACE_STONE_HEIGHT`, `SNOW_BIOMES` = `['snow', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks', 'grove']`.
 
 ---
 
@@ -97,7 +97,7 @@ Each biome defines a **BiomeBlockSet** ([`src/terrain/biomes/types.ts`](src/terr
 
 ## 6. Constants and dependencies
 
-- **Constants:** `WATER_LEVEL`, `WORLD_HEIGHT`, `CHUNK_SIZE` ([`src/constants.ts`](src/constants.ts)); terrain-intern in [`src/terrain/index.ts`](src/terrain/index.ts): `MOUNTAIN_STONE_SURFACE_HEIGHT`, `SURFACE_STONE_HEIGHT`, `COAST_BLEND_BAND`, `SNOW_BIOMES`. The same height thresholds are used in [`src/game-terrain.ts`](src/game-terrain.ts) and [`src/terrain-sampling.ts`](src/terrain-sampling.ts) for runtime/sampling; they must stay in sync (see §8).
+- **Constants:** `WATER_LEVEL`, `WORLD_HEIGHT`, `CHUNK_SIZE` ([`src/constants.ts`](src/constants.ts)). **Surface height thresholds** are defined in **[`src/terrain/surface-constants.ts`](src/terrain/surface-constants.ts)** (`MOUNTAIN_STONE_SURFACE_HEIGHT`, `SURFACE_STONE_HEIGHT`). The worker ([`terrain/index.ts`](src/terrain/index.ts)), [`game-terrain.ts`](src/game-terrain.ts) (which re-exports them for e.g. debug), and [`terrain-sampling.ts`](src/terrain-sampling.ts) import from this single source. `COAST_BLEND_BAND`, `SNOW_BIOMES` remain local to the worker where used.
 - **Stage 3** needs heightmap, biomeMap, BIOME_REGISTRY, and the optional `getSurfaceBlock`. `getSurfaceBlock` needs heightmap, biomeMap, `getHeightUncached` (for slope), `getBiomeBlendAt`, and `getResolvedBiome` (for grass_snow neighbor check).
 
 ---
@@ -108,15 +108,15 @@ Each biome defines a **BiomeBlockSet** ([`src/terrain/biomes/types.ts`](src/terr
 
 **Same seed and same coordinates (x, z) ⇒ same surface Y and same surface block.** All values come from deterministic noise or hashing (seed + coordinates). No `Math.random()` in terrain.
 
-### 7.2 Three places with surface logic (sync risk)
+### 7.2 Single source of truth for surface rules
 
-Surface block logic exists in **three** places and must be kept consistent:
+**Authoritative logic** for surface block rules (stone-by-height, frozen_peaks, grass_snow, etc.) lives in **[`src/terrain/surface-rules.ts`](src/terrain/surface-rules.ts)** (`getSurfaceBlockFromRules`). Callers:
 
-- **Worker (authoritative):** [`src/terrain/index.ts`](src/terrain/index.ts) — `getSurfaceBlock` used by Stage 3.
-- **Main-thread runtime:** [`src/game-terrain.ts`](src/game-terrain.ts) — `getSurfaceBlockAt` (e.g. spawn, block queries).
-- **Pure sampling:** [`src/terrain-sampling.ts`](src/terrain-sampling.ts) — same formulas as worker; `getHeight` is injected.
+- **Worker:** [`src/terrain/index.ts`](src/terrain/index.ts) — `getSurfaceBlock` used by Stage 3 applies underwater/shore/blend, then calls `getSurfaceBlockFromRules` with slope and neighbor options. This is authoritative for **chunk content** when chunks are generated in the worker.
+- **Main-thread runtime:** [`src/game-terrain.ts`](src/game-terrain.ts) — `getSurfaceBlockAt` does the same (blend then `getSurfaceBlockFromRules`); used for spawn, trees, block queries.
+- **Pure sampling:** [`src/terrain-sampling.ts`](src/terrain-sampling.ts) — `getBlockTypeAt` uses `getSurfaceBlockFromRules` for the surface layer (no slope/neighbor options in the simplified path). Used by sync chunk generation and debug.
 
-If you change surface rules (e.g. add a new override or change a threshold), update **all three** places. Lists like `SNOW_BIOMES` must match everywhere (e.g. worker uses `SNOW_BIOMES` including `jagged_peaks`; any inline list in game-terrain or terrain-sampling must include the same set).
+When changing surface rules or exemptions (e.g. global_height_to_stone, jungle), change **only** [`surface-rules.ts`](src/terrain/surface-rules.ts). For height thresholds, change **[`surface-constants.ts`](src/terrain/surface-constants.ts)**.
 
 ### 7.3 CURRENT only — no TARGET
 
@@ -130,13 +130,14 @@ This doc describes **generated** surface (what Stage 3 writes into the chunk). A
 
 **Surface Y** is the top **terrain** voxel (solid). Water is filled separately (e.g. in chunk-apply). If `topY < WATER_LEVEL`, the terrain surface is still at topY (e.g. sand/gravel); water sits above it. Do not confuse “surface” with “water surface”.
 
-### 7.6 Constants in multiple files
+### 7.6 Constants: single source
 
-`MOUNTAIN_STONE_SURFACE_HEIGHT`, `SURFACE_STONE_HEIGHT`, and the set of snow biomes appear in `terrain/index.ts`, `game-terrain.ts`, and `terrain-sampling.ts`. When changing these, update all copies so behaviour stays consistent across generation and runtime/sampling.
+`MOUNTAIN_STONE_SURFACE_HEIGHT` and `SURFACE_STONE_HEIGHT` are defined in **[`src/terrain/surface-constants.ts`](src/terrain/surface-constants.ts)** and imported by the worker, game-terrain, and terrain-sampling. Change them only there.
 
 ### 7.7 When changing surface logic
 
-- Implement the change in **all three** locations (terrain/index.ts, game-terrain.ts, terrain-sampling.ts) or document clearly which place is the single source of truth.
+- **Rules (stone-by-height, frozen_peaks, grass_snow, exemptions):** Change **[`src/terrain/surface-rules.ts`](src/terrain/surface-rules.ts)** only.
+- **Height thresholds:** Change **[`src/terrain/surface-constants.ts`](src/terrain/surface-constants.ts)** only.
 - Update **this document** if the order of checks or the rules change.
 - Run **tests:** `npm run test:run` (includes pipeline, chunk-payload contract, terrain-sampling). If payload or contracts change, run `npm run build` as well.
 - Follow [.cursor/rules/terrain-biome-integrity.mdc](../.cursor/rules/terrain-biome-integrity.mdc) for terrain/biome edits (contract, tests, build).

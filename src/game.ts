@@ -13,6 +13,8 @@ import {
   ENTITY_ATTACK_DISTANCE,
   DAMAGE_PER_SLASH,
   shouldFillBrokenBlockWithWater,
+  FOG_NEAR_CHUNK_FACTOR,
+  FOG_FAR_CHUNK_FACTOR,
 } from './constants'
 import {
   getSelectedBlockType,
@@ -131,7 +133,7 @@ import {
   getBlockAt,
   getBlockModsForChunk,
 } from './chunk-runtime'
-import { isWaterBlock, computeWaterSpread } from './game/fluid/water-flow'
+import { isWaterBlock, getWaterLevel, computeWaterSpread } from './game/fluid/water-flow'
 import { isPendingSpawnReady } from './game/player/pending-spawn'
 import { RaycastMeshCache } from './game/chunks/raycast-cache'
 import { initChunkWorkerClient, type ChunkWorkerClient } from './game/chunks/chunk-worker-client'
@@ -728,7 +730,8 @@ function createPlayer(scene: THREE.Scene) {
 }
 
 // ================= POV HAND =================
-// Camera looks along -Z; arm is lower-right. Held items use depthTest: false so they always draw in front of the arm.
+// Camera looks along -Z; arm is lower-right. Held weapon pivot is at hilt (geom.translate) so swing rotates at hand.
+// Weapons use depthTest: true and HELD_WEAPON_OFFSET_Z so the sword stays in front of the arm.
 
 /** POV arm dimensions (slim so it reads as an arm, not a block). */
 const POV_ARM_WIDTH = 0.06
@@ -746,14 +749,12 @@ const POV_HAND_OFFSET_Z = 0
 const HELD_BLOCK_SCALE = 0.2
 /** Size of held item in first-person (e.g. sword); 1:1 aspect to avoid stretching square item textures. */
 const HELD_ITEM_SIZE = 0.32
-/** Held weapon/tool: offset so grip is at hand (Y = half size puts quad bottom at hand), blade in front. */
-const HELD_ITEM_OFFSET_X = 0
-const HELD_ITEM_OFFSET_Y = HELD_ITEM_SIZE * 0.5
-const HELD_ITEM_OFFSET_Z = 0.06
-/** Held sword tilt: Y = face camera (Math.PI), Z = blade-up, X = slight forward tilt so grip sits in hand. */
+/** Held weapon: Z offset so sword sits in front of arm (no clipping with depthTest). */
+const HELD_WEAPON_OFFSET_Z = 0.08
+/** Held sword: pivot at bottom center (hilt). Y = face camera, X = slight tilt, Z = slight lean so blade reads vertical on screen. */
 const HELD_SWORD_TILT_Y_RAD = Math.PI
-const HELD_SWORD_TILT_Z_DEG = -18
-const HELD_SWORD_TILT_X_DEG = 5
+const HELD_SWORD_TILT_Z_RAD = -0.35
+const HELD_SWORD_TILT_X_DEG = 8
 /** Cache of held-item meshes by block type (block or item id). */
 const heldItemMeshCache = new Map<string, THREE.Mesh>()
 /** Container for the currently held item (child of POV arm). Set in createPOVHands. */
@@ -768,19 +769,19 @@ function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
 
   const itemTex = getItemTextureName(blockType)
   if (itemTex) {
-    // Weapon/tool: single quad with 1:1 aspect so the item texture is not stretched and shows once (no box faces).
-    // depthTest: false so the item always draws in front of the arm (no clipping).
+    // Weapon/tool: single quad; origin at bottom center (hilt) so swing pivots at hand.
     const geom = new THREE.PlaneGeometry(HELD_ITEM_SIZE, HELD_ITEM_SIZE)
+    geom.translate(0, HELD_ITEM_SIZE / 2, 0)
     const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
-      depthTest: false,
-      depthWrite: false,
+      depthTest: true,
+      depthWrite: true,
       transparent: true,
       opacity: 1,
       side: THREE.DoubleSide,
     })
     mesh = new THREE.Mesh(geom, mat)
-    mesh.renderOrder = 1000
+    mesh.renderOrder = 10000
     loadItemTextureSafe(itemTex).then((tex) => {
       setPixelFilter(tex)
       tex.wrapS = THREE.ClampToEdgeWrapping
@@ -792,11 +793,12 @@ function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
     mesh.rotation.set(
       THREE.MathUtils.degToRad(HELD_SWORD_TILT_X_DEG),
       HELD_SWORD_TILT_Y_RAD,
-      THREE.MathUtils.degToRad(HELD_SWORD_TILT_Z_DEG),
+      HELD_SWORD_TILT_Z_RAD,
     )
-    mesh.position.set(HELD_ITEM_OFFSET_X, HELD_ITEM_OFFSET_Y, HELD_ITEM_OFFSET_Z)
+    mesh.position.set(0, 0, HELD_WEAPON_OFFSET_Z)
   } else {
-    // Block: small cube with block texture
+    // Block: small cube with block texture. Use transparent: true so it is sorted with transparents
+    // and drawn after water/flowers (high renderOrder), avoiding world geometry in front of the held block.
     const names = getBlockTextureNames(blockType)
     const texName = names[0] ?? 'stone'
     const geom = new THREE.BoxGeometry(HELD_BLOCK_SCALE, HELD_BLOCK_SCALE, HELD_BLOCK_SCALE)
@@ -804,9 +806,12 @@ function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
       color: 0xffffff,
       depthTest: false,
       depthWrite: false,
+      transparent: true,
+      opacity: 1,
     })
     mesh = new THREE.Mesh(geom, mat)
-    mesh.renderOrder = 1000
+    /** Above world transparents (water, flowers) so the held block always draws in front. */
+    mesh.renderOrder = 10000
     loadTextureSafe(texName).then((tex) => {
       setPixelFilter(tex)
       tex.colorSpace = THREE.SRGBColorSpace
@@ -1608,13 +1613,14 @@ function updateDayCycleAndAtmosphere(dt: number): void {
   }
 
   // Tune fog range to render distance so far LOD fades into the sky cleanly.
+  // Fog starts later (FOG_NEAR_CHUNK_FACTOR) so distant terrain and trees are fogged consistently.
   if (scene.fog && 'far' in scene.fog) {
     // If underwater, atmosphere sets a short fog range; keep that.
     if (scene.fog.far > 50) {
       const rd = getRenderDistance()
       const farStart = Math.max(2, rd - 2)
-      scene.fog.near = Math.max(10, farStart * CHUNK_SIZE * 0.8)
-      scene.fog.far = Math.max(scene.fog.near + 10, rd * CHUNK_SIZE * 1.15)
+      scene.fog.near = Math.max(10, farStart * CHUNK_SIZE * FOG_NEAR_CHUNK_FACTOR)
+      scene.fog.far = Math.max(scene.fog.near + 10, rd * CHUNK_SIZE * FOG_FAR_CHUNK_FACTOR)
     }
   }
   syncTerrainFogFromSceneFog(scene)
@@ -1650,11 +1656,23 @@ function updateChunkVisibility(): void {
 const WATER_ENTRY_OFFSET = PLAYER_HEIGHT * 0.2
 
 /**
- * True when the player is considered submerged (below water surface). Uses height-based check; water is not stored as voxels.
+ * True when the player is considered submerged in water. Requires both being below the global water surface and
+ * actually occupying a water voxel (so caves below sea level are not treated as water).
  */
 function isPlayerInWater(): boolean {
   const waterSurfaceY = WATER_LEVEL + WATER_BLOCK_HEIGHT
-  return player.position.y + WATER_ENTRY_OFFSET < waterSurfaceY
+  if (player.position.y + WATER_ENTRY_OFFSET >= waterSurfaceY) return false
+
+  const bx = Math.floor(player.position.x)
+  const bz = Math.floor(player.position.z)
+  const byFeet = Math.floor(player.position.y)
+  const byHead = Math.floor(player.position.y + PLAYER_HEIGHT - 0.01)
+
+  for (let by = byFeet; by <= byHead; by++) {
+    const block = getBlockAt(bx, by, bz)
+    if (block !== null && isWaterBlock(block)) return true
+  }
+  return false
 }
 
 /**
@@ -2158,6 +2176,14 @@ function runWaterFlowTick(time: number): void {
     waterPositions.push({ bx, by, bz })
   }
 
+  // Process higher blocks first, then lower water level (source before flowing) for deterministic "fall first" behaviour.
+  waterPositions.sort((a, b) => {
+    if (a.by !== b.by) return b.by - a.by
+    const levelA = getWaterLevel(getBlockAt(a.bx, a.by, a.bz) ?? 'air')
+    const levelB = getWaterLevel(getBlockAt(b.bx, b.by, b.bz) ?? 'air')
+    return levelA - levelB
+  })
+
   const changes = computeWaterSpread({
     getBlockAt,
     isSolid: isBlockTypeSolid,
@@ -2196,6 +2222,14 @@ function runWaterSpreadFromNeighbors(bx: number, by: number, bz: number): void {
     if (t !== null && isWaterBlock(t)) waterPositions.push({ bx: nx, by: ny, bz: nz })
   }
   if (waterPositions.length === 0) return
+
+  // Same order as periodic tick: higher Y first, then lower level first.
+  waterPositions.sort((a, b) => {
+    if (a.by !== b.by) return b.by - a.by
+    const levelA = getWaterLevel(getBlockAt(a.bx, a.by, a.bz) ?? 'air')
+    const levelB = getWaterLevel(getBlockAt(b.bx, b.by, b.bz) ?? 'air')
+    return levelA - levelB
+  })
 
   const changes = computeWaterSpread({
     getBlockAt,

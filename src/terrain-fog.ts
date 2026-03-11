@@ -1,5 +1,8 @@
 import * as THREE from 'three'
 
+/** Softer than quadratic (2): same distance gets less fog so terrain and trees fade more evenly. */
+const FOG_CURVE_EXPONENT = 1.4
+
 export const terrainFogState = {
   color: new THREE.Color(0x87ceeb),
   start: 80,
@@ -35,7 +38,7 @@ uniform float uTerrainFogEnd;`,
         '#include <fog_fragment>',
         `#ifdef USE_FOG
   float terrainFogFactor = smoothstep(uTerrainFogStart, uTerrainFogEnd, vFogDepth);
-  terrainFogFactor *= terrainFogFactor;
+  terrainFogFactor = pow(terrainFogFactor, ${FOG_CURVE_EXPONENT});
   gl_FragColor.rgb = mix(gl_FragColor.rgb, uTerrainFogColor, terrainFogFactor);
 #endif`,
       )

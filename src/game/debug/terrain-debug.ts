@@ -134,7 +134,12 @@ export function getSurfaceDecisionReason(biome: Biome, topY: number, surface: Bl
     topY >= MOUNTAIN_STONE_SURFACE_HEIGHT
   )
     return 'mountain_height_to_stone'
-  if (topY >= SURFACE_STONE_HEIGHT && biome !== 'frozen_peaks' && biome !== 'jagged_peaks')
+  if (
+    topY >= SURFACE_STONE_HEIGHT &&
+    biome !== 'frozen_peaks' &&
+    biome !== 'jagged_peaks' &&
+    biome !== 'jungle'
+  )
     return 'global_height_to_stone'
   if (surface === 'grass_snow') return 'snow_surface_to_grass_snow'
   return 'default_biome_surface'

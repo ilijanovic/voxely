@@ -24,6 +24,13 @@ export interface Stage2SpaghettiDeps {
   steps: number
   /** Max Y for worm paths (don't carve above this). */
   maxY: number
+  /** Minimum blocks between cave ceiling and surface (avoids caves directly under grass). Default 0. */
+  minDepthBelowSurface?: number
+  /**
+   * Optional world-space surface height query used to cap carving at chunk edges.
+   * This helps avoid visible ceiling/floor steps where adjacent chunks have different surface heights.
+   */
+  getHeightAt?: (x: number, z: number) => number
 }
 
 /** Step along segment (blocks) so spheres of radius R overlap. */
@@ -41,7 +48,9 @@ function getWormPath(
   const rng = makeSeededRandom(seed + gx * 7901 + gz * 7919)
   const x0 = gx * cellSize + rng() * cellSize
   const z0 = gz * cellSize + rng() * cellSize
-  const y0 = Math.floor(8 + rng() * (maxY - 16)) || 8
+  const yRange = maxY - 16
+  const rawY0 = yRange > 0 ? 8 + rng() * yRange : 8
+  const y0 = Math.max(1, Math.min(maxY, Math.floor(rawY0)))
   const path: WormPoint[] = [{ x: x0, y: y0, z: z0 }]
   let x = x0,
     y = y0,
@@ -60,8 +69,13 @@ function getWormPath(
   return path
 }
 
-/** Check if worm path AABB intersects chunk AABB. */
-function wormIntersectsChunk(path: WormPoint[], worldX: number, worldZ: number): boolean {
+/** Check if worm path AABB (expanded by carve radius) intersects chunk AABB. */
+function wormIntersectsChunk(
+  path: WormPoint[],
+  worldX: number,
+  worldZ: number,
+  radius: number,
+): boolean {
   let minX = path[0].x,
     maxX = path[0].x
   let minZ = path[0].z,
@@ -73,7 +87,7 @@ function wormIntersectsChunk(path: WormPoint[], worldX: number, worldZ: number):
     minZ = Math.min(minZ, p.z)
     maxZ = Math.max(maxZ, p.z)
   }
-  const r = 2 // radius margin
+  const r = Math.ceil(radius)
   return (
     minX - r < worldX + CHUNK_SIZE &&
     maxX + r >= worldX &&
@@ -92,6 +106,8 @@ function carveSphereAt(
   worldZ: number,
   heightmap: number[][],
   voxelMap: Uint8Array,
+  minDepthBelowSurface: number,
+  getHeightAt?: (x: number, z: number) => number,
 ): void {
   const r = Math.ceil(radius)
   const minVx = Math.floor(cx - r)
@@ -102,14 +118,34 @@ function carveSphereAt(
   const maxVz = Math.floor(cz + r)
   const radiusSq = radius * radius
 
+  /** Caps the per-column carve topY at chunk edges using the neighbor column surface height. */
+  const getEdgeCappedTopY = (options: { lx: number; lz: number; topY: number }): number => {
+    const { lx, lz, topY } = options
+    if (!getHeightAt) return topY
+
+    let capped = topY
+    const wx = worldX + lx
+    const wz = worldZ + lz
+    /** Clamp a float surface height to a valid integer Y in [0..WORLD_HEIGHT]. */
+    const clampSurfaceY = (y: number): number => Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, y)))
+
+    if (lx === 0) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx - 1, wz)))
+    if (lx === CHUNK_SIZE - 1) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx + 1, wz)))
+    if (lz === 0) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx, wz - 1)))
+    if (lz === CHUNK_SIZE - 1) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx, wz + 1)))
+
+    return capped
+  }
+
   for (let vx = minVx; vx <= maxVx; vx++) {
     const lx = vx - worldX
     if (lx < 0 || lx >= CHUNK_SIZE) continue
     for (let vz = minVz; vz <= maxVz; vz++) {
       const lz = vz - worldZ
       if (lz < 0 || lz >= CHUNK_SIZE) continue
-      const topYCol = heightmap[lx][lz]
-      for (let vy = minVy; vy <= maxVy && vy < topYCol; vy++) {
+      const topYCol = getEdgeCappedTopY({ lx, lz, topY: heightmap[lx][lz] })
+      const carveCeiling = Math.max(1, topYCol - minDepthBelowSurface)
+      for (let vy = minVy; vy <= maxVy && vy < carveCeiling; vy++) {
         if (vy >= WORLD_HEIGHT) break
         const dx = vx + 0.5 - cx,
           dy = vy + 0.5 - cy,
@@ -123,7 +159,7 @@ function carveSphereAt(
 }
 
 export function createStage2Spaghetti(deps: Stage2SpaghettiDeps): PipelineStage {
-  const { seed, radius, cellSize, steps, maxY } = deps
+  const { seed, radius, cellSize, steps, maxY, minDepthBelowSurface = 0, getHeightAt } = deps
 
   return function stage2Spaghetti(ctx: ChunkContext): void {
     const { worldX, worldZ, heightmap, voxelMap } = ctx
@@ -136,7 +172,7 @@ export function createStage2Spaghetti(deps: Stage2SpaghettiDeps): PipelineStage 
     for (let gx = gxMin; gx < gxMax; gx++) {
       for (let gz = gzMin; gz < gzMax; gz++) {
         const path = getWormPath(seed, gx, gz, cellSize, steps, maxY)
-        if (wormIntersectsChunk(path, worldX, worldZ)) worms.push(path)
+        if (wormIntersectsChunk(path, worldX, worldZ, radius)) worms.push(path)
       }
     }
 
@@ -154,7 +190,7 @@ export function createStage2Spaghetti(deps: Stage2SpaghettiDeps): PipelineStage 
           const cx = a.x + t * dx
           const cy = a.y + t * dy
           const cz = a.z + t * dz
-          carveSphereAt(cx, cy, cz, radius, worldX, worldZ, heightmap, voxelMap)
+          carveSphereAt(cx, cy, cz, radius, worldX, worldZ, heightmap, voxelMap, minDepthBelowSurface, getHeightAt)
         }
       }
     }

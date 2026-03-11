@@ -11,12 +11,20 @@ export const FOREST_DENSITY_SCALE = 0.028
 /** Scale for tree placement 2D noise. */
 export const TREE_PLACEMENT_SCALE = 0.12
 
+/** Scale for tree shape 2D noise (height, leaf size, density). Higher = more variation between nearby trees. */
+export const TREE_SHAPE_NOISE_SCALE = 4.5
+
+/** Offset applied to (wx, wz) when sampling tree shape noise for jungle so jungle trees use a different slice of noise than forest. */
+export const JUNGLE_TREE_SHAPE_OFFSET_X = 500
+export const JUNGLE_TREE_SHAPE_OFFSET_Z = -300
+
 /** Min forest density to allow trees in forest / jungle / windswept_forest. */
 export const FOREST_DENSITY_THRESHOLD = 0.0
 
 export const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1
 export const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0
-export const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.65
+/** Lower than forest so jungle has noticeably more trees (denser canopy). */
+export const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.88
 export const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93
 export const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97
 export const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
@@ -73,14 +81,14 @@ export interface TreeShapeConfig {
 }
 
 export const TREE_SHAPE_DEFAULT: TreeShapeConfig = {
-  trunkMin: 4,
-  trunkMax: 8,
+  trunkMin: 3,
+  trunkMax: 10,
   leafRadiusMin: 1,
-  leafRadiusMax: 3,
-  leafHeightMin: 3,
-  leafHeightMax: 6,
-  leafDensityMin: 0.58,
-  leafDensityMax: 0.92,
+  leafRadiusMax: 4,
+  leafHeightMin: 2,
+  leafHeightMax: 7,
+  leafDensityMin: 0.42,
+  leafDensityMax: 0.95,
   giantChance: 0.03,
   giantTrunkBonusMax: 5,
   giantLeafRadiusBonusMax: 2,
@@ -89,14 +97,14 @@ export const TREE_SHAPE_DEFAULT: TreeShapeConfig = {
 }
 
 export const TREE_SHAPE_FOREST: TreeShapeConfig = {
-  trunkMin: 5,
-  trunkMax: 10,
+  trunkMin: 4,
+  trunkMax: 13,
   leafRadiusMin: 2,
-  leafRadiusMax: 4,
-  leafHeightMin: 4,
-  leafHeightMax: 7,
-  leafDensityMin: 0.62,
-  leafDensityMax: 0.96,
+  leafRadiusMax: 5,
+  leafHeightMin: 3,
+  leafHeightMax: 9,
+  leafDensityMin: 0.48,
+  leafDensityMax: 0.98,
   giantChance: 0.06,
   giantTrunkBonusMax: 6,
   giantLeafRadiusBonusMax: 2,
@@ -104,31 +112,32 @@ export const TREE_SHAPE_FOREST: TreeShapeConfig = {
   giantDensityBonusMax: 0.04,
 }
 
+/** Jungle trees: wider ranges (short bushy to very tall), denser canopy and more giants for a dense jungle feel. */
 export const TREE_SHAPE_JUNGLE: TreeShapeConfig = {
-  trunkMin: 8,
-  trunkMax: 14,
-  leafRadiusMin: 3,
-  leafRadiusMax: 6,
-  leafHeightMin: 6,
-  leafHeightMax: 11,
-  leafDensityMin: 0.78,
-  leafDensityMax: 0.98,
-  giantChance: 0.1,
-  giantTrunkBonusMax: 8,
-  giantLeafRadiusBonusMax: 2,
-  giantLeafHeightBonusMax: 4,
-  giantDensityBonusMax: 0.03,
+  trunkMin: 4,
+  trunkMax: 20,
+  leafRadiusMin: 2,
+  leafRadiusMax: 8,
+  leafHeightMin: 4,
+  leafHeightMax: 15,
+  leafDensityMin: 0.6,
+  leafDensityMax: 0.99,
+  giantChance: 0.18,
+  giantTrunkBonusMax: 10,
+  giantLeafRadiusBonusMax: 3,
+  giantLeafHeightBonusMax: 5,
+  giantDensityBonusMax: 0.05,
 }
 
 export const TREE_SHAPE_MOUNTAIN: TreeShapeConfig = {
-  trunkMin: 4,
-  trunkMax: 7,
+  trunkMin: 3,
+  trunkMax: 9,
   leafRadiusMin: 1,
-  leafRadiusMax: 3,
+  leafRadiusMax: 4,
   leafHeightMin: 2,
-  leafHeightMax: 5,
-  leafDensityMin: 0.45,
-  leafDensityMax: 0.82,
+  leafHeightMax: 6,
+  leafDensityMin: 0.35,
+  leafDensityMax: 0.88,
   giantChance: 0.02,
   giantTrunkBonusMax: 4,
   giantLeafRadiusBonusMax: 1,
@@ -137,14 +146,14 @@ export const TREE_SHAPE_MOUNTAIN: TreeShapeConfig = {
 }
 
 export const TREE_SHAPE_SNOW: TreeShapeConfig = {
-  trunkMin: 8,
-  trunkMax: 14,
+  trunkMin: 6,
+  trunkMax: 16,
   leafRadiusMin: 1,
-  leafRadiusMax: 3,
-  leafHeightMin: 5,
-  leafHeightMax: 9,
-  leafDensityMin: 0.55,
-  leafDensityMax: 0.9,
+  leafRadiusMax: 4,
+  leafHeightMin: 4,
+  leafHeightMax: 11,
+  leafDensityMin: 0.4,
+  leafDensityMax: 0.94,
   giantChance: 0.05,
   giantTrunkBonusMax: 7,
   giantLeafRadiusBonusMax: 2,

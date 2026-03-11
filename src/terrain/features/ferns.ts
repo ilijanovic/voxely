@@ -30,6 +30,8 @@ function sampleFernNoise(cache: Map<string, number>, wx: number, wz: number): nu
 const FERN_PLACE_THRESHOLD = 0.82
 /** Lower threshold in forest/windswept_forest so more ferns appear (lusher undergrowth). */
 const FERN_PLACE_THRESHOLD_FOREST = 0.75
+/** Even lower in jungle for dense undergrowth. */
+const FERN_PLACE_THRESHOLD_JUNGLE = 0.68
 
 const BIOME_FERN: Partial<Record<Biome, boolean>> = {
   plains: true,
@@ -66,9 +68,11 @@ export function createFernFeature(): FeatureFn {
         const wx = worldX + lx
         const wz = worldZ + lz
         const threshold =
-          biome === 'forest' || biome === 'windswept_forest'
-            ? FERN_PLACE_THRESHOLD_FOREST
-            : FERN_PLACE_THRESHOLD
+          biome === 'jungle'
+            ? FERN_PLACE_THRESHOLD_JUNGLE
+            : biome === 'forest' || biome === 'windswept_forest'
+              ? FERN_PLACE_THRESHOLD_FOREST
+              : FERN_PLACE_THRESHOLD
         if (sampleFernNoise(noiseCache, wx, wz) < threshold) continue
 
         voxelMap[keyAbove] = typeToId('fern')

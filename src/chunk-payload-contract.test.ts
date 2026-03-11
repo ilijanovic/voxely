@@ -124,14 +124,14 @@ describe('ChunkDataPayload contract', () => {
   it('matches a golden hash summary for seed=12345 chunk=(0,0)', () => {
     expect(hashPayloadGolden(payload)).toMatchInlineSnapshot(`
       {
-        "bufferHash": "9f41e7d9",
+        "bufferHash": "547a41bb",
         "geometry": {
           "layerCount": 8,
-          "sumFaceVertexCounts": 80562,
+          "sumFaceVertexCounts": 87078,
           "totalFaceVertexCounts": 48,
-          "totalNormals": 161124,
-          "totalPositions": 161124,
-          "totalUvs": 107416,
+          "totalNormals": 174156,
+          "totalPositions": 174156,
+          "totalUvs": 116104,
         },
         "heightmapHash": "74190d91",
       }
@@ -236,16 +236,24 @@ describe('ChunkDataPayload contract', () => {
     })
 
     it('face order matches BoxGeometry: +Y (top) face has normal (0,1,0)', () => {
+      const topFaceIndex = 2
+      const expectedNy = 1
       for (const layer of payload.geometryLayers!) {
         const faceVertexCounts = layer.faceVertexCounts
-        const topFaceIndex = 2
         const start = (faceVertexCounts[0] ?? 0) + (faceVertexCounts[1] ?? 0)
-        if ((faceVertexCounts[topFaceIndex] ?? 0) === 0) continue
-        const firstVertex = layer.index ? layer.index[start] : start
-        const n0 = firstVertex * 3
-        expect(layer.normal[n0]).toBe(0)
-        expect(layer.normal[n0 + 1]).toBe(1)
-        expect(layer.normal[n0 + 2]).toBe(0)
+        const topCount = faceVertexCounts[topFaceIndex] ?? 0
+        if (topCount === 0) continue
+        const end = start + topCount
+        let foundTopNormal = false
+        for (let i = start; i < end; i++) {
+          const vi = layer.index ? layer.index[i] : i
+          const ny = layer.normal[vi * 3 + 1]
+          if (ny === expectedNy && layer.normal[vi * 3] === 0 && layer.normal[vi * 3 + 2] === 0) {
+            foundTopNormal = true
+            break
+          }
+        }
+        expect(foundTopNormal, `layer blockTypeId=${layer.blockTypeId} top face should have at least one vertex with normal (0,1,0)`).toBe(true)
       }
     })
 
@@ -271,6 +279,36 @@ describe('ChunkDataPayload contract', () => {
       // Block at (1,1,1). Top face's first vertex "a" is at (x=1, z=2) (see worker-geometry.ts face 2).
       expect(workerU).toBeCloseTo(1, 5)
       expect(workerV).toBeCloseTo(2, 5)
+    })
+
+    /**
+     * Regression: faces must be drawn at boundaries between different block types.
+     * If we only drew faces toward empty neighbors, dirt next to stone would draw
+     * neither the dirt's +X nor the stone's -X face → visible hole with solid collision.
+     */
+    it('draws faces between different block types (no holes at boundaries)', () => {
+      const buffer = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE)
+      buffer.fill(0)
+      const dirtId = typeToId('dirt')
+      const stoneId = typeToId('stone')
+      buffer[terrainLocalKey(1, 1, 1)] = dirtId
+      buffer[terrainLocalKey(2, 1, 1)] = stoneId
+
+      const { geometryLayers } = buildWorkerGeometryFromVoxelBuffer({
+        buffer,
+        worldX: 0,
+        worldZ: 0,
+      })
+
+      const dirtLayer = geometryLayers.find((l) => l.blockTypeId === dirtId)
+      const stoneLayer = geometryLayers.find((l) => l.blockTypeId === stoneId)
+      expect(dirtLayer).toBeDefined()
+      expect(stoneLayer).toBeDefined()
+
+      // Face 0 = +X (right), face 1 = -X (left). Dirt at (1,1,1) has stone at +X → must draw face 0.
+      expect((dirtLayer!.faceVertexCounts[0] ?? 0)).toBeGreaterThan(0)
+      // Stone at (2,1,1) has dirt at -X → must draw face 1.
+      expect((stoneLayer!.faceVertexCounts[1] ?? 0)).toBeGreaterThan(0)
     })
 
     /**

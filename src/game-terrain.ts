@@ -12,10 +12,18 @@ import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from './block-regist
 import { createTerrainSampling } from './terrain-sampling'
 import { BIOME_REGISTRY } from './terrain/biomes'
 import {
+  MOUNTAIN_STONE_SURFACE_HEIGHT,
+  SURFACE_STONE_HEIGHT,
+} from './terrain/surface-constants'
+import { getSurfaceBlockFromRules } from './terrain/surface-rules'
+import {
   FOREST_DENSITY_SCALE,
   FOREST_DENSITY_THRESHOLD,
   TREE_PLACEMENT_SCALE,
   TREE_MAX_SLOPE,
+  TREE_SHAPE_NOISE_SCALE,
+  JUNGLE_TREE_SHAPE_OFFSET_X,
+  JUNGLE_TREE_SHAPE_OFFSET_Z,
   BIOMES_WITHOUT_GRASS_SNOW,
   TREE_PLACEMENT_CONFIG,
   getTreeShapeConfigForBiome,
@@ -23,6 +31,7 @@ import {
 } from './terrain/tree-constants'
 
 export type { Biome }
+export { MOUNTAIN_STONE_SURFACE_HEIGHT, SURFACE_STONE_HEIGHT }
 
 /** Returns a deterministic RNG in [0,1); same seed yields same sequence (used for world and tree noise). */
 function makeSeededRandom(seed: number) {
@@ -51,9 +60,10 @@ export const WORLD_SEED = getOrCreateWorldSeed()
 
 const terrainSampling = createTerrainSampling(WORLD_SEED)
 
-/** Noise for tree generation only (forest density + placement). */
+/** Noise for tree generation only (forest density + placement + shape). */
 const forestDensityNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 777))
 const treePlacementNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 888))
+const treeShapeNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 999))
 const detailNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 456))
 
 /** Biomes that can be chosen for spawn; each has equal probability (deterministic per WORLD_SEED). */
@@ -157,8 +167,6 @@ export function getColumnSurfaceY(wx: number, wz: number): number {
 
 const SPAWN_BIOME_MIN_RADIUS = 2 * CHUNK_SIZE
 const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
-export const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26
-export const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16
 
 /** Surface block type at (wx, wz) given biome and topY; handles shore, underwater, stone layers, snow/grass variants. */
 function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
@@ -199,50 +207,36 @@ function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): 
     }
   }
 
-  if (
-    (biome === 'mountain' || biome === 'windswept_hills' || biome === 'windswept_forest') &&
-    topY >= MOUNTAIN_STONE_SURFACE_HEIGHT
-  )
-    return 'stone'
-  if (biome === 'meadow' && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return 'stone'
-  if (topY >= SURFACE_STONE_HEIGHT && biome !== 'frozen_peaks' && biome !== 'jagged_peaks')
-    return 'stone'
-
-  if (biome === 'frozen_peaks') {
-    const slope = getMaxSlopeDelta(wx, wz)
-    const steep = slope >= 6
-    const verySteep = slope >= 9
-    const high = topY >= WATER_LEVEL + 30
-    const n = (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5
-    const blob = (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5
-    if (high && (verySteep || (steep && n < 0.62))) return 'packed_ice'
-    if (high && steep && blob < 0.12) return 'ice'
-    return 'snow'
-  }
-
-  if (topY >= WATER_LEVEL + 20 && !BIOMES_WITHOUT_GRASS_SNOW.has(biome)) return 'grass_snow'
-
-  if (surface === 'snow') return 'grass_snow'
-  if (biome === 'savanna' && surface === 'grass') return 'grass_savanna'
-
+  const slope = getMaxSlopeDelta(wx, wz)
+  const frozenPeaksNoiseN =
+    (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5
+  const frozenPeaksNoiseBlob =
+    (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5
+  const snowBiomes: Biome[] = [
+    'snow',
+    'grove',
+    'snowy_slopes',
+    'frozen_peaks',
+    'jagged_peaks',
+  ]
+  let hasSnowNeighbor = false
   if (surface === 'grass') {
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         if (dx === 0 && dz === 0) continue
-        const n = getResolvedBiome(wx + dx, wz + dz)
-        if (
-          n === 'snow' ||
-          n === 'grove' ||
-          n === 'snowy_slopes' ||
-          n === 'frozen_peaks' ||
-          n === 'jagged_peaks'
-        )
-          return 'grass_snow'
+        if (snowBiomes.includes(getResolvedBiome(wx + dx, wz + dz))) {
+          hasSnowNeighbor = true
+          break
+        }
       }
     }
   }
-
-  return surface
+  return getSurfaceBlockFromRules(biome, topY, surface, {
+    slope,
+    frozenPeaksNoiseN,
+    frozenPeaksNoiseBlob,
+    hasSnowNeighbor,
+  })
 }
 
 /** Check that all 4 cardinal points 1 chunk away are also in the target biome. */
@@ -323,8 +317,9 @@ export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
 
 // ================= TREE GENERATION =================
 
-function treeSeedValue(x: number, z: number): number {
-  const n = treePlacementNoise2D(x * 0.7 + 100, z * 0.7)
+/** Higher-frequency noise for per-tree shape (height, leaf size, density). Matches terrain worker. */
+function treeShapeSeedValue(x: number, z: number): number {
+  const n = treeShapeNoise2D(x * TREE_SHAPE_NOISE_SCALE, z * TREE_SHAPE_NOISE_SCALE)
   return (n + 1) * 0.5
 }
 
@@ -435,8 +430,15 @@ export function shouldPlaceTree(wx: number, wz: number, caches?: TreeNoiseCaches
   return true
 }
 
-function shouldPlaceLeafAtCorner(wx: number, wz: number, lx: number, lz: number): boolean {
-  const v = treeSeedValue(wx + lx, wz + lz)
+function shouldPlaceLeafAtCorner(
+  wx: number,
+  wz: number,
+  lx: number,
+  lz: number,
+  shapeOffsetX = 0,
+  shapeOffsetZ = 0,
+): boolean {
+  const v = treeShapeSeedValue(wx + lx + shapeOffsetX, wz + lz + shapeOffsetZ)
   return v >= 0.5
 }
 
@@ -447,7 +449,9 @@ function getTreeShapeConfig(biome: Biome): TreeShapeConfig {
 function getIntInRange(min: number, max: number, sample: number): number {
   const rangeMin = Math.min(min, max)
   const rangeMax = Math.max(min, max)
-  return rangeMin + Math.floor(sample * (rangeMax - rangeMin + 1))
+  const span = rangeMax - rangeMin + 1
+  const index = Math.min(span - 1, Math.floor(sample * span))
+  return rangeMin + index
 }
 
 function getFloatInRange(min: number, max: number, sample: number): number {
@@ -463,7 +467,7 @@ function clampValue(value: number, min: number, max: number): number {
 function leafNoiseValue(wx: number, wz: number, dx: number, dy: number, dz: number): number {
   const sampleX = wx + dx * 17 + dy * 31
   const sampleZ = wz + dz * 17 - dy * 19
-  return treeSeedValue(sampleX, sampleZ)
+  return treeShapeSeedValue(sampleX, sampleZ)
 }
 
 function leafDistSq(dx: number, dy: number, dz: number): number {
@@ -485,23 +489,25 @@ export function getTreeBlocks(
   const wood: Array<{ x: number; y: number; z: number }> = []
   const leaves: Array<{ x: number; y: number; z: number }> = []
   const shape = getTreeShapeConfig(biome)
-  const giantRoll = treeSeedValue(wx + 83, wz - 79)
+  const shapeOx = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_X : 0
+  const shapeOz = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_Z : 0
+  const treeSeed = (dx: number, dz: number) =>
+    treeShapeSeedValue(wx + dx + shapeOx, wz + dz + shapeOz)
+  const giantRoll = treeSeed(83, -79)
   const isGiant = giantRoll < shape.giantChance
   const trunkHeight =
-    getIntInRange(shape.trunkMin, shape.trunkMax, treeSeedValue(wx + 19, wz - 23)) +
-    (isGiant ? getIntInRange(1, shape.giantTrunkBonusMax, treeSeedValue(wx - 97, wz + 101)) : 0)
+    getIntInRange(shape.trunkMin, shape.trunkMax, treeSeed(19, -23)) +
+    (isGiant ? getIntInRange(1, shape.giantTrunkBonusMax, treeSeed(-97, 101)) : 0)
   const leafRadius =
-    getIntInRange(shape.leafRadiusMin, shape.leafRadiusMax, treeSeedValue(wx - 31, wz + 13)) +
-    (isGiant ? getIntInRange(1, shape.giantLeafRadiusBonusMax, treeSeedValue(wx + 61, wz + 67)) : 0)
+    getIntInRange(shape.leafRadiusMin, shape.leafRadiusMax, treeSeed(-31, 13)) +
+    (isGiant ? getIntInRange(1, shape.giantLeafRadiusBonusMax, treeSeed(61, 67)) : 0)
   const leafHeight =
-    getIntInRange(shape.leafHeightMin, shape.leafHeightMax, treeSeedValue(wx + 7, wz + 37)) +
-    (isGiant ? getIntInRange(1, shape.giantLeafHeightBonusMax, treeSeedValue(wx - 73, wz - 89)) : 0)
+    getIntInRange(shape.leafHeightMin, shape.leafHeightMax, treeSeed(7, 37)) +
+    (isGiant ? getIntInRange(1, shape.giantLeafHeightBonusMax, treeSeed(-73, -89)) : 0)
   const leafDensity =
-    getFloatInRange(shape.leafDensityMin, shape.leafDensityMax, treeSeedValue(wx - 41, wz - 29)) +
-    (isGiant
-      ? getFloatInRange(0, shape.giantDensityBonusMax, treeSeedValue(wx + 109, wz - 113))
-      : 0)
-  const canopyStyleSample = treeSeedValue(wx + 59, wz - 47)
+    getFloatInRange(shape.leafDensityMin, shape.leafDensityMax, treeSeed(-41, -29)) +
+    (isGiant ? getFloatInRange(0, shape.giantDensityBonusMax, treeSeed(109, -113)) : 0)
+  const canopyStyleSample = treeSeed(59, -47)
   const topY = baseY + trunkHeight
   const canopyCenterY = topY + Math.floor(leafHeight * 0.5)
   const maxLeafDistSq = (leafRadius + 0.5) * (leafRadius + 0.5)
@@ -512,11 +518,33 @@ export function getTreeBlocks(
   for (let dy = 0; dy < leafHeight; dy++) {
     const y = topY + dy
     const layerT = leafHeight <= 1 ? 1 : dy / (leafHeight - 1)
-    const isCone = canopyStyleSample < 0.33
-    const isWide = canopyStyleSample >= 0.66
+    let isCone: boolean
+    let isWide: boolean
+    let isFlatTop: boolean
+    let isUmbrella: boolean
+    if (biome === 'jungle') {
+      const j = canopyStyleSample
+      isCone = j < 0.2
+      isWide = j >= 0.4 && j < 0.6
+      isFlatTop = j >= 0.6 && j < 0.8
+      isUmbrella = j >= 0.8
+    } else {
+      isCone = canopyStyleSample < 0.33
+      isWide = canopyStyleSample >= 0.66
+      isFlatTop = false
+      isUmbrella = false
+    }
     let r = leafRadius
     if (isCone) {
       r = Math.max(0, leafRadius - Math.floor(layerT * (leafRadius + 1)))
+    } else if (isFlatTop) {
+      const mid = leafHeight * 0.5
+      r =
+        dy < mid
+          ? leafRadius
+          : Math.max(0, leafRadius - 1 - Math.floor(((dy - mid) / (leafHeight - mid)) * leafRadius))
+    } else if (isUmbrella) {
+      r = layerT >= 0.5 ? leafRadius : Math.max(0, Math.floor(leafRadius * layerT * 2))
     } else if (isWide) {
       const extra = dy < Math.ceil(leafHeight * 0.5) ? 1 : 0
       r = leafRadius + extra - (dy === leafHeight - 1 ? 1 : 0)
@@ -524,20 +552,28 @@ export function getTreeBlocks(
       r = leafRadius - (layerT > 0.8 ? 1 : 0)
     }
     r = Math.max(0, r)
-    const densityBias = isCone ? -0.12 * layerT : isWide ? 0.08 * (1 - layerT) : 0
+    const densityBias = isCone
+      ? -0.12 * layerT
+      : isWide
+        ? 0.08 * (1 - layerT)
+        : isFlatTop
+          ? 0.05 * (1 - layerT)
+          : isUmbrella
+            ? -0.05 * (1 - layerT)
+            : 0
     const effectiveLeafDensity = clampValue(leafDensity + densityBias, 0.35, 0.98)
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (dx === 0 && dz === 0 && dy === 0) continue
         if (r > 0 && Math.abs(dx) === r && Math.abs(dz) === r) {
-          if (!shouldPlaceLeafAtCorner(wx, wz, dx, dz)) continue
+          if (!shouldPlaceLeafAtCorner(wx, wz, dx, dz, shapeOx, shapeOz)) continue
         }
         if (
           (biome === 'forest' || biome === 'jungle') &&
           leafDistSq(dx, y - canopyCenterY, dz) > maxLeafDistSq
         )
           continue
-        if (!(dx === 0 && dz === 0) && leafNoiseValue(wx, wz, dx, dy, dz) > effectiveLeafDensity) {
+        if (!(dx === 0 && dz === 0) && leafNoiseValue(wx + shapeOx, wz + shapeOz, dx, dy, dz) > effectiveLeafDensity) {
           continue
         }
         leaves.push({ x: wx + dx, y, z: wz + dz })

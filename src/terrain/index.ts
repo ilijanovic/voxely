@@ -4,7 +4,8 @@
  */
 import { createNoise2D, createNoise3D } from 'simplex-noise'
 import type { Biome, BlockType } from '../types'
-import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from '../constants'
+import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from '../constants'
+import { getSurfaceBlockFromRules } from './surface-rules'
 import {
   BIOME_REGISTRY,
   BIOME_TERRAIN,
@@ -27,6 +28,7 @@ import { createFlowersFeature } from './features/flowers'
 import { createGroundFeature } from './features/ground'
 import { localKey, typeToId, idToType, AIR_ID } from './block-ids'
 import {
+  BIOMES_WITHOUT_GRASS_SNOW,
   FOREST_DENSITY_SCALE,
   FOREST_DENSITY_THRESHOLD,
   TREE_PLACEMENT_SCALE,
@@ -37,6 +39,9 @@ import {
   TREE_PLACEMENT_MOUNTAIN_THRESHOLD,
   TREE_PLACEMENT_SNOW_THRESHOLD,
   TREE_MAX_SLOPE,
+  TREE_SHAPE_NOISE_SCALE,
+  JUNGLE_TREE_SHAPE_OFFSET_X,
+  JUNGLE_TREE_SHAPE_OFFSET_Z,
   getTreeShapeConfigForBiome,
   type TreeShapeConfig,
 } from './tree-constants'
@@ -112,6 +117,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const weirdnessNoise2D = createNoise2D(makeSeededRandom(seed + 909))
   const forestDensityNoise2D = createNoise2D(makeSeededRandom(seed + 777))
   const treePlacementNoise2D = createNoise2D(makeSeededRandom(seed + 888))
+  const treeShapeNoise2D = createNoise2D(makeSeededRandom(seed + 999))
   const caveNoise3D = createNoise3D(makeSeededRandom(seed + 400))
   const cheeseNoise3D = createNoise3D(makeSeededRandom(seed + 401))
   const heightTransitionNoise2D = createNoise2D(makeSeededRandom(seed + 4242))
@@ -146,13 +152,12 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const HEIGHT_TRANSITION_SCALE = 0.0016
   const HEIGHT_TRANSITION_AMPLITUDE = 4.5
   const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55
-  const MOUNTAIN_STONE_SURFACE_HEIGHT = WATER_LEVEL + 16
-  const SURFACE_STONE_HEIGHT = WATER_LEVEL + 26
   const PEAK_Y_MIN = WATER_LEVEL + 30
   const PEAK_Y_RANGE = 24
 
   const SNOW_BIOMES: Biome[] = ['snow', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks', 'grove']
-  const CAVE_THRESHOLD = 0.4
+  /** 3D worm caves: higher = less carving (fewer/smaller caves). */
+  const CAVE_THRESHOLD = 0.56
 
   function clamp01(v: number): number {
     return Math.max(0, Math.min(1, v))
@@ -444,8 +449,9 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     return getResolvedBiomeFromHeight(base, h, x, z)
   }
 
-  function treeSeedValue(x: number, z: number): number {
-    const n = treePlacementNoise2D(x * 0.7 + 100, z * 0.7)
+  /** Higher-frequency noise for per-tree shape (height, leaf size, density). Ensures nearby trees get clearly different values. */
+  function treeShapeSeedValue(x: number, z: number): number {
+    const n = treeShapeNoise2D(x * TREE_SHAPE_NOISE_SCALE, z * TREE_SHAPE_NOISE_SCALE)
     return (n + 1) * 0.5
   }
 
@@ -565,8 +571,15 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     return true
   }
 
-  function shouldPlaceLeafAtCorner(wx: number, wz: number, lx: number, lz: number): boolean {
-    return treeSeedValue(wx + lx, wz + lz) >= 0.5
+  function shouldPlaceLeafAtCorner(
+    wx: number,
+    wz: number,
+    lx: number,
+    lz: number,
+    shapeOffsetX = 0,
+    shapeOffsetZ = 0,
+  ): boolean {
+    return treeShapeSeedValue(wx + lx + shapeOffsetX, wz + lz + shapeOffsetZ) >= 0.5
   }
 
   function getTreeShapeConfig(biome: Biome): TreeShapeConfig {
@@ -576,7 +589,9 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   function getIntInRange(min: number, max: number, sample: number): number {
     const rangeMin = Math.min(min, max)
     const rangeMax = Math.max(min, max)
-    return rangeMin + Math.floor(sample * (rangeMax - rangeMin + 1))
+    const span = rangeMax - rangeMin + 1
+    const index = Math.min(span - 1, Math.floor(sample * span))
+    return rangeMin + index
   }
 
   function getFloatInRange(min: number, max: number, sample: number): number {
@@ -592,7 +607,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   function leafNoiseValue(wx: number, wz: number, dx: number, dy: number, dz: number): number {
     const sampleX = wx + dx * 17 + dy * 31
     const sampleZ = wz + dz * 17 - dy * 19
-    return treeSeedValue(sampleX, sampleZ)
+    return treeShapeSeedValue(sampleX, sampleZ)
   }
 
   function getTreeBlocks(
@@ -607,27 +622,25 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     const wood: Array<{ x: number; y: number; z: number }> = []
     const leaves: Array<{ x: number; y: number; z: number }> = []
     const shape = getTreeShapeConfig(biome)
-    const giantRoll = treeSeedValue(wx + 83, wz - 79)
+    const shapeOx = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_X : 0
+    const shapeOz = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_Z : 0
+    const treeSeed = (dx: number, dz: number) =>
+      treeShapeSeedValue(wx + dx + shapeOx, wz + dz + shapeOz)
+    const giantRoll = treeSeed(83, -79)
     const isGiant = giantRoll < shape.giantChance
     const trunkHeight =
-      getIntInRange(shape.trunkMin, shape.trunkMax, treeSeedValue(wx + 19, wz - 23)) +
-      (isGiant ? getIntInRange(1, shape.giantTrunkBonusMax, treeSeedValue(wx - 97, wz + 101)) : 0)
+      getIntInRange(shape.trunkMin, shape.trunkMax, treeSeed(19, -23)) +
+      (isGiant ? getIntInRange(1, shape.giantTrunkBonusMax, treeSeed(-97, 101)) : 0)
     const leafRadius =
-      getIntInRange(shape.leafRadiusMin, shape.leafRadiusMax, treeSeedValue(wx - 31, wz + 13)) +
-      (isGiant
-        ? getIntInRange(1, shape.giantLeafRadiusBonusMax, treeSeedValue(wx + 61, wz + 67))
-        : 0)
+      getIntInRange(shape.leafRadiusMin, shape.leafRadiusMax, treeSeed(-31, 13)) +
+      (isGiant ? getIntInRange(1, shape.giantLeafRadiusBonusMax, treeSeed(61, 67)) : 0)
     const leafHeight =
-      getIntInRange(shape.leafHeightMin, shape.leafHeightMax, treeSeedValue(wx + 7, wz + 37)) +
-      (isGiant
-        ? getIntInRange(1, shape.giantLeafHeightBonusMax, treeSeedValue(wx - 73, wz - 89))
-        : 0)
+      getIntInRange(shape.leafHeightMin, shape.leafHeightMax, treeSeed(7, 37)) +
+      (isGiant ? getIntInRange(1, shape.giantLeafHeightBonusMax, treeSeed(-73, -89)) : 0)
     const leafDensity =
-      getFloatInRange(shape.leafDensityMin, shape.leafDensityMax, treeSeedValue(wx - 41, wz - 29)) +
-      (isGiant
-        ? getFloatInRange(0, shape.giantDensityBonusMax, treeSeedValue(wx + 109, wz - 113))
-        : 0)
-    const canopyStyleSample = treeSeedValue(wx + 59, wz - 47)
+      getFloatInRange(shape.leafDensityMin, shape.leafDensityMax, treeSeed(-41, -29)) +
+      (isGiant ? getFloatInRange(0, shape.giantDensityBonusMax, treeSeed(109, -113)) : 0)
+    const canopyStyleSample = treeSeed(59, -47)
     const topY = baseY + trunkHeight
     const canopyCenterY = topY + Math.floor(leafHeight * 0.5)
     const maxLeafDistSq = (leafRadius + 0.5) * (leafRadius + 0.5)
@@ -635,11 +648,36 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     for (let dy = 0; dy < leafHeight; dy++) {
       const y = topY + dy
       const layerT = leafHeight <= 1 ? 1 : dy / (leafHeight - 1)
-      const isCone = canopyStyleSample < 0.33
-      const isWide = canopyStyleSample >= 0.66
+      let isCone: boolean
+      let isWide: boolean
+      let isFlatTop: boolean
+      let isUmbrella: boolean
+      if (biome === 'jungle') {
+        const j = canopyStyleSample
+        isCone = j < 0.2
+        isWide = j >= 0.4 && j < 0.6
+        isFlatTop = j >= 0.6 && j < 0.8
+        isUmbrella = j >= 0.8
+      } else {
+        isCone = canopyStyleSample < 0.33
+        isWide = canopyStyleSample >= 0.66
+        isFlatTop = false
+        isUmbrella = false
+      }
       let r = leafRadius
       if (isCone) {
         r = Math.max(0, leafRadius - Math.floor(layerT * (leafRadius + 1)))
+      } else if (isFlatTop) {
+        const mid = leafHeight * 0.5
+        r =
+          dy < mid
+            ? leafRadius
+            : Math.max(
+                0,
+                leafRadius - 1 - Math.floor(((dy - mid) / (leafHeight - mid)) * leafRadius),
+              )
+      } else if (isUmbrella) {
+        r = layerT >= 0.5 ? leafRadius : Math.max(0, Math.floor(leafRadius * layerT * 2))
       } else if (isWide) {
         const extra = dy < Math.ceil(leafHeight * 0.5) ? 1 : 0
         r = leafRadius + extra - (dy === leafHeight - 1 ? 1 : 0)
@@ -647,7 +685,15 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
         r = leafRadius - (layerT > 0.8 ? 1 : 0)
       }
       r = Math.max(0, r)
-      const densityBias = isCone ? -0.12 * layerT : isWide ? 0.08 * (1 - layerT) : 0
+      const densityBias = isCone
+        ? -0.12 * layerT
+        : isWide
+          ? 0.08 * (1 - layerT)
+          : isFlatTop
+            ? 0.05 * (1 - layerT)
+            : isUmbrella
+              ? -0.05 * (1 - layerT)
+              : 0
       const effectiveLeafDensity = clampValue(leafDensity + densityBias, 0.35, 0.98)
       for (let dx = -r; dx <= r; dx++)
         for (let dz = -r; dz <= r; dz++) {
@@ -656,7 +702,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
             r > 0 &&
             Math.abs(dx) === r &&
             Math.abs(dz) === r &&
-            !shouldPlaceLeafAtCorner(wx, wz, dx, dz)
+            !shouldPlaceLeafAtCorner(wx, wz, dx, dz, shapeOx, shapeOz)
           )
             continue
           if (
@@ -664,7 +710,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
             dx * dx + (y - canopyCenterY) ** 2 + dz * dz > maxLeafDistSq
           )
             continue
-          if (!(dx === 0 && dz === 0) && leafNoiseValue(wx, wz, dx, dy, dz) > effectiveLeafDensity)
+          if (!(dx === 0 && dz === 0) && leafNoiseValue(wx + shapeOx, wz + shapeOz, dx, dy, dz) > effectiveLeafDensity)
             continue
           leaves.push({ x: wx + dx, y, z: wz + dz })
         }
@@ -682,18 +728,24 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const stage2 = createStage2({
     caveNoise3D,
     carveThreshold: CAVE_THRESHOLD,
+    minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+    getHeightAt: getHeightUncached,
   })
   const stage2Cheese = createStage2Cheese({
     cheeseNoise3D,
     scale: 0.02,
-    threshold: 0.35,
+    threshold: 0.52,
+    minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+    getHeightAt: getHeightUncached,
   })
   const stage2Spaghetti = createStage2Spaghetti({
     seed,
-    radius: 2,
-    cellSize: 32,
-    steps: 40,
+    radius: 1.5,
+    cellSize: 48,
+    steps: 32,
     maxY: WATER_LEVEL + 48,
+    minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+    getHeightAt: getHeightUncached,
   })
 
   function getSurfaceBlock(ctx: ChunkContext, lx: number, lz: number): BlockType {
@@ -743,55 +795,29 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
       }
     }
 
-    if (
-      (biome === 'mountain' || biome === 'windswept_hills' || biome === 'windswept_forest') &&
-      topY >= MOUNTAIN_STONE_SURFACE_HEIGHT
-    )
-      return 'stone'
-    if (biome === 'meadow' && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return 'stone'
-    if (topY >= SURFACE_STONE_HEIGHT && biome !== 'frozen_peaks' && biome !== 'jagged_peaks')
-      return 'stone'
-
-    // Frozen peaks: snow cover + packed ice cliffs (glaciers) at steep, high elevations.
-    if (biome === 'frozen_peaks') {
-      const slope = getMaxSlopeDelta(wx, wz)
-      const steep = slope >= 6
-      const verySteep = slope >= 9
-      const high = topY >= WATER_LEVEL + 30
-      const n = (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5 // [0..1]
-      const blob = (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5
-
-      if (high && (verySteep || (steep && n < 0.62))) return 'packed_ice'
-      if (high && steep && blob < 0.12) return 'ice'
-      return 'snow'
-    }
-
-    if (
-      topY >= WATER_LEVEL + 20 &&
-      biome !== 'desert' &&
-      biome !== 'savanna' &&
-      biome !== 'mountain' &&
-      biome !== 'jungle' &&
-      biome !== 'cherry_grove' &&
-      biome !== 'windswept_forest' &&
-      biome !== 'meadow' &&
-      biome !== 'plains'
-    )
-      return 'grass_snow'
-
-    if (surface === 'snow') return 'grass_snow'
-    if (biome === 'savanna' && surface === 'grass') return 'grass_savanna'
-
+    const slope = getMaxSlopeDelta(wx, wz)
+    const frozenPeaksNoiseN =
+      (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5
+    const frozenPeaksNoiseBlob =
+      (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5
+    let hasSnowNeighbor = false
     if (surface === 'grass') {
       for (let dx = -1; dx <= 1; dx++) {
         for (let dz = -1; dz <= 1; dz++) {
           if (dx === 0 && dz === 0) continue
-          const n = getResolvedBiome(wx + dx, wz + dz)
-          if (SNOW_BIOMES.includes(n)) return 'grass_snow'
+          if (SNOW_BIOMES.includes(getResolvedBiome(wx + dx, wz + dz))) {
+            hasSnowNeighbor = true
+            break
+          }
         }
       }
     }
-    return surface as BlockType
+    return getSurfaceBlockFromRules(biome, topY, surface as BlockType, {
+      slope,
+      frozenPeaksNoiseN,
+      frozenPeaksNoiseBlob,
+      hasSnowNeighbor,
+    })
   }
 
   const stage3 = createStage3({ getSurfaceBlock })
