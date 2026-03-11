@@ -16,6 +16,7 @@ export type KeyAction =
   | 'sneak'
   | 'toggleView'
   | 'place'
+  | 'openMap'
   | 'hotbar1'
   | 'hotbar2'
   | 'hotbar3'
@@ -25,6 +26,8 @@ export type KeyAction =
   | 'hotbar7'
   | 'hotbar8'
   | 'hotbar9'
+  | 'skill1'
+  | 'skill2'
 
 const defaultBindings: Record<KeyAction, string> = {
   forward: 'KeyW',
@@ -36,6 +39,7 @@ const defaultBindings: Record<KeyAction, string> = {
   sneak: 'ShiftLeft',
   toggleView: 'KeyV',
   place: 'KeyF',
+  openMap: 'KeyM',
   hotbar1: 'Digit1',
   hotbar2: 'Digit2',
   hotbar3: 'Digit3',
@@ -45,6 +49,8 @@ const defaultBindings: Record<KeyAction, string> = {
   hotbar7: 'Digit7',
   hotbar8: 'Digit8',
   hotbar9: 'Digit9',
+  skill1: 'KeyR',
+  skill2: 'KeyF',
 }
 
 const bindings: Record<KeyAction, string> = { ...defaultBindings }
@@ -105,6 +111,7 @@ export const keyActionLabels: Record<KeyAction, string> = {
   sneak: 'Schleichen',
   toggleView: 'Ansicht wechseln (1./3. Person)',
   place: 'Place block / torch',
+  openMap: 'Map',
   hotbar1: 'Hotbar 1',
   hotbar2: 'Hotbar 2',
   hotbar3: 'Hotbar 3',
@@ -114,6 +121,8 @@ export const keyActionLabels: Record<KeyAction, string> = {
   hotbar7: 'Hotbar 7',
   hotbar8: 'Hotbar 8',
   hotbar9: 'Hotbar 9',
+  skill1: 'Skill 1',
+  skill2: 'Skill 2',
 }
 
 /** Override display names for modifier and special keys. Other codes use Key*/
@@ -146,6 +155,7 @@ export const keyActions: KeyAction[] = [
   'sneak',
   'toggleView',
   'place',
+  'openMap',
   'hotbar1',
   'hotbar2',
   'hotbar3',
@@ -155,4 +165,6 @@ export const keyActions: KeyAction[] = [
   'hotbar7',
   'hotbar8',
   'hotbar9',
+  'skill1',
+  'skill2',
 ]

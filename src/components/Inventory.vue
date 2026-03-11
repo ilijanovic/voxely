@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
- * Inventory overlay: Minecraft-style layout (armor, 2×2 crafting + result, 3×9 inventory, 1×9 hotbar).
- * Binds to inventory state; supports drag-and-drop and crafting.
+ * Inventory overlay: Minecraft-style layout (armor, main hand, off hand, 2×2 crafting + result, 3×9 inventory, 1×9 hotbar).
+ * Binds to inventory and equipment state; supports drag-and-drop, equip/unequip, and crafting.
  */
 import { computed, ref } from 'vue'
 import type { BlockType } from '../types'
 import type { InventorySlot } from '../inventory'
+import type { EquipmentSlot } from '../player/faction'
+import type { PlayerClass } from '../player/faction'
 import { BLOCK_ICON } from '../hotbar-icons'
 import { matchRecipe2x2 } from '../recipes'
 import { getBlockDisplayName } from '../block-registry'
@@ -19,28 +21,60 @@ const FALLBACK_ICON =
 
 const emit = defineEmits<{ close: [] }>()
 
-const props = defineProps<{
-  /** All 40 slots (0–8 hotbar, 9–35 main, 36–39 crafting). */
-  slots: InventorySlot[]
-  /** Move items between slots (fromIndex, toIndex). */
-  onMove: (fromIndex: number, toIndex: number) => void
-  /** Perform one craft from 2×2 grid; returns true if crafted. */
-  onCraftOne: () => boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** All 40 slots (0–8 hotbar, 9–35 main, 36–39 crafting). */
+    slots: InventorySlot[]
+    /** Equipment per slot (helm, chest, legs, boots, mainHand, offHand). */
+    equipment?: Record<EquipmentSlot, { type: BlockType | null; count: number }>
+    /** Player class for equip restrictions. */
+    playerClass?: PlayerClass
+    /** Whether the given item can be equipped in the given slot. */
+    canEquip?: (itemType: BlockType, slot: EquipmentSlot, playerClass: PlayerClass) => boolean
+    /** Move items between slots (fromIndex, toIndex, optional amount for split). */
+    onMove: (fromIndex: number, toIndex: number, amount?: number) => void
+    /** Perform one craft from 2×2 grid; returns true if crafted. */
+    onCraftOne: () => boolean
+    /** Equip one item from inventory slot into equipment slot. */
+    onEquipFromInventory?: (inventorySlotIndex: number, equipmentSlot: EquipmentSlot) => void
+    /** Unequip item from equipment slot into first free inventory slot. */
+    onUnequip?: (equipmentSlot: EquipmentSlot) => void
+  }>(),
+  {
+    equipment: () => ({} as Record<EquipmentSlot, { type: BlockType | null; count: number }>),
+    canEquip: () => () => false,
+    onEquipFromInventory: () => () => {},
+    onUnequip: () => () => {},
+  },
+)
 
-const armorSlots = [
+const armorSlots: { id: EquipmentSlot; label: string }[] = [
   { id: 'helm', label: 'Helmet' },
   { id: 'chest', label: 'Chestplate' },
   { id: 'legs', label: 'Leggings' },
   { id: 'boots', label: 'Boots' },
+]
+const weaponSlots: { id: EquipmentSlot; label: string }[] = [
+  { id: 'mainHand', label: 'Main Hand' },
+  { id: 'offHand', label: 'Off-Hand' },
 ]
 
 const CRAFTING_START = 36
 const HOTBAR_START = 0
 const MAIN_START = 9
 
-/** Index being dragged (null when not dragging). */
+/** Index being dragged (null when not dragging). When dragging from equipment, this is null and dragEquipSlot is set. */
 const dragIndex = ref<number | null>(null)
+/** When dragging from an equipment slot, this is the slot id. */
+const dragEquipSlot = ref<EquipmentSlot | null>(null)
+
+/** When set, next right-click on another slot moves one item from this slot (split mode). */
+const splitSourceIndex = ref<number | null>(null)
+
+function getEquippedState(slotId: EquipmentSlot): { type: BlockType | null; count: number } {
+  const eq = props.equipment?.[slotId]
+  return eq ?? { type: null, count: 0 }
+}
 
 /** Craft result from current 2×2 grid (for display and craft-one click). */
 const craftResult = computed(() => {
@@ -55,6 +89,10 @@ function getSlot(index: number): InventorySlot {
 }
 
 function handleDragStart(e: DragEvent, index: number) {
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    return
+  }
   const slot = getSlot(index)
   if (slot.count <= 0) return
   dragIndex.value = index
@@ -64,6 +102,7 @@ function handleDragStart(e: DragEvent, index: number) {
 
 function handleDragEnd() {
   dragIndex.value = null
+  dragEquipSlot.value = null
 }
 
 function handleDragOver(e: DragEvent) {
@@ -73,10 +112,69 @@ function handleDragOver(e: DragEvent) {
 
 function handleDrop(e: DragEvent, toIndex: number) {
   e.preventDefault()
-  const fromIndex = dragIndex.value ?? (e.dataTransfer?.getData('text/plain') ? parseInt(e.dataTransfer.getData('text/plain'), 10) : null)
+  splitSourceIndex.value = null
+  const raw = e.dataTransfer?.getData('text/plain') ?? ''
+  if (raw.startsWith('equip:')) {
+    const equipSlot = raw.slice(6) as EquipmentSlot
+    props.onUnequip(equipSlot)
+    dragEquipSlot.value = null
+    return
+  }
+  const fromIndex = dragIndex.value ?? (raw ? parseInt(raw, 10) : null)
   if (fromIndex == null || fromIndex === toIndex) return
   props.onMove(fromIndex, toIndex)
   dragIndex.value = null
+}
+
+function handleDropOnEquipment(e: DragEvent, equipmentSlot: EquipmentSlot) {
+  e.preventDefault()
+  splitSourceIndex.value = null
+  const raw = e.dataTransfer?.getData('text/plain') ?? ''
+  if (raw.startsWith('equip:')) return
+  const fromIndex = raw ? parseInt(raw, 10) : dragIndex.value
+  if (fromIndex == null || fromIndex < 0 || fromIndex > 35) return
+  const itemType = getSlot(fromIndex).type
+  if (!itemType || !props.playerClass) return
+  if (props.canEquip && !props.canEquip(itemType, equipmentSlot, props.playerClass)) return
+  props.onEquipFromInventory?.(fromIndex, equipmentSlot)
+  dragIndex.value = null
+}
+
+function handleDragStartEquipment(e: DragEvent, equipmentSlot: EquipmentSlot) {
+  const state = getEquippedState(equipmentSlot)
+  if (!state.type || state.count <= 0) return
+  dragEquipSlot.value = equipmentSlot
+  dragIndex.value = null
+  e.dataTransfer?.setData('text/plain', `equip:${equipmentSlot}`)
+  e.dataTransfer!.effectAllowed = 'move'
+}
+
+function handleDragEndEquipment() {
+  dragEquipSlot.value = null
+}
+
+/**
+ * Right-click or Ctrl/Cmd+click on slot: select as split source, or move one item from previous source to this slot.
+ * Handled on mousedown so it works with trackpads (click can be swallowed by drag on draggable elements).
+ */
+function handleSplitOne(e: MouseEvent, index: number) {
+  e.preventDefault()
+  e.stopPropagation()
+  const prev = splitSourceIndex.value
+  if (prev == null) {
+    const slot = getSlot(index)
+    if (slot.count <= 0) return
+    splitSourceIndex.value = index
+    return
+  }
+  if (prev === index) return
+  props.onMove(prev, index, 1)
+  splitSourceIndex.value = null
+}
+
+/** True if this mouse event should trigger split-one (right button or Ctrl/Cmd+left). */
+function isSplitModifierOrRight(e: MouseEvent): boolean {
+  return e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey))
 }
 
 function handleCraftResultClick() {
@@ -102,25 +200,31 @@ function handleCraftResultClick() {
         box-shadow: var(--ui-shadow-panel);
       "
     >
-      <!-- Left column: armor + player + off-hand + recipe book -->
+      <!-- Left column: armor + player + main hand + off-hand + recipe book -->
       <div class="flex flex-col items-center gap-2">
         <div class="flex flex-col gap-1">
           <div
             v-for="slot in armorSlots"
             :key="slot.id"
-            class="slot armor-slot flex h-10 w-10 items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
-            :title="slot.label"
+            class="slot armor-slot relative flex h-10 w-10 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border-2 bg-[rgba(40,38,35,0.95)] active:cursor-grabbing"
+            :class="[getEquippedState(slot.id).type ? 'border-[#5a5a5a]' : 'border-[#3a3a3a]', dragEquipSlot === slot.id ? 'opacity-70' : '']"
+            :title="getEquippedState(slot.id).type ? getBlockDisplayName(getEquippedState(slot.id).type!) : slot.label"
+            :draggable="!!getEquippedState(slot.id).type"
+            @dragstart="handleDragStartEquipment($event, slot.id)"
+            @dragend="handleDragEndEquipment"
+            @dragover="(e) => e.preventDefault()"
+            @drop="handleDropOnEquipment($event, slot.id)"
           >
-            <span class="slot-icon text-[14px] text-white/70" :data-slot="slot.id">
-              {{
-                slot.id === 'helm'
-                  ? '🪖'
-                  : slot.id === 'chest'
-                    ? '🦺'
-                    : slot.id === 'legs'
-                      ? '👖'
-                      : '👢'
-              }}
+            <template v-if="getEquippedState(slot.id).type">
+              <img
+                :src="BLOCK_ICON[getEquippedState(slot.id).type!]"
+                :alt="getBlockDisplayName(getEquippedState(slot.id).type!)"
+                class="pointer-events-none h-full w-full object-cover object-center"
+                @error="(e: Event) => ((e.target as HTMLImageElement).src = FALLBACK_ICON)"
+              />
+            </template>
+            <span v-else class="slot-icon text-[14px] text-white/50" :data-slot="slot.id">
+              {{ slot.id === 'helm' ? '🪖' : slot.id === 'chest' ? '🦺' : slot.id === 'legs' ? '👖' : '👢' }}
             </span>
           </div>
         </div>
@@ -130,10 +234,26 @@ function handleCraftResultClick() {
           Player
         </div>
         <div
-          class="slot flex h-10 w-10 items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)]"
-          title="Off-Hand"
+          v-for="slot in weaponSlots"
+          :key="slot.id"
+          class="slot relative flex h-10 w-10 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border-2 bg-[rgba(40,38,35,0.95)] active:cursor-grabbing"
+          :class="[getEquippedState(slot.id).type ? 'border-[#5a5a5a]' : 'border-[#3a3a3a]', dragEquipSlot === slot.id ? 'opacity-70' : '']"
+          :title="getEquippedState(slot.id).type ? getBlockDisplayName(getEquippedState(slot.id).type!) : slot.label"
+          :draggable="!!getEquippedState(slot.id).type"
+          @dragstart="handleDragStartEquipment($event, slot.id)"
+          @dragend="handleDragEndEquipment"
+          @dragover="(e) => e.preventDefault()"
+          @drop="handleDropOnEquipment($event, slot.id)"
         >
-          <span class="text-white/50 text-xs">🛡</span>
+          <template v-if="getEquippedState(slot.id).type">
+            <img
+              :src="BLOCK_ICON[getEquippedState(slot.id).type!]"
+              :alt="getBlockDisplayName(getEquippedState(slot.id).type!)"
+              class="pointer-events-none h-full w-full object-cover object-center"
+              @error="(e: Event) => ((e.target as HTMLImageElement).src = FALLBACK_ICON)"
+            />
+          </template>
+          <span v-else class="text-white/50 text-xs">{{ slot.id === 'mainHand' ? '⚔' : '🛡' }}</span>
         </div>
         <button
           type="button"
@@ -155,14 +275,19 @@ function handleCraftResultClick() {
               <div
                 v-for="idx in 4"
                 :key="idx"
-                class="inventory-slot slot flex h-9 w-9 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)] active:cursor-grabbing"
-                :class="{ 'opacity-70': dragIndex === CRAFTING_START + idx - 1 }"
+                class="inventory-slot slot flex h-9 w-9 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border-2 bg-[rgba(40,38,35,0.95)] active:cursor-grabbing"
+                :class="[
+                  dragIndex === CRAFTING_START + idx - 1 ? 'opacity-70' : '',
+                  splitSourceIndex === CRAFTING_START + idx - 1 ? 'border-amber-400 ring-2 ring-amber-400/50' : 'border-[#3a3a3a]'
+                ]"
                 :title="getSlot(CRAFTING_START + idx - 1).type ? getBlockDisplayName(getSlot(CRAFTING_START + idx - 1).type!) : `Crafting ${idx}`"
                 :draggable="!!getSlot(CRAFTING_START + idx - 1).type"
                 @dragstart="handleDragStart($event, CRAFTING_START + idx - 1)"
                 @dragend="handleDragEnd"
                 @dragover="handleDragOver"
                 @drop="handleDrop($event, CRAFTING_START + idx - 1)"
+                @mousedown="(e) => isSplitModifierOrRight(e) && handleSplitOne(e, CRAFTING_START + idx - 1)"
+                @contextmenu.prevent
               >
                 <template v-if="getSlot(CRAFTING_START + idx - 1).type">
                   <img
@@ -209,14 +334,19 @@ function handleCraftResultClick() {
           <div
             v-for="i in 27"
             :key="i - 1"
-            class="inventory-slot slot relative flex h-9 w-9 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)] active:cursor-grabbing"
-            :class="{ 'opacity-70': dragIndex === MAIN_START + i - 1 }"
+            class="inventory-slot slot relative flex h-9 w-9 cursor-grab items-center justify-center rounded-[var(--ui-radius-sm)] border-2 bg-[rgba(40,38,35,0.95)] active:cursor-grabbing"
+            :class="[
+              dragIndex === MAIN_START + i - 1 ? 'opacity-70' : '',
+              splitSourceIndex === MAIN_START + i - 1 ? 'border-amber-400 ring-2 ring-amber-400/50' : 'border-[#3a3a3a]'
+            ]"
             :title="getSlot(MAIN_START + i - 1).type ? getBlockDisplayName(getSlot(MAIN_START + i - 1).type!) : `Slot ${i}`"
             :draggable="!!getSlot(MAIN_START + i - 1).type"
             @dragstart="handleDragStart($event, MAIN_START + i - 1)"
             @dragend="handleDragEnd"
             @dragover="handleDragOver"
             @drop="handleDrop($event, MAIN_START + i - 1)"
+            @mousedown="(e) => isSplitModifierOrRight(e) && handleSplitOne(e, MAIN_START + i - 1)"
+            @contextmenu.prevent
           >
             <template v-if="getSlot(MAIN_START + i - 1).type">
               <img
@@ -240,14 +370,19 @@ function handleCraftResultClick() {
           <div
             v-for="i in 9"
             :key="i - 1"
-            class="inventory-slot slot hotbar-slot relative flex h-9 w-9 cursor-grab items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border-2 border-[#3a3a3a] bg-[rgba(40,38,35,0.95)] active:cursor-grabbing"
-            :class="{ 'opacity-70': dragIndex === HOTBAR_START + i - 1 }"
+            class="inventory-slot slot hotbar-slot relative flex h-9 w-9 cursor-grab items-center justify-center overflow-hidden rounded-[var(--ui-radius-sm)] border-2 bg-[rgba(40,38,35,0.95)] active:cursor-grabbing"
+            :class="[
+              dragIndex === HOTBAR_START + i - 1 ? 'opacity-70' : '',
+              splitSourceIndex === HOTBAR_START + i - 1 ? 'border-amber-400 ring-2 ring-amber-400/50' : 'border-[#3a3a3a]'
+            ]"
             :title="getSlot(HOTBAR_START + i - 1).type ? getBlockDisplayName(getSlot(HOTBAR_START + i - 1).type!) : `Slot ${i}`"
             :draggable="!!getSlot(HOTBAR_START + i - 1).type"
             @dragstart="handleDragStart($event, HOTBAR_START + i - 1)"
             @dragend="handleDragEnd"
             @dragover="handleDragOver"
             @drop="handleDrop($event, HOTBAR_START + i - 1)"
+            @mousedown="(e) => isSplitModifierOrRight(e) && handleSplitOne(e, HOTBAR_START + i - 1)"
+            @contextmenu.prevent
           >
             <span
               class="absolute left-0.5 top-0 z-10 text-[8px] text-white/70 drop-shadow-[0_0_1px_#000]"
@@ -272,8 +407,8 @@ function handleCraftResultClick() {
         </div>
       </div>
 
-      <div class="absolute right-2 top-2 flex items-center gap-2">
-        <span class="text-[10px] text-white/50">ESC</span>
+      <div class="absolute right-2 top-2 flex flex-col items-end gap-1">
+        <span class="text-[10px] text-white/50">Right-click or Ctrl+click (Cmd+click): move one · ESC to close</span>
         <button
           type="button"
           class="rounded-[var(--ui-radius-sm)] border px-2 py-1 text-xs text-[var(--ui-text)] hover:bg-[var(--ui-border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-accent)] focus-visible:outline-offset-2"

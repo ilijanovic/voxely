@@ -4,6 +4,20 @@
  */
 import { createNoise2D, createNoise3D } from 'simplex-noise'
 import type { Biome, BlockType } from '../types'
+import {
+  getPoiBiomeOverride,
+  getPoiFlattenAt,
+  getFixedVillageOriginsInChunk,
+  POI_DEFAULT_FLATTEN_RADIUS,
+  POI_DEFAULT_FLATTEN_TRANSITION_BLOCKS,
+} from '../world-pois'
+import type { WorldPoi } from '../world-pois'
+import type { PoiFlattenAt } from '../world-pois'
+import { getStructureOriginsInChunk } from './structures/origins'
+import {
+  getHouseDimensions,
+  getVillageHouseSizeFromSeed,
+} from './structures/templates/village'
 import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from '../constants'
 import { getSurfaceBlockFromRules } from './surface-rules'
 import {
@@ -54,6 +68,11 @@ import {
 /** Block modification for a chunk: world coords + value. */
 export type BlockModEntry = { bx: number; by: number; bz: number; value: BlockType | 'air' }
 
+/** Stable ordering of biomes for map biome buffer encoding (index = byte value in biomeMapBuffer). */
+export const ALL_BIOMES: readonly Biome[] = (
+  Object.keys(BIOME_REGISTRY) as Biome[]
+).sort()
+
 /** Result of generateChunkData: serializable chunk data for main thread to build meshes. */
 export interface ChunkDataPayload {
   chunkX: number
@@ -64,6 +83,11 @@ export interface ChunkDataPayload {
    * Prefer this over `heightmap` on the main thread to avoid structured-clone overhead.
    */
   heightmapBuffer?: Float32Array
+  /**
+   * Biome per column (row-major): biomeMapBuffer[lx + lz * CHUNK_SIZE] = index into ALL_BIOMES.
+   * Used by map UI for snow, forest, desert, etc.
+   */
+  biomeMapBuffer?: Uint8Array
   /** Flat voxel buffer (CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE bytes). Transferable. */
   buffer: Uint8Array
   /**
@@ -107,8 +131,25 @@ export interface ChunkDataPayload {
 /**
  * Creates the chunk generator for a given seed. Returns a function that runs the full pipeline (heightmap/biome, carve, stratigraphy, features) and produces a ChunkDataPayload. Options can tune snow accumulation height.
  */
-export function createChunkGenerator(seed: number, options?: { snowAccumulationHeight?: number }) {
+export interface ChunkGeneratorOptions {
+  snowAccumulationHeight?: number
+  /** Pre-defined POIs for biome override and fixed village/NPC/mob placement. */
+  pois?: WorldPoi[]
+}
+
+/** Temple structure side length in blocks; must match stage5-structures. */
+const TEMPLE_SIZE = 6
+
+export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptions) {
   const snowAccumulationHeight = clamp(options?.snowAccumulationHeight ?? 1, 0, 8)
+  const pois = options?.pois ?? []
+  const getPoiOverride = (x: number, z: number): Biome | null => getPoiBiomeOverride(pois, x, z)
+  /** Cache of structure origins per chunk so we don't place trees inside village/temple footprints. */
+  const structureOriginsCache = new Map<string, import('./structures/origins').StructureOrigin[]>()
+  /** Set during chunk generation so getHeight can apply procedural village flatten for the current chunk. */
+  let currentChunkContext: { chunkX: number; chunkZ: number } | null = null
+  /** Cache of procedural village (ox, oz) centers per chunk for flatten lookup. */
+  const proceduralVillageCentersCache = new Map<string, Array<{ centerX: number; centerZ: number }>>()
   const temperatureNoise2D = createNoise2D(makeSeededRandom(seed + 500))
   const humidityNoise2D = createNoise2D(makeSeededRandom(seed + 600))
   const continentalNoise2D = createNoise2D(makeSeededRandom(seed + 123))
@@ -138,9 +179,15 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const HUMIDITY_SCALE = CLIMATE_PARAM_SCALE
   const BASE_HEIGHT = 64
   const CONTINENTAL_SCALE = CLIMATE_PARAM_SCALE
-  const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44
+  const OCEAN_CONTINENTALNESS_THRESHOLD = 0.36
   /** Width of ocean/land blend in continentalness space; wider band softens coast height edges. */
   const COAST_BLEND_BAND = 0.09
+  /** Radius (blocks) around world origin (0,0) where climate is biased toward forest; must match terrain-sampling. */
+  const SPAWN_ORIGIN_FOREST_RADIUS = 64
+  const SPAWN_ORIGIN_FOREST_RADIUS_SQ = SPAWN_ORIGIN_FOREST_RADIUS * SPAWN_ORIGIN_FOREST_RADIUS
+  const SPAWN_ORIGIN_FOREST_CONTINENTALNESS = 0.5
+  const SPAWN_ORIGIN_FOREST_TEMP = 0.475
+  const SPAWN_ORIGIN_FOREST_HUMIDITY = 0.7
   /** Base land biome from climate only so worker and main thread agree. Multi-noise still used for peak variants. */
   const USE_MULTI_NOISE_BASE_SELECTION = false
   const CLIMATE_WARP_SCALE = 0.0014
@@ -292,12 +339,32 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     )
   }
 
+  /** Blends (c, temp, humidity) toward forest at world origin; must match terrain-sampling. */
+  function applySpawnOriginForestBias(
+    x: number,
+    z: number,
+    c: number,
+    temp: number,
+    humidity: number,
+  ): { c: number; temp: number; humidity: number } {
+    const distSq = x * x + z * z
+    if (distSq >= SPAWN_ORIGIN_FOREST_RADIUS_SQ) return { c, temp, humidity }
+    const t = 1 - distSq / SPAWN_ORIGIN_FOREST_RADIUS_SQ
+    const blendT = t * t * (3 - 2 * t)
+    return {
+      c: lerp(c, SPAWN_ORIGIN_FOREST_CONTINENTALNESS, blendT),
+      temp: lerp(temp, SPAWN_ORIGIN_FOREST_TEMP, blendT),
+      humidity: lerp(humidity, SPAWN_ORIGIN_FOREST_HUMIDITY, blendT),
+    }
+  }
+
   function getBiomeBlendAt(x: number, z: number): { primary: Biome; secondary: Biome; t: number } {
-    const c = getContinentalnessSmoothed(x, z)
-    const land = getLandBiomeBlendByClimate(
-      getTemperatureSmoothed(x, z),
-      getHumiditySmoothed(x, z),
-    )
+    let c = getContinentalnessSmoothed(x, z)
+    let temp = getTemperatureSmoothed(x, z)
+    let humidity = getHumiditySmoothed(x, z)
+    const biased = applySpawnOriginForestBias(x, z, c, temp, humidity)
+    c = biased.c
+    const land = getLandBiomeBlendByClimate(biased.temp, biased.humidity)
     if (USE_MULTI_NOISE_BASE_SELECTION) {
       const pick = getBiomeByMultiNoise({
         continentalness: c,
@@ -491,9 +558,134 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     return Math.floor(clamp(smoothedH, 0, WORLD_HEIGHT))
   }
 
-  function getResolvedBiome(x: number, z: number): Biome {
+  /**
+   * Height at (x, z) with only POI flatten (no procedural village flatten).
+   * Used to resolve procedural village centers without circular dependency.
+   */
+  function getHeightOnlyPoi(x: number, z: number): number {
+    const flatten = getPoiFlattenAt(pois, x, z)
+    if (flatten === null) return getHeightUncached(x, z)
+    const naturalCenterY = getHeightUncached(flatten.centerX, flatten.centerZ)
+    const centerY = Math.max(naturalCenterY, WATER_LEVEL)
+    const dx = x - flatten.centerX
+    const dz = z - flatten.centerZ
+    const d = Math.sqrt(dx * dx + dz * dz)
+    const flatEnd = flatten.radius - flatten.transitionBlocks
+    let t: number
+    if (d <= flatEnd) t = 0
+    else if (d >= flatten.radius) t = 1
+    else t = smoothstep01((d - flatEnd) / flatten.transitionBlocks)
+    const natural = getHeightUncached(x, z)
+    return clamp(lerp(centerY, natural, t), 0, WORLD_HEIGHT)
+  }
+
+  /** Resolved biome using POI-only height; used when computing procedural village centers. */
+  function getResolvedBiomeOnlyPoi(x: number, z: number): Biome {
+    const override = getPoiOverride(x, z)
+    if (override !== null) return override
     const base = getBaseBiomeAt(x, z)
-    const h = getHeightUncached(x, z)
+    const h = getHeightOnlyPoi(x, z)
+    return getResolvedBiomeFromHeight(base, h, x, z)
+  }
+
+  /**
+   * Returns procedural village (ox, oz) centers that can affect the given chunk.
+   * Uses POI-only height to avoid circular dependency with getHeight.
+   */
+  function getProceduralVillageCentersForChunk(chunkX: number, chunkZ: number): Array<{ centerX: number; centerZ: number }> {
+    const key = `${chunkX},${chunkZ}`
+    let centers = proceduralVillageCentersCache.get(key)
+    if (centers !== undefined) return centers
+    const out: Array<{ centerX: number; centerZ: number }> = []
+    for (let dcx = -1; dcx <= 1; dcx++) {
+      for (let dcz = -1; dcz <= 1; dcz++) {
+        const origins = getStructureOriginsInChunk(
+          seed,
+          chunkX + dcx,
+          chunkZ + dcz,
+          getHeightOnlyPoi,
+          getResolvedBiomeOnlyPoi,
+        )
+        for (const o of origins) {
+          if (o.type === 'village') out.push({ centerX: o.ox, centerZ: o.oz })
+        }
+      }
+    }
+    proceduralVillageCentersCache.set(key, out)
+    return out
+  }
+
+  /**
+   * Returns flatten params if (x, z) lies inside a procedural village flatten area.
+   * Uses POI default radius/transition so the area around every village is always flattened.
+   */
+  function getProceduralFlattenAt(x: number, z: number, chunkX: number, chunkZ: number): PoiFlattenAt | null {
+    const centers = getProceduralVillageCentersForChunk(chunkX, chunkZ)
+    const radius = POI_DEFAULT_FLATTEN_RADIUS
+    const radiusSq = radius * radius
+    let best: { centerX: number; centerZ: number; distSq: number } | null = null
+    for (const c of centers) {
+      const dx = x - c.centerX
+      const dz = z - c.centerZ
+      const distSq = dx * dx + dz * dz
+      if (distSq <= radiusSq && (best === null || distSq < best.distSq)) {
+        best = { centerX: c.centerX, centerZ: c.centerZ, distSq }
+      }
+    }
+    if (best === null) return null
+    return {
+      centerX: best.centerX,
+      centerZ: best.centerZ,
+      radius: POI_DEFAULT_FLATTEN_RADIUS,
+      transitionBlocks: POI_DEFAULT_FLATTEN_TRANSITION_BLOCKS,
+    }
+  }
+
+  /**
+   * Effective flatten at (x, z): POI or procedural village, whichever center is closer.
+   * Procedural flatten is only considered when currentChunkContext is set (during chunk generation).
+   */
+  function getFlattenAt(x: number, z: number): PoiFlattenAt | null {
+    const poiFlatten = getPoiFlattenAt(pois, x, z)
+    const procFlatten =
+      currentChunkContext !== null
+        ? getProceduralFlattenAt(x, z, currentChunkContext.chunkX, currentChunkContext.chunkZ)
+        : null
+    if (poiFlatten !== null && procFlatten !== null) {
+      const dPoi = (x - poiFlatten.centerX) ** 2 + (z - poiFlatten.centerZ) ** 2
+      const dProc = (x - procFlatten.centerX) ** 2 + (z - procFlatten.centerZ) ** 2
+      return dPoi <= dProc ? poiFlatten : procFlatten
+    }
+    return poiFlatten ?? procFlatten
+  }
+
+  /**
+   * Height at (x, z) with POI and procedural village flatten applied: inside any village
+   * flatten area, blends from center height to natural height. Village surface is
+   * always solid: when the center would be underwater, the platform is raised to at least WATER_LEVEL.
+   */
+  function getHeight(x: number, z: number): number {
+    const flatten = getFlattenAt(x, z)
+    if (flatten === null) return getHeightUncached(x, z)
+    const naturalCenterY = getHeightUncached(flatten.centerX, flatten.centerZ)
+    const centerY = Math.max(naturalCenterY, WATER_LEVEL)
+    const dx = x - flatten.centerX
+    const dz = z - flatten.centerZ
+    const d = Math.sqrt(dx * dx + dz * dz)
+    const flatEnd = flatten.radius - flatten.transitionBlocks
+    let t: number
+    if (d <= flatEnd) t = 0
+    else if (d >= flatten.radius) t = 1
+    else t = smoothstep01((d - flatEnd) / flatten.transitionBlocks)
+    const natural = getHeightUncached(x, z)
+    return clamp(lerp(centerY, natural, t), 0, WORLD_HEIGHT)
+  }
+
+  function getResolvedBiome(x: number, z: number): Biome {
+    const override = getPoiOverride(x, z)
+    if (override !== null) return override
+    const base = getBaseBiomeAt(x, z)
+    const h = getHeight(x, z)
     return getResolvedBiomeFromHeight(base, h, x, z)
   }
 
@@ -570,15 +762,74 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   }
 
   function isTerrainFlatEnough(wx: number, wz: number): boolean {
-    const h = getHeightUncached(wx, wz)
+    const h = getHeight(wx, wz)
     for (const [dx, dz] of [
       [-1, 0],
       [1, 0],
       [0, -1],
       [0, 1],
     ])
-      if (Math.abs(getHeightUncached(wx + dx, wz + dz) - h) > TREE_MAX_SLOPE) return false
+      if (Math.abs(getHeight(wx + dx, wz + dz) - h) > TREE_MAX_SLOPE) return false
     return true
+  }
+
+  /**
+   * Returns whether (wx, wz) lies inside any village or temple structure footprint
+   * that will be placed in this chunk, so we can skip placing trees there.
+   */
+  function isInStructureFootprint(
+    ctx: import('./pipeline-types').ChunkContext,
+    wx: number,
+    wz: number,
+  ): boolean {
+    const key = `${ctx.chunkX},${ctx.chunkZ}`
+    let origins = structureOriginsCache.get(key)
+    if (origins === undefined) {
+      const procedural = getStructureOriginsInChunk(
+        seed,
+        ctx.chunkX,
+        ctx.chunkZ,
+        getHeight,
+        getResolvedBiome,
+      )
+      const fixed =
+        pois.length > 0
+          ? getFixedVillageOriginsInChunk(
+              pois,
+              ctx.chunkX,
+              ctx.chunkZ,
+              getHeight,
+              getResolvedBiome,
+            )
+          : []
+      origins = [...procedural, ...fixed]
+      structureOriginsCache.set(key, origins)
+    }
+    for (const origin of origins) {
+      if (origin.type === 'village') {
+        const houseSize =
+          origin.houseSize ?? getVillageHouseSizeFromSeed(seed, origin.ox, origin.oz)
+        const { widthX, widthZ } = getHouseDimensions(origin.ox, origin.oz, houseSize)
+        const halfX = Math.floor((widthX - 1) / 2)
+        const halfZ = Math.floor((widthZ - 1) / 2)
+        const minX = origin.ox - halfX
+        const maxX = minX + widthX - 1
+        const minZ = origin.oz - halfZ
+        const maxZ = minZ + widthZ - 1
+        if (wx >= minX && wx <= maxX && wz >= minZ && wz <= maxZ) return true
+      } else {
+        const minX = origin.ox - Math.floor(TEMPLE_SIZE / 2)
+        const minZ = origin.oz - Math.floor(TEMPLE_SIZE / 2)
+        if (
+          wx >= minX &&
+          wx < minX + TEMPLE_SIZE &&
+          wz >= minZ &&
+          wz < minZ + TEMPLE_SIZE
+        )
+          return true
+      }
+    }
+    return false
   }
 
   function shouldPlaceTree(
@@ -591,6 +842,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     const lx = wx - ctx.worldX
     const lz = wz - ctx.worldZ
     if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return false
+    if (isInStructureFootprint(ctx, wx, wz)) return false
     const biome = ctx.biomeMap[lx][lz]
     const topY = ctx.heightmap[lx][lz]
     if (biome === 'desert') return false
@@ -606,6 +858,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     )
       return false
     const surface = getSurfaceBlock(ctx, lx, lz)
+    if (surface === 'sand') return false
     const allowedSurface =
       surface === 'grass' ||
       surface === 'grass_snow' ||
@@ -771,14 +1024,15 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     getBaseBiomeAt,
     getHeightForBase,
     getResolvedBiomeFromHeight,
-    getHeight: getHeightUncached,
+    getHeight,
+    getPoiBiomeOverride: getPoiOverride,
   })
 
   const stage2 = createStage2({
     caveNoise3D,
     carveThreshold: CAVE_THRESHOLD,
     minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
-    getHeightAt: getHeightUncached,
+    getHeightAt: getHeight,
   })
   /** Cheese caves: vanilla cave_cheese uses constant 0.27 and xz_scale 1.0; we use threshold 0.27 (aligned) and scale 0.03 (vanilla 1.0 would be very dense; we keep lower for larger caverns). See docs/VANILLA_BIOME_REFERENCE.md §6. */
   const CHEESE_SCALE = 0.03
@@ -788,7 +1042,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     scale: CHEESE_SCALE,
     threshold: CHEESE_THRESHOLD,
     minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
-    getHeightAt: getHeightUncached,
+    getHeightAt: getHeight,
   })
   const stage2Spaghetti = createStage2Spaghetti({
     seed,
@@ -797,7 +1051,7 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     steps: 32,
     maxY: WATER_LEVEL + 48,
     minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
-    getHeightAt: getHeightUncached,
+    getHeightAt: getHeight,
   })
 
   function getSurfaceBlock(ctx: ChunkContext, lx: number, lz: number): BlockType {
@@ -808,13 +1062,30 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     const def = BIOME_REGISTRY[biome]
     const surface = def.blocks.surface
 
+    /**
+     * Inside a village flatten area (POI or procedural): use the natural surface at (wx, wz)
+     * so the village blends with the terrain. If the natural surface would be underwater,
+     * keep dirt so the village sits on solid ground.
+     */
+    const flatten = getFlattenAt(wx, wz)
+    if (flatten !== null) {
+      const naturalY = getHeightUncached(wx, wz)
+      if (naturalY < WATER_LEVEL) return 'dirt'
+      const baseBiome = getBaseBiomeAt(wx, wz)
+      const resolvedBiome = getResolvedBiomeFromHeight(baseBiome, naturalY, wx, wz)
+      const naturalDef = BIOME_REGISTRY[resolvedBiome]
+      if (naturalY >= WATER_LEVEL - 1 && naturalY <= WATER_LEVEL + 1)
+        return naturalDef.blocks.shore as BlockType
+      return naturalDef.blocks.surface as BlockType
+    }
+
     const getMaxSlopeDelta = (x: number, z: number): number => {
-      const h = getHeightUncached(x, z)
+      const h = getHeight(x, z)
       // Cardinal neighbors are enough for a stable "cliff" signal.
-      const dN = Math.abs(getHeightUncached(x, z - 1) - h)
-      const dS = Math.abs(getHeightUncached(x, z + 1) - h)
-      const dW = Math.abs(getHeightUncached(x - 1, z) - h)
-      const dE = Math.abs(getHeightUncached(x + 1, z) - h)
+      const dN = Math.abs(getHeight(x, z - 1) - h)
+      const dS = Math.abs(getHeight(x, z + 1) - h)
+      const dW = Math.abs(getHeight(x - 1, z) - h)
+      const dE = Math.abs(getHeight(x + 1, z) - h)
       return Math.max(dN, dS, dW, dE)
     }
 
@@ -881,8 +1152,9 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const stage4 = createStage4([treeFeature, fernFeature, flowersFeature, groundFeature])
   const stage5 = createStage5Structures({
     seed,
-    getHeight: getHeightUncached,
+    getHeight,
     getResolvedBiome,
+    pois,
   })
 
   const stages = [stage1, stage2, stage2Cheese, stage2Spaghetti, stage3, stage4, stage5]
@@ -892,76 +1164,86 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     chunkZ: number,
     blockMods: BlockModEntry[],
   ): ChunkDataPayload {
-    const ctx = createChunkContext(chunkX, chunkZ, blockMods)
-    runPipeline(ctx, stages)
+    currentChunkContext = { chunkX, chunkZ }
+    try {
+      const ctx = createChunkContext(chunkX, chunkZ, blockMods)
+      runPipeline(ctx, stages)
 
-    for (const m of ctx.blockMods) {
-      const lx = m.bx - ctx.worldX
-      const lz = m.bz - ctx.worldZ
-      if (
-        lx >= 0 &&
-        lx < CHUNK_SIZE &&
-        lz >= 0 &&
-        lz < CHUNK_SIZE &&
-        m.by >= 0 &&
-        m.by < WORLD_HEIGHT
-      ) {
-        const lk = localKey(lx, m.by, lz)
-        ctx.voxelMap[lk] = m.value === 'air' ? AIR_ID : typeToId(m.value)
-      }
-    }
-
-    // Snow layer placement: on top of grass_snow/snow in snow biomes when air above (no trees).
-    // Layer count depends on slope: flatter surfaces get more layers, steep slopes get none.
-    if (snowAccumulationHeight >= 1) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-          const topY = ctx.heightmap[lx][lz]
-          if (topY + 1 >= WORLD_HEIGHT) continue
-          const surfaceLk = localKey(lx, topY, lz)
-          const aboveLk = localKey(lx, topY + 1, lz)
-          if (ctx.voxelMap[aboveLk] !== 0) continue
-          const surfaceType = idToType(ctx.voxelMap[surfaceLk])
-          if (surfaceType !== 'grass_snow' && surfaceType !== 'snow') continue
-          const biome = ctx.biomeMap[lx][lz]
-          if (!SNOW_BIOMES.includes(biome)) continue
-          const dN = lz > 0 ? Math.abs(ctx.heightmap[lx][lz - 1] - topY) : 0
-          const dS = lz < CHUNK_SIZE - 1 ? Math.abs(ctx.heightmap[lx][lz + 1] - topY) : 0
-          const dW = lx > 0 ? Math.abs(ctx.heightmap[lx - 1][lz] - topY) : 0
-          const dE = lx < CHUNK_SIZE - 1 ? Math.abs(ctx.heightmap[lx + 1][lz] - topY) : 0
-          const maxSlope = Math.max(dN, dS, dW, dE)
-          let layers: number
-          if (maxSlope >= SNOW_LAYER_STEEP_SLOPE_MIN) layers = 0
-          else if (maxSlope >= SNOW_LAYER_MODERATE_SLOPE_MAX)
-            layers = 1
-          else if (maxSlope >= SNOW_LAYER_FLAT_SLOPE_MAX)
-            layers = Math.max(1, Math.floor((Math.min(snowAccumulationHeight, 8) + 1) / 2))
-          else layers = Math.min(snowAccumulationHeight, 8)
-          if (layers < 1) continue
-          ctx.voxelMap[aboveLk] = typeToId(`snow_layer_${layers}` as BlockType)
+      for (const m of ctx.blockMods) {
+        const lx = m.bx - ctx.worldX
+        const lz = m.bz - ctx.worldZ
+        if (
+          lx >= 0 &&
+          lx < CHUNK_SIZE &&
+          lz >= 0 &&
+          lz < CHUNK_SIZE &&
+          m.by >= 0 &&
+          m.by < WORLD_HEIGHT
+        ) {
+          const lk = localKey(lx, m.by, lz)
+          ctx.voxelMap[lk] = m.value === 'air' ? AIR_ID : typeToId(m.value)
         }
       }
-    }
 
-    const heightmapBuffer = new Float32Array(CHUNK_SIZE * CHUNK_SIZE)
-    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        heightmapBuffer[lx + lz * CHUNK_SIZE] = ctx.heightmap[lx][lz]
+      // Snow layer placement: on top of grass_snow/snow in snow biomes when air above (no trees).
+      // Layer count depends on slope: flatter surfaces get more layers, steep slopes get none.
+      if (snowAccumulationHeight >= 1) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+            const topY = ctx.heightmap[lx][lz]
+            if (topY + 1 >= WORLD_HEIGHT) continue
+            const surfaceLk = localKey(lx, topY, lz)
+            const aboveLk = localKey(lx, topY + 1, lz)
+            if (ctx.voxelMap[aboveLk] !== 0) continue
+            const surfaceType = idToType(ctx.voxelMap[surfaceLk])
+            if (surfaceType !== 'grass_snow' && surfaceType !== 'snow') continue
+            const biome = ctx.biomeMap[lx][lz]
+            if (!SNOW_BIOMES.includes(biome)) continue
+            const dN = lz > 0 ? Math.abs(ctx.heightmap[lx][lz - 1] - topY) : 0
+            const dS = lz < CHUNK_SIZE - 1 ? Math.abs(ctx.heightmap[lx][lz + 1] - topY) : 0
+            const dW = lx > 0 ? Math.abs(ctx.heightmap[lx - 1][lz] - topY) : 0
+            const dE = lx < CHUNK_SIZE - 1 ? Math.abs(ctx.heightmap[lx + 1][lz] - topY) : 0
+            const maxSlope = Math.max(dN, dS, dW, dE)
+            let layers: number
+            if (maxSlope >= SNOW_LAYER_STEEP_SLOPE_MIN) layers = 0
+            else if (maxSlope >= SNOW_LAYER_MODERATE_SLOPE_MAX)
+              layers = 1
+            else if (maxSlope >= SNOW_LAYER_FLAT_SLOPE_MAX)
+              layers = Math.max(1, Math.floor((Math.min(snowAccumulationHeight, 8) + 1) / 2))
+            else layers = Math.min(snowAccumulationHeight, 8)
+            if (layers < 1) continue
+            ctx.voxelMap[aboveLk] = typeToId(`snow_layer_${layers}` as BlockType)
+          }
+        }
       }
-    }
 
-    return {
-      chunkX: ctx.chunkX,
-      chunkZ: ctx.chunkZ,
-      heightmap: ctx.heightmap,
-      heightmapBuffer,
-      buffer: ctx.voxelMap,
+      const heightmapBuffer = new Float32Array(CHUNK_SIZE * CHUNK_SIZE)
+      const biomeMapBuffer = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE)
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          const i = lx + lz * CHUNK_SIZE
+          heightmapBuffer[i] = ctx.heightmap[lx][lz]
+          const biome = ctx.biomeMap[lx][lz]
+          biomeMapBuffer[i] = ALL_BIOMES.indexOf(biome)
+        }
+      }
+
+      return {
+        chunkX: ctx.chunkX,
+        chunkZ: ctx.chunkZ,
+        heightmap: ctx.heightmap,
+        heightmapBuffer,
+        biomeMapBuffer,
+        buffer: ctx.voxelMap,
+      }
+    } finally {
+      currentChunkContext = null
     }
   }
 
   return {
     generateChunkData,
-    getHeight: getHeightUncached,
+    getHeight,
     getResolvedBiome,
   }
 }

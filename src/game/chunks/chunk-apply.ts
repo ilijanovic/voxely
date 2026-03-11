@@ -520,12 +520,28 @@ export function applyChunkPayload(
     group.add(waterMesh)
   }
 
+  const heightmapBuffer =
+    payload.heightmapBuffer ??
+    (payload.heightmap && payload.heightmap.length > 0
+      ? (() => {
+          const buf = new Float32Array(CHUNK_SIZE * CHUNK_SIZE)
+          for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+            for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+              buf[lx + lz * CHUNK_SIZE] = payload.heightmap![lx][lz]
+            }
+          }
+          return buf
+        })()
+      : undefined)
+
   const data: ChunkData = {
     group,
     cx: payload.chunkX,
     cz: payload.chunkZ,
     voxelMap,
     blockPositionsByType,
+    heightmapBuffer,
+    biomeMapBuffer: payload.biomeMapBuffer,
   }
   deps.chunks.set(keyNum, data)
   scene.add(group)

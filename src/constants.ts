@@ -84,6 +84,8 @@ export const MAIN_INVENTORY_COLS = 9
 export const MAIN_INVENTORY_SLOTS = MAIN_INVENTORY_ROWS * MAIN_INVENTORY_COLS
 /** 2×2 crafting grid slot count (inventory screen). */
 export const CRAFTING_GRID_2X2 = 4
+/** 3×3 crafting grid slot count (crafting table block UI). */
+export const CRAFTING_GRID_3X3 = 9
 /** Total persistent slots: hotbar + main (crafting grid not persisted). */
 export const TOTAL_PERSISTENT_SLOTS = HOTBAR_SLOTS + MAIN_INVENTORY_SLOTS
 
@@ -94,10 +96,20 @@ export const DEFAULT_START_WEAPON = 'wood_sword'
 export const SPAWN_X = 0
 export const SPAWN_Z = 0
 
+/** When true, spawn is chosen above a cave (for debugging). */
+export const SPAWN_ABOVE_CAVE_DEBUG = false
+
 /** Max block height (world units) that the player can step over without being blocked in X/Z. 1.0 = step over any partial block (snow layers, slabs). */
 export const STEP_HEIGHT = 1
 /** Block height threshold: blocks with height <= this never act as walls in X/Z; player can walk onto them (e.g. snow layers, steps). */
 export const STEP_BLOCK_HEIGHT = 0.5
+
+/** Torch point light: intensity (brightness at source). */
+export const TORCH_LIGHT_INTENSITY = 7
+/** Torch point light: max distance in world units (light reaches this far). */
+export const TORCH_LIGHT_DISTANCE = 72
+/** Torch point light: decay exponent (lower = softer falloff, wider spread). Three.js default is 2. */
+export const TORCH_LIGHT_DECAY = 1.5
 
 /** Snow layer height (0–8) for terrain generation. 0 = no layer, 1–8 = layers on grass_snow/snow in snow biomes. */
 export const SNOW_ACCUMULATION_HEIGHT = 1
@@ -111,8 +123,65 @@ export const SNOW_GROWTH_CANDIDATES_PER_INTERVAL = 24
 
 /** Max distance for melee attack vs entities (same as block break reach). */
 export const ENTITY_ATTACK_DISTANCE = 5
-/** Damage applied per successful weapon slash to an entity. */
+/** Damage applied per successful weapon slash to an entity (default when weapon type unknown). */
 export const DAMAGE_PER_SLASH = 2
+/** Base damage per weapon type (e.g. sword). Used for melee damage calculation. */
+export const WEAPON_BASE_DAMAGE: Record<string, number> = {
+  sword: 2,
+}
+/** Full map overlay: chunks visible in each direction from player. */
+export const FULL_MAP_RADIUS_CHUNKS = 12
+/** Full map zoom factor: minimum (zoomed out). */
+export const FULL_MAP_ZOOM_MIN = 0.25
+/** Full map zoom factor: maximum (zoomed in). */
+export const FULL_MAP_ZOOM_MAX = 4
+/** When the player enters a chunk, this many chunks in each direction are also discovered on the map (e.g. 2 = 5×5 area). */
+export const MAP_DISCOVER_RADIUS_CHUNKS = 2
+/** Map color for water (surface at or below WATER_LEVEL). */
+export const MAP_COLOR_WATER = '#3a7eb8'
+/** Map color for low terrain (above water, low elevation). */
+export const MAP_COLOR_LOW = '#6b8c5d'
+/** Map color for mid terrain. */
+export const MAP_COLOR_MID = '#8b7355'
+/** Map color for high terrain. */
+export const MAP_COLOR_HIGH = '#9a9a9a'
+/** Map color for discovered but unloaded chunks (fog). */
+export const MAP_COLOR_FOG = '#5a5a5a'
+/** Map color for undiscovered area. */
+export const MAP_COLOR_UNDISCOVERED = '#2a2a2a'
+/** Map color per biome name for full map (snow, forest, desert, etc.). Fallback used if biome missing. */
+export const MAP_BIOME_COLORS: Record<string, string> = {
+  plains: '#6b8c5d',
+  ocean: '#3a7eb8',
+  desert: '#e3d39a',
+  savanna: '#bdb25f',
+  forest: '#4a7c47',
+  jungle: '#2d5016',
+  mountain: '#8b7355',
+  snow: '#e8e8e8',
+  meadow: '#7cb369',
+  grove: '#6b8c5d',
+  snowy_slopes: '#c8d4d8',
+  stony_peaks: '#9a9a9a',
+  frozen_peaks: '#e0e6eb',
+  jagged_peaks: '#8b8b8b',
+  cherry_grove: '#e8b4bc',
+  windswept_hills: '#8b7355',
+  windswept_gravelly_hills: '#8b8b7a',
+  windswept_forest: '#5a6b4a',
+  badlands: '#c47850',
+  mushroom_fields: '#8b6b8b',
+  mangrove_swamp: '#5a6b3a',
+  old_growth_taiga: '#4a5d3a',
+}
 
 /** Default URL for the multiplayer server (Socket.IO backend). */
 export const MULTIPLAYER_SERVER_URL = 'http://localhost:3000'
+
+/** Max player level (WoW Classic–style). */
+export const MAX_LEVEL = 60
+
+/** Maximum player health (Minecraft-style hearts). */
+export const PLAYER_MAX_HEALTH = 20
+/** Maximum player hunger/food level (Minecraft-style). */
+export const PLAYER_MAX_HUNGER = 20

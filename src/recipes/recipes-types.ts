@@ -26,3 +26,11 @@ export interface ShapelessRecipe {
 }
 
 export type Recipe2x2 = ShapedRecipe2x2 | ShapelessRecipe
+
+/** Shaped 3×3 recipe: pattern is 9 elements row-major (row 0 left→right, row 1, row 2). */
+export interface ShapedRecipe3x3 {
+  kind: 'shaped_3x3'
+  /** Pattern: 9 elements, null = empty slot. */
+  pattern: (BlockType | null)[]
+  result: RecipeResult
+}

@@ -12,11 +12,22 @@ const STRUCTURE_PLACE_CHANCE = 0.28
 
 export type StructureType = 'village' | 'temple'
 
+/** Village house size; used for fixed POIs or derived from seed for procedural villages. */
+export type VillageHouseSize = 'small' | 'medium' | 'large'
+
+/**
+ * One structure placement: either a village house (single building) or a temple.
+ * For fixed POIs, villages are areas (center + radius); each house in that area gets one StructureOrigin here.
+ */
 export interface StructureOrigin {
   ox: number
   oz: number
   oy: number
   type: StructureType
+  /** When true, spawn logic must not spawn villagers for this origin (used by fixed POI villages). */
+  noAutoVillagers?: boolean
+  /** Village house size; only used when type is 'village'. If unset, stage5 derives from seed. */
+  houseSize?: VillageHouseSize
 }
 
 function hash(seed: number, ix: number, iz: number): number {

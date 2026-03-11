@@ -115,7 +115,8 @@ function messageClass(msg: ChatMessage): string {
 </script>
 
 <template>
-  <div class="fixed left-3 bottom-20 z-20 flex flex-col gap-1">
+  <!-- Positioned to the right of the Health/XP/Hunger panel (w-48 + left-3) so they do not overlap -->
+  <div class="fixed left-52 bottom-20 z-20 flex flex-col gap-1">
     <!-- Toggle button -->
     <button
       v-if="!open"

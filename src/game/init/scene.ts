@@ -30,7 +30,16 @@ export function initSceneAndRenderer(container?: HTMLElement): SceneInitResult {
   )
   scene.add(camera)
 
-  const renderer = new THREE.WebGLRenderer({ antialias: getAntialias() })
+  let renderer: THREE.WebGLRenderer
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: getAntialias() })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    throw new Error(
+      `WebGL could not be initialized. The game requires hardware-accelerated graphics. ${msg}`,
+      { cause: err },
+    )
+  }
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = getToneMappingEnabled() ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping

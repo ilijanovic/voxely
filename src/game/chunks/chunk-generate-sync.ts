@@ -407,11 +407,13 @@ export function placeTorch(
   worldX: number,
   worldY: number,
   worldZ: number,
+  faceNormal?: { x: number; y: number; z: number },
 ): boolean {
   return placeTorchSystem({
     worldX,
     worldY,
     worldZ,
+    faceNormal,
     torchContainer: ctx.torchContainer,
     placedTorches: ctx.placedTorches,
     blockKeyNumeric,

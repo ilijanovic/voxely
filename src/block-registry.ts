@@ -11,6 +11,19 @@ export type BlockTextures =
 /** Default break time in seconds when not specified. */
 const DEFAULT_BREAK_TIME_SECONDS = 1.0
 
+/** Multiplier for break time when mining by hand (no tool) or with wrong tool. Makes hand mining feel more substantial. */
+export const HAND_BREAK_TIME_MULTIPLIER = 1.5
+
+/**
+ * Vanilla-style break time: hand/wrong tool = hardness × 5, correct tool = hardness × 1.5 / toolSpeed.
+ * Our breakTimeSeconds is hand time (hardness × 5), so hardness = breakTimeSeconds/5.
+ * Correct-tool time = (breakTimeSeconds/5) × 1.5 / toolSpeed = breakTimeSeconds × this factor / toolSpeed.
+ */
+const VANILLA_HARVEST_FACTOR = 1.5 / 5
+
+/** Default tool speed when tool has no toolSpeed set (e.g. wood tier = 2 in vanilla). */
+const DEFAULT_TOOL_SPEED = 2
+
 /** Fluid kind for flow/source logic; non-fluids omit this. */
 export type BlockFluidKind = 'water'
 
@@ -42,6 +55,18 @@ export interface BlockDefinition {
   skipSpecularMap?: boolean
   /** Height in world units for fluid source blocks (e.g. 1 for full water). Omitted for non-fluids and flowing variants. */
   fluidHeight?: number
+  /** When set, this item is armor; determines which classes can equip it. */
+  armorType?: 'cloth' | 'leather' | 'plate'
+  /** When set with armorType, which slot this armor goes in. */
+  armorSlot?: 'helm' | 'chest' | 'legs' | 'boots'
+  /** When set, this item is a weapon (left-click triggers slash); determines which classes can wield it. */
+  weaponType?: 'sword'
+  /** When set, this held item is a tool that breaks certain blocks faster (pickaxe/axe/shovel). */
+  toolType?: 'pickaxe' | 'axe' | 'shovel'
+  /** Mining speed multiplier for this tool (vanilla: Wood=2, Stone=4, Iron=6, Diamond=8, Gold=12). Used with correct harvest category. */
+  toolSpeed?: number
+  /** When set, this block is broken faster by the matching tool (pickaxe→stone, axe→wood, shovel→dirt). */
+  harvestCategory?: 'stone' | 'wood' | 'dirt'
 }
 
 /** Default: solid true, transparent false, unbreakable false, placeable/occludes derived from solid. */
@@ -61,6 +86,7 @@ const D = (
         | 'skipNormalMap'
         | 'skipSpecularMap'
         | 'fluidHeight'
+        | 'harvestCategory'
       >
     >,
 ): BlockDefinition => {
@@ -138,11 +164,41 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     textures: { type: 'single', texture: 'dirt' },
     breakTimeSeconds: 0.5,
     skipNormalMap: true,
+    harvestCategory: 'dirt',
   }),
   D({
     id: 'stone',
     displayName: 'Stone',
     textures: { type: 'single', texture: 'stone' },
+    breakTimeSeconds: 1.5,
+    skipNormalMap: true,
+    harvestCategory: 'stone',
+  }),
+  D({
+    id: 'coal_ore',
+    displayName: 'Coal Ore',
+    textures: { type: 'single', texture: 'coal_ore' },
+    breakTimeSeconds: 1.5,
+    skipNormalMap: true,
+  }),
+  D({
+    id: 'iron_ore',
+    displayName: 'Iron Ore',
+    textures: { type: 'single', texture: 'iron_ore' },
+    breakTimeSeconds: 1.5,
+    skipNormalMap: true,
+  }),
+  D({
+    id: 'gold_ore',
+    displayName: 'Gold Ore',
+    textures: { type: 'single', texture: 'gold_ore' },
+    breakTimeSeconds: 1.5,
+    skipNormalMap: true,
+  }),
+  D({
+    id: 'diamond_ore',
+    displayName: 'Diamond Ore',
+    textures: { type: 'single', texture: 'diamond_ore' },
     breakTimeSeconds: 1.5,
     skipNormalMap: true,
   }),
@@ -152,6 +208,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     textures: { type: 'single', texture: 'sand' },
     breakTimeSeconds: 0.5,
     skipNormalMap: true,
+    harvestCategory: 'dirt',
   }),
   D({
     id: 'snow',
@@ -206,6 +263,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
       type: 'six',
       textures: ['log_oak', 'log_oak', 'log_oak_top', 'log_oak_top', 'log_oak', 'log_oak'],
     },
+    harvestCategory: 'wood',
     breakTimeSeconds: 1.5,
   }),
   D({
@@ -345,23 +403,27 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Bricks',
     textures: { type: 'single', texture: 'brick' },
     breakTimeSeconds: 2,
+    harvestCategory: 'stone',
   }),
   D({
     id: 'stone_bricks',
     displayName: 'Stone Bricks',
     textures: { type: 'single', texture: 'stonebrick' },
     breakTimeSeconds: 2,
+    harvestCategory: 'stone',
   }),
   D({
     id: 'mossy_stone_bricks',
     displayName: 'Mossy Stone Bricks',
     textures: { type: 'single', texture: 'stonebrick_mossy' },
     breakTimeSeconds: 2,
+    harvestCategory: 'stone',
   }),
   D({
     id: 'sandstone',
     displayName: 'Sandstone',
     textures: { type: 'single', texture: 'sandstone_normal' },
+    harvestCategory: 'dirt',
   }),
   D({
     id: 'dead_bush',
@@ -469,6 +531,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     id: 'oak_planks',
     displayName: 'Oak Planks',
     textures: { type: 'single', texture: 'planks_oak' },
+    harvestCategory: 'wood',
   }),
   D({
     id: 'door_closed',
@@ -748,6 +811,7 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
     placeable: false,
     occludes: false,
     itemTexture: 'wood_sword',
+    weaponType: 'sword',
   },
   {
     id: 'stick',
@@ -757,6 +821,39 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
     placeable: false,
     occludes: false,
     itemTexture: 'stick',
+  },
+  {
+    id: 'wood_shovel',
+    displayName: 'Wooden Shovel',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'wood_shovel',
+    toolType: 'shovel',
+    toolSpeed: 2,
+  },
+  {
+    id: 'wood_pickaxe',
+    displayName: 'Wooden Pickaxe',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'wood_pickaxe',
+    toolType: 'pickaxe',
+    toolSpeed: 2,
+  },
+  {
+    id: 'wood_axe',
+    displayName: 'Wooden Axe',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'wood_axe',
+    toolType: 'axe',
+    toolSpeed: 2,
   },
   {
     id: 'coal',
@@ -778,8 +875,12 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
   },
 ]
 
-/** Block IDs that are weapons (left-click triggers slash, not mining). */
-const WEAPON_IDS = new Set(NON_PLACEABLE_ITEMS.filter((d) => d.itemTexture?.includes('sword')).map((d) => d.id))
+/** Block IDs that are weapons (left-click triggers slash, not mining). Uses weaponType when set, else fallback to itemTexture containing 'sword'. */
+function isWeaponDefinition(def: BlockDefinition): boolean {
+  if (def.weaponType) return true
+  return def.itemTexture?.includes('sword') === true
+}
+const WEAPON_IDS = new Set(NON_PLACEABLE_ITEMS.filter(isWeaponDefinition).map((d) => d.id))
 
 const REGISTRY = new Map<string, BlockDefinition>()
 for (const def of [...LEGACY_BLOCKS, ...CURATED_BLOCKS, ...NON_PLACEABLE_ITEMS]) {
@@ -812,6 +913,26 @@ export function getPlaceableBlockIds(): string[] {
 export function isPlaceableBlock(id: string): boolean {
   const def = REGISTRY.get(id)
   return def ? def.placeable === true : false
+}
+
+/**
+ * Block types that can be overwritten when placing a block (decoration / non-solid vegetation).
+ * Allows placement even when these are not visible (e.g. tall_grass rendering gap).
+ */
+const REPLACEABLE_BY_PLACEMENT = new Set([
+  'tall_grass',
+  'fern',
+  'dandelion',
+  'poppy',
+  'tulip_red',
+  'oxeye_daisy',
+  'blue_orchid',
+  'dead_bush',
+])
+
+/** True if the block at that cell can be replaced by placing another block (no need to break it first). */
+export function isReplaceableByPlacement(blockType: string): boolean {
+  return REPLACEABLE_BY_PLACEMENT.has(blockType)
 }
 
 /** True if the block type is solid for collision and raycast. */
@@ -855,6 +976,34 @@ export function getBlockBreakTime(id: string): number {
   return def !== undefined ? (def.breakTimeSeconds ?? DEFAULT_BREAK_TIME_SECONDS) : DEFAULT_BREAK_TIME_SECONDS
 }
 
+/** Pairs of (toolType, harvestCategory) that get the vanilla speed formula (correct tool). */
+const TOOL_CATEGORY_MATCH: Record<string, string> = {
+  pickaxe: 'stone',
+  axe: 'wood',
+  shovel: 'dirt',
+}
+
+/**
+ * Returns effective break time in seconds when breaking the block with the given held item.
+ * Uses Minecraft-style formula: hand/wrong tool = base time (hardness × 5); correct tool = base × (1.5/5) / toolSpeed.
+ * @param blockId Block type being broken
+ * @param heldItemId Currently selected hotbar item (e.g. wood_pickaxe), or undefined when empty/wrong hand
+ * @returns Break time in seconds (same as getBlockBreakTime when no tool or wrong tool)
+ */
+export function getBlockBreakTimeWithTool(blockId: string, heldItemId?: string): number {
+  const base = getBlockBreakTime(blockId)
+  if (!heldItemId) return base * HAND_BREAK_TIME_MULTIPLIER
+  const toolDef = REGISTRY.get(heldItemId)
+  const toolType = toolDef?.toolType
+  if (!toolType) return base * HAND_BREAK_TIME_MULTIPLIER
+  const blockDef = REGISTRY.get(blockId)
+  const category = blockDef?.harvestCategory
+  if (!category) return base * HAND_BREAK_TIME_MULTIPLIER
+  if (TOOL_CATEGORY_MATCH[toolType] !== category) return base * HAND_BREAK_TIME_MULTIPLIER
+  const speed = toolDef?.toolSpeed ?? DEFAULT_TOOL_SPEED
+  return (base * VANILLA_HARVEST_FACTOR) / speed
+}
+
 /** Display name for UI (tooltips, inventory). Falls back to id if not registered. */
 export function getBlockDisplayName(id: string): string {
   const def = REGISTRY.get(id)
@@ -878,4 +1027,22 @@ export function getItemTextureName(id: string): string | undefined {
 /** True if the block type is a weapon (e.g. sword); left-click triggers slash attack instead of mining. */
 export function isWeapon(id: string): boolean {
   return WEAPON_IDS.has(id)
+}
+
+/** Returns the weapon type for the block (e.g. 'sword'), or undefined if not a weapon. */
+export function getWeaponType(id: string): 'sword' | undefined {
+  const def = REGISTRY.get(id)
+  return def?.weaponType
+}
+
+/** Returns the armor type for the block (cloth/leather/plate), or undefined if not armor. */
+export function getArmorType(id: string): 'cloth' | 'leather' | 'plate' | undefined {
+  const def = REGISTRY.get(id)
+  return def?.armorType
+}
+
+/** Returns the armor slot for the block (helm/chest/legs/boots), or undefined if not armor. */
+export function getArmorSlot(id: string): 'helm' | 'chest' | 'legs' | 'boots' | undefined {
+  const def = REGISTRY.get(id)
+  return def?.armorSlot
 }

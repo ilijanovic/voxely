@@ -41,6 +41,10 @@ export interface ChunkData {
   voxelMap: Map<number, BlockType>
   /** Visible block positions per block type (for raycast/mining). */
   blockPositionsByType: Map<BlockType, BlockPos[]>
+  /** Surface heightmap (row-major: lx + lz * CHUNK_SIZE) for map/minimap rendering. Present when payload had heightmap. */
+  heightmapBuffer?: Float32Array
+  /** Biome index per column (row-major), index into terrain ALL_BIOMES. Used for map coloring. */
+  biomeMapBuffer?: Uint8Array
 }
 
 /** Tree noise caches per chunk (key: "wx,wz"). */

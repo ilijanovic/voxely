@@ -1,4 +1,5 @@
 import type { ChunkDataPayload, BlockModEntry } from '../../terrain-core'
+import type { WorldPoi } from '../../world-pois'
 import { chunkKeyNumeric } from '../../chunk-runtime'
 import { SNOW_ACCUMULATION_HEIGHT } from '../../constants'
 
@@ -30,6 +31,8 @@ export function initChunkWorkerClient(options: {
   seed: number
   /** Snow layer height 0–8 for terrain. Default from SNOW_ACCUMULATION_HEIGHT. */
   snowAccumulationHeight?: number
+  /** Pre-defined POIs for biome override and fixed village/NPC/mob placement. */
+  pois?: WorldPoi[]
   /**
    * Upper bound for how many workers may be created.
    * Default: 4.
@@ -111,6 +114,7 @@ export function initChunkWorkerClient(options: {
         type: 'init',
         seed: options.seed,
         snowAccumulationHeight: options.snowAccumulationHeight ?? SNOW_ACCUMULATION_HEIGHT,
+        pois: options.pois,
       })
       workers.push(state)
     }

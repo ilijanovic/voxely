@@ -7,6 +7,8 @@ import {
   getBlockDefinition,
   getBlockHeight,
   getBlockBreakTime,
+  getBlockBreakTimeWithTool,
+  HAND_BREAK_TIME_MULTIPLIER,
   getAllBlockIds,
   getPlaceableBlockIds,
   isPlaceableBlock,
@@ -50,6 +52,59 @@ describe('getBlockBreakTime', () => {
 
   it('returns default for unknown block id', () => {
     expect(getBlockBreakTime('unknown_block_xyz')).toBe(1)
+  })
+})
+
+describe('getBlockBreakTimeWithTool', () => {
+  it('returns base × HAND_BREAK_TIME_MULTIPLIER when no tool (undefined held item)', () => {
+    expect(getBlockBreakTimeWithTool('stone')).toBe(
+      getBlockBreakTime('stone') * HAND_BREAK_TIME_MULTIPLIER,
+    )
+    expect(getBlockBreakTimeWithTool('oak_planks')).toBe(
+      getBlockBreakTime('oak_planks') * HAND_BREAK_TIME_MULTIPLIER,
+    )
+    expect(getBlockBreakTimeWithTool('dirt')).toBe(
+      getBlockBreakTime('dirt') * HAND_BREAK_TIME_MULTIPLIER,
+    )
+  })
+
+  it('returns base × HAND_BREAK_TIME_MULTIPLIER when held item is not a tool', () => {
+    expect(getBlockBreakTimeWithTool('stone', 'stone')).toBe(
+      getBlockBreakTime('stone') * HAND_BREAK_TIME_MULTIPLIER,
+    )
+    expect(getBlockBreakTimeWithTool('oak_planks', 'torch')).toBe(
+      getBlockBreakTime('oak_planks') * HAND_BREAK_TIME_MULTIPLIER,
+    )
+  })
+
+  it('returns reduced time when correct tool is used (vanilla formula: base × 0.3 / toolSpeed)', () => {
+    expect(getBlockBreakTime('stone')).toBe(1.5)
+    // Wood pickaxe (speed 2): stone 1.5 × (1.5/5) / 2 = 0.225 s
+    expect(getBlockBreakTimeWithTool('stone', 'wood_pickaxe')).toBe(1.5 * (1.5 / 5) / 2)
+    expect(getBlockBreakTimeWithTool('oak_planks', 'wood_axe')).toBe(
+      getBlockBreakTime('oak_planks') * (1.5 / 5) / 2,
+    )
+    expect(getBlockBreakTimeWithTool('dirt', 'wood_shovel')).toBe(
+      getBlockBreakTime('dirt') * (1.5 / 5) / 2,
+    )
+  })
+
+  it('returns base × HAND_BREAK_TIME_MULTIPLIER when wrong tool is used (e.g. axe on stone)', () => {
+    expect(getBlockBreakTimeWithTool('stone', 'wood_axe')).toBe(
+      getBlockBreakTime('stone') * HAND_BREAK_TIME_MULTIPLIER,
+    )
+    expect(getBlockBreakTimeWithTool('oak_planks', 'wood_pickaxe')).toBe(
+      getBlockBreakTime('oak_planks') * HAND_BREAK_TIME_MULTIPLIER,
+    )
+  })
+
+  it('returns default × HAND_BREAK_TIME_MULTIPLIER for unknown block or unknown held item', () => {
+    expect(getBlockBreakTimeWithTool('unknown_block_xyz', 'wood_pickaxe')).toBe(
+      1 * HAND_BREAK_TIME_MULTIPLIER,
+    )
+    expect(getBlockBreakTimeWithTool('stone', 'unknown_tool_xyz')).toBe(
+      getBlockBreakTime('stone') * HAND_BREAK_TIME_MULTIPLIER,
+    )
   })
 })
 

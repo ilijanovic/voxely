@@ -9,7 +9,7 @@ export const AIR_ID = 0
 /** Sentinel: position was carved by cave noise; leave as air (do not fill in stratigraphy). */
 export const CARVED_ID = 255
 
-/** All block types that can appear in terrain generation (order defines id). */
+/** All block types that can appear in chunk data (terrain generation + player-placed). Order defines id. */
 const TERRAIN_BLOCK_TYPES: (BlockType | 'air')[] = [
   'air',
   'bedrock',
@@ -61,6 +61,11 @@ const TERRAIN_BLOCK_TYPES: (BlockType | 'air')[] = [
   'podzol',
   'mud',
   'coarse_dirt',
+  // Ores (Stage 4 feature; replace stone in valid Y range)
+  'coal_ore',
+  'iron_ore',
+  'gold_ore',
+  'diamond_ore',
   // Flowing water: source + levels 1–7 (Minecraft-style spread)
   'water_source',
   'water_flowing_1',
@@ -70,6 +75,17 @@ const TERRAIN_BLOCK_TYPES: (BlockType | 'air')[] = [
   'water_flowing_5',
   'water_flowing_6',
   'water_flowing_7',
+  // Player-placeable / craftable (not from terrain generation; needed for chunk payload encoding)
+  'oak_planks',
+  'spruce_planks',
+  'birch_planks',
+  'jungle_planks',
+  'acacia_planks',
+  'dark_oak_planks',
+  'crafting_table',
+  // Structure blocks (village walls, etc.)
+  'bricks',
+  'stone_bricks',
 ]
 
 /** BlockType at id (id 0 = air, not in this array). Index = id - 1 for id >= 1. */

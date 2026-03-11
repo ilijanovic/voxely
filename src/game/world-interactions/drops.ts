@@ -13,17 +13,28 @@ export const DEFAULT_MAGNET_RADIUS = 2.5
 /** Speed at which a drop moves toward the player when in magnet radius (units per second). */
 export const DEFAULT_MAGNET_SPEED = 6
 
-export type Drop = {
-  /** Rest position (landing target); also the center that moves when in magnet range. */
+/** Common fields for all drop types. */
+interface DropBase {
   restPosition: THREE.Vector3
-  blockType: BlockType
   group: THREE.Group
   bobPhase: number
-  /** Spawn time for landing animation; 0 when already landed. */
   spawnTime: number
-  /** Initial Y when spawned (for landing animation). */
   initialY: number
 }
+
+/** Item drop (block break, loot). */
+export interface ItemDrop extends DropBase {
+  type: 'item'
+  blockType: BlockType
+}
+
+/** XP orb (mob kill); collected for experience. */
+export interface XpDrop extends DropBase {
+  type: 'xp'
+  xpAmount: number
+}
+
+export type Drop = ItemDrop | XpDrop
 
 export type DropsConfig = {
   pickupRadius: number
@@ -75,8 +86,48 @@ export function spawnDrop(params: {
   params.scene.add(group)
   const restPosition = new THREE.Vector3(params.worldX, params.restY, params.worldZ)
   params.drops.push({
+    type: 'item',
     restPosition,
     blockType: params.blockType,
+    group,
+    bobPhase: Math.random() * Math.PI * 2,
+    spawnTime: params.time,
+    initialY: params.startY,
+  })
+}
+
+/** Size of the XP orb mesh. */
+const XP_ORB_SIZE = 0.3
+
+/**
+ * Spawns a collectible XP orb at the given position. Uses same landing/magnet/pickup as item drops.
+ */
+export function spawnXpDrop(params: {
+  scene: THREE.Scene
+  drops: Drop[]
+  worldX: number
+  worldZ: number
+  startY: number
+  restY: number
+  amount: number
+  time: number
+}): void {
+  const geo = new THREE.SphereGeometry(XP_ORB_SIZE * 0.5, 10, 8)
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x00ff88,
+    transparent: true,
+    opacity: 0.95,
+  })
+  const mesh = new THREE.Mesh(geo, mat)
+  const group = new THREE.Group()
+  group.add(mesh)
+  group.position.set(params.worldX, params.startY, params.worldZ)
+  params.scene.add(group)
+  const restPosition = new THREE.Vector3(params.worldX, params.restY, params.worldZ)
+  params.drops.push({
+    type: 'xp',
+    restPosition,
+    xpAmount: params.amount,
     group,
     bobPhase: Math.random() * Math.PI * 2,
     spawnTime: params.time,
@@ -96,6 +147,8 @@ export function updateDropsAndPickup(params: {
   time: number
   dt: number
   config: DropsConfig
+  /** Called when the player picks up an XP orb; caller applies experience. */
+  onXpPickup?: (amount: number) => void
 }): void {
   const { pickupRadius, bobSpeed, bobHeight, magnetRadius, magnetSpeed } = params.config
   const playerPos = new THREE.Vector3(params.playerX, params.playerY, params.playerZ)
@@ -119,7 +172,11 @@ export function updateDropsAndPickup(params: {
       const distSq = dx * dx + dy * dy + dz * dz
       const dist = Math.sqrt(distSq)
       if (dist < pickupRadius) {
-        addBlockToInventory(d.blockType)
+        if (d.type === 'item') {
+          addBlockToInventory(d.blockType)
+        } else {
+          params.onXpPickup?.(d.xpAmount)
+        }
         params.scene.remove(d.group)
         d.group.traverse((obj) => {
           if (obj instanceof THREE.Mesh && obj.geometry) obj.geometry.dispose()

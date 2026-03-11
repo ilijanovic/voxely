@@ -39,7 +39,11 @@ export function updateAI(
     const dz = playerPosition.z - e.position.z
     const distSq = dx * dx + dz * dz
 
-    if (def.behaviour === 'chase' && distSq < CHASE_DIST_SQ) {
+    if (
+      e.disposition === 'aggro' &&
+      def.behaviour === 'chase' &&
+      distSq < CHASE_DIST_SQ
+    ) {
       e.state = 'chase'
       e.stateTime = 0
       const len = Math.sqrt(distSq) || 1

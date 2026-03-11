@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { BlockType } from '../../types'
 import type { Biome } from '../../game-terrain'
-import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, SPAWN_X, SPAWN_Z } from '../../constants'
 import { chunks, chunkKeyNumeric, localKey, getBlockAt } from '../../chunk-runtime'
 import { isSolidBlock as isBlockTypeSolid } from '../../block-registry'
 import {
@@ -16,6 +16,7 @@ import {
   MOUNTAIN_STONE_SURFACE_HEIGHT,
 } from '../../game-terrain'
 import { BIOME_LAYERS } from '../../terrain/biomes'
+import { getAreaAt } from '../../world-areas'
 
 export function logBlockAt(bx: number, by: number, bz: number, label: string): void {
   const blockType = getBlockAt(bx, by, bz)
@@ -200,6 +201,10 @@ export function updateTerrainDebugOverlay(
 
   const wx = Math.floor(player.position.x)
   const wz = Math.floor(player.position.z)
+  const area = getAreaAt(player.position.x, player.position.z)
+  const dx = player.position.x - SPAWN_X
+  const dz = player.position.z - SPAWN_Z
+  const distFromSpawn = Math.sqrt(dx * dx + dz * dz)
   const biome = getResolvedBiome(wx, wz)
   const topY = getHeight(wx, wz)
   const layerSurface = BIOME_LAYERS[biome].surface
@@ -214,9 +219,16 @@ export function updateTerrainDebugOverlay(
   const fpsStr = extra?.fps != null ? String(extra.fps) : '--'
   const fpsLine = `\nFPS: ${fpsStr}`
 
+  const zoneLine = area
+    ? `\nzone: ${area.id} (Lv ${area.levelMin}–${area.levelMax})`
+    : '\nzone: --'
+  const spawnLine = `\ndist from spawn: ${distFromSpawn.toFixed(0)} blocks`
+
   state.el.textContent =
     `P Terrain Debug` +
     fpsLine +
+    zoneLine +
+    spawnLine +
     `\nxyz: ${player.position.x.toFixed(1)} ${player.position.y.toFixed(
       1,
     )} ${player.position.z.toFixed(1)}` +

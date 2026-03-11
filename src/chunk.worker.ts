@@ -17,6 +17,9 @@ function postPayload(payload: ChunkDataPayload): void {
   if (payload.heightmapBuffer?.buffer instanceof ArrayBuffer) {
     transferList.push(payload.heightmapBuffer.buffer)
   }
+  if (payload.biomeMapBuffer?.buffer instanceof ArrayBuffer) {
+    transferList.push(payload.biomeMapBuffer.buffer)
+  }
   if (payload.geometryLayers) {
     for (const layer of payload.geometryLayers) {
       if (layer.position?.buffer instanceof ArrayBuffer) transferList.push(layer.position.buffer)

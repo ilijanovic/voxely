@@ -21,6 +21,7 @@ function makeEntity(overrides: Partial<Omit<Entity, 'id'>> = {}): Omit<Entity, '
     stateTime: 0,
     health: 8,
     maxHealth: 8,
+    disposition: 'neutral',
     ...overrides,
   }
 }

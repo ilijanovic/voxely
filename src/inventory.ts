@@ -8,10 +8,16 @@ import {
   HOTBAR_SLOTS,
   MAIN_INVENTORY_SLOTS,
   CRAFTING_GRID_2X2,
+  CRAFTING_GRID_3X3,
   TOTAL_PERSISTENT_SLOTS,
   DEFAULT_START_WEAPON,
 } from './constants'
-import { matchRecipe2x2, getConsumeAmountsForCraft } from './recipes'
+import {
+  matchRecipe2x2,
+  getConsumeAmountsForCraft,
+  matchRecipe3x3,
+  getConsumeAmountsForCraft3x3FromMatch,
+} from './recipes'
 
 export const INVENTORY_SLOT_COUNT = HOTBAR_SLOTS + MAIN_INVENTORY_SLOTS + CRAFTING_GRID_2X2
 
@@ -32,6 +38,12 @@ function emptySlot(): InventorySlot {
 }
 
 const slots: InventorySlot[] = Array.from({ length: INVENTORY_SLOT_COUNT }, emptySlot)
+
+/** Temporary 3×3 crafting table grid (only used while crafting table UI is open; not persisted). */
+const craftingTableSlots: InventorySlot[] = Array.from(
+  { length: CRAFTING_GRID_3X3 },
+  emptySlot,
+)
 
 let onInventoryChange: (() => void) | null = null
 
@@ -80,9 +92,54 @@ export function getCraftingSlots(): InventorySlot[] {
   return slots.slice(CRAFTING_START, CRAFTING_START + CRAFTING_GRID_2X2).map((s) => ({ ...s }))
 }
 
+/** Slots of the 3×3 crafting table grid (row-major, indices 0–8). Not persisted. */
+export function getCraftingTableSlots(): InventorySlot[] {
+  return craftingTableSlots.map((s) => ({ type: s.type, count: s.count }))
+}
+
+/** Sets one slot of the 3×3 crafting table grid (index 0–8). */
+export function setCraftingTableSlot(
+  index: number,
+  type: BlockType | null,
+  count: number,
+): void {
+  if (index < 0 || index >= CRAFTING_GRID_3X3) return
+  const c = Math.max(0, Math.min(MAX_STACK_SIZE, Math.floor(count)))
+  if (c <= 0) {
+    craftingTableSlots[index] = emptySlot()
+  } else {
+    craftingTableSlots[index] = { type: type ?? null, count: c }
+  }
+  notify()
+}
+
 /** All slots (0–39) for UI binding. */
 export function getAllSlots(): InventorySlot[] {
   return slots.map((s) => ({ type: s.type, count: s.count }))
+}
+
+/**
+ * Returns total count of a block type in persistent slots (hotbar + main inventory only).
+ * Used for quest collect objectives.
+ */
+export function getTotalCountForBlockType(blockType: BlockType): number {
+  let total = 0
+  for (let i = 0; i < TOTAL_PERSISTENT_SLOTS; i++) {
+    const s = slots[i]
+    if (s.type === blockType) total += s.count
+  }
+  return total
+}
+
+/**
+ * Returns the first persistent slot index (0..35) that is empty, or -1 if none.
+ * Used when unequipping to find a destination slot.
+ */
+export function getFirstEmptyPersistentSlot(): number {
+  for (let i = 0; i < TOTAL_PERSISTENT_SLOTS; i++) {
+    if (slots[i].count <= 0) return i
+  }
+  return -1
 }
 
 /** Adds item to inventory: stack in hotbar first, then main, then first empty in hotbar then main. */
@@ -177,10 +234,175 @@ export function moveSlots(
   return true
 }
 
+/**
+ * Moves items from main inventory (0–35) to the 3×3 crafting table grid (table index 0–8).
+ * Merge or swap same as moveSlots. Returns true if any change occurred.
+ */
+export function moveToCraftingTable(
+  fromInvIndex: number,
+  toTableIndex: number,
+  amount?: number,
+): boolean {
+  if (
+    fromInvIndex < 0 ||
+    fromInvIndex >= TOTAL_PERSISTENT_SLOTS ||
+    toTableIndex < 0 ||
+    toTableIndex >= CRAFTING_GRID_3X3
+  )
+    return false
+  const from = slots[fromInvIndex]
+  const to = craftingTableSlots[toTableIndex]
+  if (from.count <= 0) return false
+  const moveCount = amount != null ? Math.min(amount, from.count) : from.count
+  if (moveCount <= 0) return false
+  if (to.count <= 0) {
+    craftingTableSlots[toTableIndex] = { type: from.type, count: moveCount }
+    from.count -= moveCount
+    if (from.count <= 0) slots[fromInvIndex] = emptySlot()
+    notify()
+    return true
+  }
+  if (from.type === to.type) {
+    const space = MAX_STACK_SIZE - to.count
+    const actual = Math.min(moveCount, space)
+    if (actual <= 0) return false
+    to.count += actual
+    from.count -= actual
+    if (from.count <= 0) slots[fromInvIndex] = emptySlot()
+    notify()
+    return true
+  }
+  if (amount != null && amount < from.count) return false
+  slots[fromInvIndex] = { type: to.type, count: to.count }
+  craftingTableSlots[toTableIndex] = { type: from.type, count: from.count }
+  notify()
+  return true
+}
+
+/**
+ * Moves items from the 3×3 crafting table grid to main inventory (0–35).
+ * Returns true if any change occurred.
+ */
+export function moveFromCraftingTable(
+  fromTableIndex: number,
+  toInvIndex: number,
+  amount?: number,
+): boolean {
+  if (
+    fromTableIndex < 0 ||
+    fromTableIndex >= CRAFTING_GRID_3X3 ||
+    toInvIndex < 0 ||
+    toInvIndex >= TOTAL_PERSISTENT_SLOTS
+  )
+    return false
+  const from = craftingTableSlots[fromTableIndex]
+  const to = slots[toInvIndex]
+  if (from.count <= 0) return false
+  const moveCount = amount != null ? Math.min(amount, from.count) : from.count
+  if (moveCount <= 0) return false
+  if (to.count <= 0) {
+    slots[toInvIndex] = { type: from.type, count: moveCount }
+    from.count -= moveCount
+    if (from.count <= 0) craftingTableSlots[fromTableIndex] = emptySlot()
+    notify()
+    return true
+  }
+  if (from.type === to.type) {
+    const space = MAX_STACK_SIZE - to.count
+    const actual = Math.min(moveCount, space)
+    if (actual <= 0) return false
+    to.count += actual
+    from.count -= actual
+    if (from.count <= 0) craftingTableSlots[fromTableIndex] = emptySlot()
+    notify()
+    return true
+  }
+  if (amount != null && amount < from.count) return false
+  craftingTableSlots[fromTableIndex] = { type: to.type, count: to.count }
+  slots[toInvIndex] = { type: from.type, count: from.count }
+  notify()
+  return true
+}
+
+/**
+ * Moves items within the 3×3 crafting table grid. Returns true if any change occurred.
+ */
+export function moveWithinCraftingTable(
+  fromIndex: number,
+  toIndex: number,
+  amount?: number,
+): boolean {
+  if (
+    fromIndex < 0 ||
+    fromIndex >= CRAFTING_GRID_3X3 ||
+    toIndex < 0 ||
+    toIndex >= CRAFTING_GRID_3X3 ||
+    fromIndex === toIndex
+  )
+    return false
+  const from = craftingTableSlots[fromIndex]
+  const to = craftingTableSlots[toIndex]
+  if (from.count <= 0) return false
+  const moveCount = amount != null ? Math.min(amount, from.count) : from.count
+  if (moveCount <= 0) return false
+  if (to.count <= 0) {
+    craftingTableSlots[toIndex] = { type: from.type, count: moveCount }
+    from.count -= moveCount
+    if (from.count <= 0) craftingTableSlots[fromIndex] = emptySlot()
+    notify()
+    return true
+  }
+  if (from.type === to.type) {
+    const space = MAX_STACK_SIZE - to.count
+    const actual = Math.min(moveCount, space)
+    if (actual <= 0) return false
+    to.count += actual
+    from.count -= actual
+    if (from.count <= 0) craftingTableSlots[fromIndex] = emptySlot()
+    notify()
+    return true
+  }
+  if (amount != null && amount < from.count) return false
+  craftingTableSlots[fromIndex] = { type: to.type, count: to.count }
+  craftingTableSlots[toIndex] = { type: from.type, count: from.count }
+  notify()
+  return true
+}
+
 /** Clears the 2×2 crafting grid (indices 36–39). */
 export function clearCraftingGrid(): void {
   for (let i = CRAFTING_START; i < CRAFTING_START + CRAFTING_GRID_2X2; i++) {
     slots[i] = emptySlot()
+  }
+  notify()
+}
+
+/**
+ * Returns all items from the 2×2 crafting grid back into the main inventory (hotbar then main),
+ * then clears the grid. Use when closing the inventory so items are not lost.
+ */
+export function returnCraftingGridToInventory(): void {
+  for (let i = CRAFTING_START; i < CRAFTING_START + CRAFTING_GRID_2X2; i++) {
+    const s = slots[i]
+    if (s.count > 0 && s.type) {
+      addItem(s.type, s.count)
+      slots[i] = emptySlot()
+    }
+  }
+  notify()
+}
+
+/**
+ * Returns all items from the 3×3 crafting table grid back into the main inventory,
+ * then clears the grid. Use when closing the crafting table UI.
+ */
+export function returnCraftingTableToInventory(): void {
+  for (let i = 0; i < CRAFTING_GRID_3X3; i++) {
+    const s = craftingTableSlots[i]
+    if (s.count > 0 && s.type) {
+      addItem(s.type, s.count)
+      craftingTableSlots[i] = emptySlot()
+    }
   }
   notify()
 }
@@ -199,6 +421,27 @@ export function craftOne(): boolean {
     if (amounts[i] > 0) consumeFromSlot(CRAFTING_START + i, amounts[i])
   }
   addItem(matched.result.type, matched.result.count)
+  return true
+}
+
+/**
+ * If the 3×3 crafting table grid matches a recipe, consumes one set of ingredients and adds the result to inventory.
+ * @returns true if a craft was performed.
+ */
+export function craftOne3x3(): boolean {
+  const gridTypes = craftingTableSlots.map((s) => s.type)
+  const matched = matchRecipe3x3(gridTypes)
+  if (!matched) return false
+  const amounts = getConsumeAmountsForCraft3x3FromMatch(matched, craftingTableSlots)
+  for (let i = 0; i < CRAFTING_GRID_3X3; i++) {
+    if (amounts[i] > 0) {
+      const s = craftingTableSlots[i]
+      s.count -= amounts[i]
+      if (s.count <= 0) craftingTableSlots[i] = emptySlot()
+    }
+  }
+  addItem(matched.result.type, matched.result.count)
+  notify()
   return true
 }
 

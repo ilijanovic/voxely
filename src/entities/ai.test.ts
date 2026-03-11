@@ -4,13 +4,28 @@ vi.mock('./spawn', () => ({
   getDef: (kind: string) => {
     const defs: Record<
       string,
-      { walkSpeed: number; runSpeed: number; behaviour: 'chase' | 'flee' | 'passive'; maxHealth: number }
+      {
+        walkSpeed: number
+        runSpeed: number
+        behaviour: 'chase' | 'flee' | 'passive'
+        defaultDisposition: 'neutral' | 'friendly' | 'aggro'
+        maxHealth: number
+      }
     > = {
-      sheep: { walkSpeed: 1.2, runSpeed: 2.8, behaviour: 'flee', maxHealth: 8 },
-      pig: { walkSpeed: 1.4, runSpeed: 2.6, behaviour: 'passive', maxHealth: 10 },
-      wolf: { walkSpeed: 1.6, runSpeed: 3.2, behaviour: 'chase', maxHealth: 8 },
+      sheep: { walkSpeed: 1.2, runSpeed: 2.8, behaviour: 'flee', defaultDisposition: 'neutral', maxHealth: 8 },
+      pig: { walkSpeed: 1.4, runSpeed: 2.6, behaviour: 'passive', defaultDisposition: 'neutral', maxHealth: 10 },
+      wolf: { walkSpeed: 1.6, runSpeed: 3.2, behaviour: 'chase', defaultDisposition: 'aggro', maxHealth: 8 },
+      villager: { walkSpeed: 1.0, runSpeed: 1.4, behaviour: 'passive', defaultDisposition: 'friendly', maxHealth: 20 },
     }
-    return defs[kind] ?? { walkSpeed: 1, runSpeed: 2, behaviour: 'passive' as const, maxHealth: 10 }
+    return (
+      defs[kind] ?? {
+        walkSpeed: 1,
+        runSpeed: 2,
+        behaviour: 'passive' as const,
+        defaultDisposition: 'neutral' as const,
+        maxHealth: 10,
+      }
+    )
   },
 }))
 
@@ -31,6 +46,7 @@ function makeEntity(
     stateTime: 0,
     health: 8,
     maxHealth: 8,
+    disposition: 'neutral',
     ...overrides,
   }
 }
@@ -92,11 +108,12 @@ describe('updateAI', () => {
     expect(e.state).toBe('idle')
   })
 
-  it('wolf chases when player is within chase distance', () => {
+  it('wolf chases when player is within chase distance and disposition is aggro', () => {
     const e = addEntity(
       makeEntity({
         id: 'wolf_chase',
         kind: 'wolf',
+        disposition: 'aggro',
         position: { x: 10, y: 64, z: 10 },
       }),
     )
@@ -106,11 +123,42 @@ describe('updateAI', () => {
     expect(e.velocity.z).toBeGreaterThan(0)
   })
 
+  it('wolf with neutral disposition does not chase when player is in range', () => {
+    const e = addEntity(
+      makeEntity({
+        id: 'wolf_neutral',
+        kind: 'wolf',
+        disposition: 'neutral',
+        state: 'idle',
+        stateTime: 0,
+        position: { x: 10, y: 64, z: 10 },
+      }),
+    )
+    updateAI({ x: 14, y: 64, z: 14 }, 0.1, 0)
+    expect(e.state).not.toBe('chase')
+  })
+
+  it('wolf with friendly disposition does not chase when player is in range', () => {
+    const e = addEntity(
+      makeEntity({
+        id: 'wolf_friendly',
+        kind: 'wolf',
+        disposition: 'friendly',
+        state: 'idle',
+        stateTime: 0,
+        position: { x: 10, y: 64, z: 10 },
+      }),
+    )
+    updateAI({ x: 14, y: 64, z: 14 }, 0.1, 0)
+    expect(e.state).not.toBe('chase')
+  })
+
   it('wolf stops chasing when player moves out of range', () => {
     const e = addEntity(
       makeEntity({
         id: 'wolf_chase_end',
         kind: 'wolf',
+        disposition: 'aggro',
         state: 'chase',
         stateTime: 0,
         position: { x: 100, y: 64, z: 100 },
@@ -158,11 +206,12 @@ describe('updateAI', () => {
     expect(e.state).toBe('flee')
   })
 
-  it('wolf does not flee (only chases)', () => {
+  it('wolf does not flee (only chases) when aggro', () => {
     const e = addEntity(
       makeEntity({
         id: 'wolf_no_flee',
         kind: 'wolf',
+        disposition: 'aggro',
         state: 'idle',
         stateTime: 0,
         position: { x: 10, y: 64, z: 10 },

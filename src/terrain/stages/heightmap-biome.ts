@@ -13,10 +13,12 @@ export interface Stage1Deps {
   getResolvedBiomeFromHeight(base: Biome, height: number, x: number, z: number): Biome
   /** Smoothed height (e.g. 3x3 kernel) for gentle biome transitions. */
   getHeight(x: number, z: number): number
+  /** When provided, overrides procedural biome for (x,z) inside placed POIs. */
+  getPoiBiomeOverride?(x: number, z: number): Biome | null
 }
 
 export function createStage1(deps: Stage1Deps): PipelineStage {
-  const { getBaseBiomeAt, getResolvedBiomeFromHeight, getHeight } = deps
+  const { getBaseBiomeAt, getResolvedBiomeFromHeight, getHeight, getPoiBiomeOverride } = deps
 
   return function stage1HeightmapBiome(ctx: ChunkContext): void {
     const { worldX, worldZ, heightmap, biomeMap } = ctx
@@ -24,10 +26,15 @@ export function createStage1(deps: Stage1Deps): PipelineStage {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const wx = worldX + lx
         const wz = worldZ + lz
-        const base = getBaseBiomeAt(wx, wz)
         const height = Math.floor(clamp(getHeight(wx, wz), 0, WORLD_HEIGHT))
         heightmap[lx][lz] = height
-        biomeMap[lx][lz] = getResolvedBiomeFromHeight(base, height, wx, wz)
+        const override = getPoiBiomeOverride?.(wx, wz)
+        if (override !== undefined && override !== null) {
+          biomeMap[lx][lz] = override
+        } else {
+          const base = getBaseBiomeAt(wx, wz)
+          biomeMap[lx][lz] = getResolvedBiomeFromHeight(base, height, wx, wz)
+        }
       }
     }
   }

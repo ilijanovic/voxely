@@ -9,12 +9,18 @@ import {
   WATER_SPREAD_INTERVAL_SEC,
   SPAWN_X,
   SPAWN_Z,
+  SPAWN_ABOVE_CAVE_DEBUG,
   WORLD_HEIGHT,
   ENTITY_ATTACK_DISTANCE,
   DAMAGE_PER_SLASH,
+  WEAPON_BASE_DAMAGE,
+  MAX_LEVEL,
+  PLAYER_MAX_HEALTH,
+  PLAYER_MAX_HUNGER,
   shouldFillBrokenBlockWithWater,
   FOG_NEAR_CHUNK_FACTOR,
   FOG_FAR_CHUNK_FACTOR,
+  MAP_DISCOVER_RADIUS_CHUNKS,
 } from './constants'
 import {
   getSelectedBlockType,
@@ -40,6 +46,7 @@ import {
   getSurfaceY,
   getColumnSurfaceY,
   findSpawnInBiome,
+  findSpawnAboveCave,
   SPAWN_BIOME,
   SPAWNABLE_BIOMES,
 } from './game-terrain'
@@ -73,18 +80,20 @@ import { spawnEntitiesForChunk } from './entities/spawn'
 import { updateMovement } from './entities/movement'
 import { updateAI, FLEE_DURATION_AFTER_HIT } from './entities/ai'
 import { updateAnimation } from './entities/animation'
-import { removeEntity } from './entities/registry'
+import { removeEntity, getAllEntities } from './entities/registry'
 import { raycastEntities } from './entities/entity-hit'
 import {
   isSolidBlock as isBlockTypeSolid,
   isPlaceableBlock,
+  isReplaceableByPlacement,
   isUnbreakableBlock,
-  getBlockBreakTime,
+  getBlockBreakTimeWithTool,
   getBlockDefinition,
   getBlockTextureNames,
   getBlockHeight,
   getItemTextureName,
   isWeapon,
+  getWeaponType,
 } from './block-registry'
 import { loadTextureSafe, loadItemTextureSafe, setPixelFilter } from './block-materials'
 import {
@@ -92,6 +101,8 @@ import {
   setPersistentSlots,
   initDefaultInventory,
   ensureSwordInHotbar,
+  addItem,
+  getTotalCountForBlockType,
 } from './inventory'
 import {
   SAVE_VERSION,
@@ -100,6 +111,42 @@ import {
   VALID_BLOCK_TYPES,
   type SaveData,
 } from './save'
+import {
+  writeHeightmap,
+  getCachedHeightmap,
+  getCachedBiomeMap,
+  preloadHeightmaps,
+  clearDiscoveredHeightmapCache,
+} from './discovered-heightmaps'
+import type { Faction, PlayerClass } from './player/faction'
+import { DEFAULT_FACTION, DEFAULT_CLASS } from './player/faction'
+import {
+  getEquipped,
+  getEquipmentForSave,
+  setEquipmentFromSave,
+} from './equipment'
+export { getEquipped, getEquipmentForSave } from './equipment'
+import { getFirstSkillForClass } from './player/skills'
+import { addExperience as addExperienceFn, getXpDropForArea } from './experience'
+import { getAreaAt } from './world-areas'
+import { getGold, setGold } from './gold'
+import {
+  getDefaultCharacterStats,
+  getEffectiveStat,
+  normaliseCharacterStats,
+  type CharacterStats,
+  type StatId,
+} from './character-stats'
+export type { CharacterStats, StatId } from './character-stats'
+export { ALL_STAT_IDS } from './character-stats'
+import { rollLoot } from './loot-tables'
+import {
+  getQuestStateForSave,
+  setQuestStateFromSave,
+  notifyKill as notifyQuestKill,
+  turnInQuest,
+  refreshCollectObjectives,
+} from './quests/quest-state'
 import { initMaterialsAndColormaps as initMaterialsAndColormapsSystem } from './game/init/materials'
 import { initSceneAndRenderer as initSceneAndRendererSystem } from './game/init/scene'
 import { initLightsAndSky as initLightsAndSkySystem } from './game/init/lights-sky'
@@ -126,6 +173,7 @@ import {
   columnHeightCache,
   chunkKey,
   chunkKeyNumeric,
+  blockKeyNumeric,
   localKey,
   decodeLocalKey,
   blockKeyString,
@@ -137,6 +185,7 @@ import { isWaterBlock, getWaterLevel, computeWaterSpread } from './game/fluid/wa
 import { isPendingSpawnReady } from './game/player/pending-spawn'
 import { RaycastMeshCache } from './game/chunks/raycast-cache'
 import { initChunkWorkerClient, type ChunkWorkerClient } from './game/chunks/chunk-worker-client'
+import { POI_REGISTRY } from './world-pois'
 import { applyChunkPayload as applyChunkPayloadToScene } from './game/chunks/chunk-apply'
 import { updateChunks as updateChunksFromModule } from './game/chunks/chunk-manager'
 import {
@@ -153,6 +202,7 @@ import {
 import {
   updateDropsAndPickup as updateDropsAndPickupSystem,
   spawnDrop as spawnDropItem,
+  spawnXpDrop as spawnXpDropItem,
   DEFAULT_MAGNET_RADIUS,
   DEFAULT_MAGNET_SPEED,
   type Drop,
@@ -160,10 +210,166 @@ import {
 import {
   createTorchGroup,
   applyTorchShadowSettingsToPlacedTorches,
+  removeTorchAt,
   type PlacedTorch,
 } from './game/world-interactions/torches'
 import { createPlayerMeshOnly, createPOVShadowBody } from './game/player/player-mesh'
 export { createPlayerMeshOnly } from './game/player/player-mesh'
+
+/** Returns current player level (1..MAX_LEVEL) for UI. */
+export function getPlayerLevel(): number {
+  return playerLevel
+}
+
+/** Returns current player faction (Covenant / Legion) for UI. */
+export function getPlayerFaction(): Faction {
+  return playerFaction
+}
+
+/** Returns current player class (e.g. warrior) for UI. */
+export function getPlayerClass(): PlayerClass {
+  return playerClass
+}
+
+/** Sets player faction (e.g. for character creation). Takes effect immediately and on next save. */
+export function setPlayerFaction(faction: Faction): void {
+  playerFaction = faction
+}
+
+/** Sets player class (e.g. for character creation). Takes effect immediately and on next save. */
+export function setPlayerClass(cls: PlayerClass): void {
+  playerClass = cls
+}
+
+/** Returns remaining cooldown in seconds for a skill (0 when ready). Used for UI skill bar. */
+export function getSkillCooldownRemaining(skillId: string): number {
+  return skillCooldowns[skillId] ?? 0
+}
+
+/** Returns current XP toward next level for UI. */
+export function getPlayerExperience(): number {
+  return playerExperience
+}
+
+/**
+ * Turns in a completed quest and applies rewards (XP and items to inventory).
+ * Call from Quest Log when player clicks "Turn in".
+ * @returns true if quest was turned in, false otherwise
+ */
+export function claimQuestReward(questId: string): boolean {
+  const result = turnInQuest(questId)
+  if (!result) return false
+  if (result.xp > 0) {
+    const next = addExperienceFn(playerLevel, playerExperience, result.xp)
+    playerLevel = next.level
+    playerExperience = next.experience
+  }
+  for (const { type, count } of result.items) {
+    addItem(type as BlockType, count)
+  }
+  return true
+}
+
+/**
+ * Refreshes collect objectives from current inventory. Call when inventory changes (e.g. after pickup).
+ */
+export function refreshQuestCollectObjectives(): void {
+  refreshCollectObjectives((item) => getTotalCountForBlockType(item))
+}
+
+/** Returns current player health (0..PLAYER_MAX_HEALTH) for UI. */
+export function getPlayerHealth(): number {
+  return playerHealth
+}
+
+/** Returns maximum player health for UI. */
+export function getPlayerMaxHealth(): number {
+  return PLAYER_MAX_HEALTH
+}
+
+/** Returns current player hunger (0..PLAYER_MAX_HUNGER) for UI. */
+export function getPlayerHunger(): number {
+  return playerHunger
+}
+
+/** Returns maximum player hunger for UI. */
+export function getPlayerMaxHunger(): number {
+  return PLAYER_MAX_HUNGER
+}
+
+/**
+ * Sets player health, clamped to 0..PLAYER_MAX_HEALTH. For future damage/healing.
+ */
+export function setPlayerHealth(value: number): void {
+  playerHealth = Math.max(0, Math.min(PLAYER_MAX_HEALTH, Math.round(value)))
+}
+
+/**
+ * Sets player hunger, clamped to 0..PLAYER_MAX_HUNGER. For future food/hunger decay.
+ */
+export function setPlayerHunger(value: number): void {
+  playerHunger = Math.max(0, Math.min(PLAYER_MAX_HUNGER, Math.round(value)))
+}
+
+/** Returns base character stats (WoW-style). Equipment bonuses not included; use getPlayerStat for effective value. */
+export function getPlayerBaseStats(): CharacterStats {
+  return { ...playerBaseStats }
+}
+
+/**
+ * Returns effective value for a character stat (base + equipment bonus). For now only base is used; later armor can add e.g. +5 agility.
+ */
+export function getPlayerStat(statId: StatId): number {
+  return getEffectiveStat(playerBaseStats, undefined, statId)
+}
+
+/** State snapshot for minimap and full map UI: player position/rotation and discovered chunk tiles with heightmaps. */
+export interface MapState {
+  playerX: number
+  playerZ: number
+  playerRotationY: number
+  discoveredChunkKeys: number[]
+  chunkTiles: Array<{
+    cx: number
+    cz: number
+    heightmapBuffer: Float32Array
+    biomeMapBuffer?: Uint8Array
+  }>
+}
+
+/**
+ * Returns current map state for minimap and full map overlay.
+ * @returns Player X/Z, yaw, discovered chunk keys, and heightmap tiles for loaded discovered chunks. Safe to call before game init (returns default with empty data).
+ */
+export function getMapState(): MapState {
+  if (typeof player === 'undefined') {
+    return {
+      playerX: 0,
+      playerZ: 0,
+      playerRotationY: 0,
+      discoveredChunkKeys: [],
+      chunkTiles: [],
+    }
+  }
+  const chunkTiles: MapState['chunkTiles'] = []
+  for (const keyNum of discoveredChunkKeys) {
+    const data = chunks.get(keyNum)
+    const heightmapBuffer = data?.heightmapBuffer ?? getCachedHeightmap(keyNum)
+    if (!heightmapBuffer) continue
+    const biomeMapBuffer = data?.biomeMapBuffer ?? getCachedBiomeMap(keyNum)
+    const cx = data ? data.cx : (keyNum >> 16) | 0
+    const cz = data ? data.cz : (keyNum << 16) >> 16
+    chunkTiles.push({ cx, cz, heightmapBuffer, biomeMapBuffer })
+  }
+  return {
+    playerX: player.position.x,
+    playerZ: player.position.z,
+    playerRotationY: lastLookYaw,
+    discoveredChunkKeys: Array.from(discoveredChunkKeys),
+    chunkTiles,
+  }
+}
+
 import { updateChunkFrustumVisibility } from './game/render/frustum-visibility'
 
 /**
@@ -202,10 +408,25 @@ const AUTOSAVE_INTERVAL_MS = 10000
 let loadedRotationY: number | null = null
 let loadedLookPitch: number | null = null
 
+/** Player level (1..MAX_LEVEL). Persisted in save. */
+let playerLevel = 1
+/** Current XP toward next level. Persisted in save. */
+let playerExperience = 0
+/** Player health (0..PLAYER_MAX_HEALTH). Persisted in save. */
+let playerHealth = PLAYER_MAX_HEALTH
+/** Player hunger/food level (0..PLAYER_MAX_HUNGER). Persisted in save. */
+let playerHunger = PLAYER_MAX_HUNGER
+/** Base character stats (WoW-style). Persisted in save. Equipment bonuses applied later via getPlayerStat. */
+let playerBaseStats: CharacterStats = getDefaultCharacterStats()
+/** Player faction (Covenant / Legion). Persisted in save. */
+let playerFaction: Faction = DEFAULT_FACTION
+/** Player class (e.g. warrior). Persisted in save. */
+let playerClass: PlayerClass = DEFAULT_CLASS
+
 /**
- * Builds the player slice of SaveData from current position and look angles.
+ * Builds the player slice of SaveData from current position, look angles, and level/XP.
  * Used by saveGame and by multiplayer state sync.
- * @returns Player position (x,y,z), rotationY (yaw), and lookPitch
+ * @returns Player position (x,y,z), rotationY (yaw), lookPitch, level, experience
  */
 function getPlayerState(): SaveData['player'] {
   return {
@@ -214,6 +435,15 @@ function getPlayerState(): SaveData['player'] {
     z: player.position.z,
     rotationY: lastLookYaw,
     lookPitch: lastLookPitch,
+    level: playerLevel,
+    experience: playerExperience,
+    gold: getGold(),
+    health: playerHealth,
+    hunger: playerHunger,
+    stats: { ...playerBaseStats },
+    faction: playerFaction,
+    class: playerClass,
+    equipment: getEquipmentForSave(),
   }
 }
 
@@ -238,16 +468,27 @@ function saveGame(): void {
     if (value === 'air') removedBlocks.push({ x, y, z })
     else placedBlocks.push({ x, y, z, type: value })
   }
+  const questState = getQuestStateForSave()
   const state: SaveData = {
     saveVersion: SAVE_VERSION,
     worldSeed: WORLD_SEED,
     player: getPlayerState(),
     removedBlocks,
     placedBlocks,
-    placedTorches: placedTorches.map((t) => ({ x: t.x, y: t.y, z: t.z })),
+    placedTorches: placedTorches.map((t) => ({
+      x: t.x,
+      y: t.y,
+      z: t.z,
+      ...(t.nx !== undefined && t.ny !== undefined && t.nz !== undefined
+        ? { nx: t.nx, ny: t.ny, nz: t.nz }
+        : {}),
+    })),
     dayTime: getDayTime() % 1,
     snowForced: snowEffect?.getForced?.() ?? undefined,
     inventory: getPersistentSlots(),
+    activeQuests: questState.activeQuests,
+    completedQuestIds: questState.completedQuestIds,
+    discoveredChunkKeys: Array.from(discoveredChunkKeys),
   }
   saveToStorage(state)
 }
@@ -260,7 +501,16 @@ function saveGame(): void {
 function loadGame(): boolean {
   const data = loadFromStorage()
   if (!data) {
+    setGold(0)
+    playerHealth = PLAYER_MAX_HEALTH
+    playerHunger = PLAYER_MAX_HUNGER
+    playerBaseStats = getDefaultCharacterStats()
+    playerFaction = DEFAULT_FACTION
+    playerClass = DEFAULT_CLASS
+    setEquipmentFromSave(undefined, VALID_BLOCK_TYPES)
     initDefaultInventory()
+    discoveredChunkKeys.clear()
+    clearDiscoveredHeightmapCache()
     return false
   }
   if (data.worldSeed !== WORLD_SEED) return false
@@ -280,9 +530,19 @@ function loadGame(): boolean {
     while (placedTorches.length) placedTorches.pop()
     while (torchContainer.children.length) torchContainer.remove(torchContainer.children[0])
     for (const t of data.placedTorches ?? []) {
-      const group = createTorchGroup(t.x, t.y, t.z)
+      const faceNormal =
+        t.nx !== undefined && t.ny !== undefined && t.nz !== undefined
+          ? { x: t.nx, y: t.ny, z: t.nz }
+          : undefined
+      const group = createTorchGroup(t.x, t.y, t.z, faceNormal)
       torchContainer.add(group)
-      placedTorches.push({ x: t.x, y: t.y, z: t.z, group })
+      placedTorches.push({
+        x: t.x,
+        y: t.y,
+        z: t.z,
+        ...(faceNormal && { nx: faceNormal.x, ny: faceNormal.y, nz: faceNormal.z }),
+        group,
+      })
     }
   }
 
@@ -311,7 +571,7 @@ function loadGame(): boolean {
           })
         }
       }
-      pendingLoad = { loadX: px, loadZ: pz, chunkKeys: loadChunkKeys }
+      pendingLoad = { loadX: px, loadY: data.player.y, loadZ: pz, chunkKeys: loadChunkKeys }
       const tempY = getHeight(px, pz) + 0.5
       player.position.set(px, tempY, pz)
       player.visible = false
@@ -321,8 +581,7 @@ function loadGame(): boolean {
           if (!chunks.has(chunkKeyNumeric(cx, cz))) generateChunk(scene, cx, cz)
         }
       }
-      const loadY = getSurfaceY(data.player.x, data.player.z)
-      player.position.set(data.player.x, loadY, data.player.z)
+      player.position.set(data.player.x, data.player.y, data.player.z)
       player.visible = true
     }
   }
@@ -334,6 +593,25 @@ function loadGame(): boolean {
   lastLookPitch = data.player.lookPitch
   loadedRotationY = data.player.rotationY
   loadedLookPitch = data.player.lookPitch
+  playerLevel = Math.max(1, Math.min(MAX_LEVEL, data.player.level ?? 1))
+  playerExperience = Math.max(0, data.player.experience ?? 0)
+  setGold(Math.max(0, data.player.gold ?? 0))
+  discoveredChunkKeys.clear()
+  for (const k of data.discoveredChunkKeys ?? []) discoveredChunkKeys.add(k)
+  clearDiscoveredHeightmapCache()
+  preloadHeightmaps(WORLD_SEED, Array.from(discoveredChunkKeys), 200)
+  playerHealth = Math.max(
+    0,
+    Math.min(PLAYER_MAX_HEALTH, data.player.health ?? PLAYER_MAX_HEALTH),
+  )
+  playerHunger = Math.max(
+    0,
+    Math.min(PLAYER_MAX_HUNGER, data.player.hunger ?? PLAYER_MAX_HUNGER),
+  )
+  playerBaseStats = normaliseCharacterStats(data.player.stats)
+  playerFaction = data.player.faction === 'legion' ? 'legion' : DEFAULT_FACTION
+  playerClass = data.player.class === 'warrior' ? 'warrior' : DEFAULT_CLASS
+  setEquipmentFromSave(data.player.equipment, VALID_BLOCK_TYPES)
   if (data.dayTime != null) setDayTime(data.dayTime)
   if (data.snowForced !== undefined) {
     if (snowEffect) snowEffect.setForced?.(data.snowForced)
@@ -350,6 +628,10 @@ function loadGame(): boolean {
   } else {
     initDefaultInventory()
   }
+  setQuestStateFromSave({
+    activeQuests: data.activeQuests,
+    completedQuestIds: data.completedQuestIds,
+  })
   // If we deferred with pendingLoad, apply as soon as all chunks are present (e.g. already loaded).
   if (pendingLoad) applyPendingLoadIfReady()
   return true
@@ -368,6 +650,7 @@ let pendingSpawn: {
 /** When set: player position and visibility are applied once all chunks around the saved position are loaded (worker path in loadGame). */
 let pendingLoad: {
   loadX: number
+  loadY: number
   loadZ: number
   chunkKeys: Set<number>
 } | null = null
@@ -387,8 +670,21 @@ let breakTarget: {
   x: number
   y: number
   z: number
+  /** World-space face normal (unit) for the block face being mined; used to position the 3D crack overlay. */
+  faceNormal: THREE.Vector3
 } | null = null
 let breakProgress = 0
+
+/** DOM element for the block-crack overlay; set from App.vue after mount so it is found regardless of timing. */
+let blockCrackElement: HTMLElement | null = null
+
+/**
+ * Sets the block-crack overlay element. Call from the app after the game HUD is mounted (e.g. after nextTick following mode selection).
+ * @param el - The element with id "block-crack", or null to clear.
+ */
+export function setBlockCrackElement(el: HTMLElement | null): void {
+  blockCrackElement = el
+}
 let isMouseDown = false
 /** Einmal pro Rechtsklick: Platzieren (Fackel oder Block) auslösen. */
 let rightMouseJustPressed = false
@@ -406,6 +702,15 @@ const MAGNET_SPEED = DEFAULT_MAGNET_SPEED
 /** Platziere Fackeln: Weltposition (Mitte der Fackel) + Group (Mesh + PointLight). */
 const placedTorches: PlacedTorch[] = []
 const PLACE_DISTANCE = 5
+
+/** When true, console.warn explains why F/right-click place failed. Enable via sessionStorage: setItem('debugPlace','1'). */
+function isPlaceDebug(): boolean {
+  try {
+    return typeof sessionStorage !== 'undefined' && sessionStorage.getItem('debugPlace') === '1'
+  } catch {
+    return false
+  }
+}
 
 /** Block tick interval (e.g. crop growth) in seconds. */
 const BLOCK_TICK_INTERVAL = 5
@@ -552,7 +857,9 @@ function breakBlock(
     skipRefresh: useWorker,
     time,
   })
-  if (shouldFillBrokenBlockWithWater(worldY)) {
+  // Only fill with water when this column is under ocean/lake (surface below water level), not when digging on land.
+  const surfaceUnderwater = getHeight(worldX, worldZ) < WATER_LEVEL
+  if (shouldFillBrokenBlockWithWater(worldY) && surfaceUnderwater) {
     blockModifications.set(blockKeyString(worldX, worldY, worldZ), 'water_source')
     applyBlockChangeToLoadedChunk({
       bx: worldX,
@@ -583,11 +890,16 @@ function unloadChunk(scene: THREE.Scene, keyNum: number): void {
 }
 
 /**
- * Places a torch at the given world position if the block is valid and within range. Adds mesh and light to torchContainer.
+ * Places a torch at the given cell center with the given face normal (e.g. from raycast hit).
  * @returns true if placement succeeded
  */
-function placeTorch(worldX: number, worldY: number, worldZ: number): boolean {
-  return placeTorchSync(getChunkSyncCtx(), worldX, worldY, worldZ)
+function placeTorch(
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+  faceNormal?: { x: number; y: number; z: number },
+): boolean {
+  return placeTorchSync(getChunkSyncCtx(), worldX, worldY, worldZ, faceNormal)
 }
 
 /**
@@ -614,8 +926,7 @@ function applyPendingLoadIfReady(): void {
   for (const keyNum of pendingLoad.chunkKeys) {
     if (!chunks.has(keyNum)) return
   }
-  const y = getSurfaceY(pendingLoad.loadX, pendingLoad.loadZ)
-  player.position.set(pendingLoad.loadX, y, pendingLoad.loadZ)
+  player.position.set(pendingLoad.loadX, pendingLoad.loadY, pendingLoad.loadZ)
   velocityY = 0
   velocityX = 0
   velocityZ = 0
@@ -646,6 +957,9 @@ function getRaycastMeshes(): Array<THREE.InstancedMesh | THREE.Mesh> {
 let lastPlayerChunkX: number | null = null
 let lastPlayerChunkZ: number | null = null
 
+/** Chunk keys (chunkKeyNumeric) the player has entered; used for map discovery and persisted in save. */
+let discoveredChunkKeys = new Set<number>()
+
 // ================= PLAYER =================
 
 /**
@@ -663,24 +977,31 @@ function createPlayer(scene: THREE.Scene) {
 
   let spawnX: number
   let spawnZ: number
-  const first = findSpawnInBiome(SPAWN_BIOME)
-  spawnX = first.x
-  spawnZ = first.z
-  // Fallback: if only (0,0) found and center is not the chosen biome, try another spawnable biome
-  if (spawnX === 0 && spawnZ === 0 && getResolvedBiome(0, 0) !== SPAWN_BIOME) {
-    const fallbackBiome = SPAWNABLE_BIOMES.find((b) => b !== SPAWN_BIOME)
-    if (fallbackBiome) {
-      const fallback = findSpawnInBiome(fallbackBiome)
-      if (fallback.x !== 0 || fallback.z !== 0) {
-        spawnX = fallback.x
-        spawnZ = fallback.z
+  if (SPAWN_ABOVE_CAVE_DEBUG) {
+    const caveSpawn = findSpawnAboveCave()
+    spawnX = caveSpawn.x
+    spawnZ = caveSpawn.z
+  } else {
+    const first = findSpawnInBiome(SPAWN_BIOME)
+    spawnX = first.x
+    spawnZ = first.z
+    // Fallback: if only (0,0) found, try every other spawnable biome so we get forest/savanna/plains etc.
+    if (spawnX === 0 && spawnZ === 0) {
+      for (const fallbackBiome of SPAWNABLE_BIOMES) {
+        if (fallbackBiome === SPAWN_BIOME) continue
+        const fallback = findSpawnInBiome(fallbackBiome)
+        if (fallback.x !== 0 || fallback.z !== 0) {
+          spawnX = fallback.x
+          spawnZ = fallback.z
+          break
+        }
       }
     }
-  }
-  // Ultimate fallback: use fixed spawn coordinates from config if still at origin
-  if (spawnX === 0 && spawnZ === 0) {
-    spawnX = SPAWN_X
-    spawnZ = SPAWN_Z
+    // Ultimate fallback: use fixed spawn coordinates from config if still at origin
+    if (spawnX === 0 && spawnZ === 0) {
+      spawnX = SPAWN_X
+      spawnZ = SPAWN_Z
+    }
   }
   columnHeightCache.clear()
   const footHalf = PLAYER_HALF + 0.5
@@ -828,15 +1149,16 @@ function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
 }
 
 /**
- * Updates the POV held-item container to show the currently selected hotbar item.
+ * Updates the POV held-item container to show the effective weapon (main hand then hotbar) or hotbar item.
  */
 function updatePOVHeldItem(): void {
-  const count = getSelectedSlotCount()
-  if (count <= 0) {
+  const mainHand = getEquipped('mainHand').type
+  const blockType = mainHand ?? getSelectedBlockType()
+  const count = mainHand ? 1 : getSelectedSlotCount()
+  if (!blockType || count <= 0) {
     povHeldItemContainer.clear()
     return
   }
-  const blockType = getSelectedBlockType()
   const def = getBlockDefinition(blockType)
   if (!def) {
     povHeldItemContainer.clear()
@@ -890,6 +1212,8 @@ let effectComposer: EffectComposer | null = null
 let bloomPass: UnrealBloomPass | null = null
 /** Container für alle platzierten Fackeln (Mesh + Licht). */
 let torchContainer: THREE.Group
+/** 3D crack overlay on the block face being mined; created in initSceneAndRenderer, shown when breakTarget is set. */
+let blockCrackOverlayMesh: THREE.Mesh | null = null
 let sunLight: THREE.DirectionalLight
 let sunMesh: THREE.Mesh
 let moonMesh: THREE.Mesh
@@ -993,6 +1317,27 @@ let attackState: AttackState = 'idle'
 let slashPhase = 0
 /** True after we've run entity hit detection for the current slash (one hit check per slash). */
 let slashHitCheckedThisCycle = false
+/** Weapon used for the current slash (for damage calculation when hit is applied). */
+let currentSlashWeapon: BlockType | null = null
+/** When true, next melee hit applies the class skill damage multiplier (e.g. Warrior Strike). */
+let nextSlashEnhanced = false
+/** Remaining cooldown in seconds per skill id. */
+const skillCooldowns: Record<string, number> = {}
+
+/** Returns the effective weapon: main hand first, then hotbar selection. Used for attack and damage. */
+function getEffectiveWeapon(): BlockType | null {
+  const mainHand = getEquipped('mainHand').type
+  if (mainHand && isWeapon(mainHand)) return mainHand
+  const hotbar = getSelectedBlockType()
+  return hotbar && isWeapon(hotbar) ? hotbar : null
+}
+
+/** Returns base slash damage for the given weapon type (or default if unknown). */
+function getSlashDamage(weaponType: string | undefined): number {
+  if (!weaponType) return DAMAGE_PER_SLASH
+  return WEAPON_BASE_DAMAGE[weaponType] ?? DAMAGE_PER_SLASH
+}
+
 /** Duration of the slash motion (forward + return) in seconds. */
 const SLASH_DURATION = 0.4
 /** Cooldown after slash before next attack can start. */
@@ -1034,27 +1379,30 @@ function getSlashArc(phase: number, duration: number): number {
   return 2 - 2 * p                                // 1 → 0 return to rest
 }
 
-// Third-Person: Körper-Yaw (Bewegungsrichtung), Kopf relativ dazu
-let bodyYaw = 0
 const HEAD_PITCH_MAX = THREE.MathUtils.degToRad(65) // vertikale Kopfbegrenzung
 
 /** Ob Multiplayer aktiv ist (nur dann verbinden wir mit dem Server). */
 let multiplayerEnabled = false
 
+/** Callback when the player uses (right-clicks) a crafting table block; used to open the crafting UI. */
+let onCraftingTableUse: (() => void) | null = null
+
 /**
  * Entry point called by the Vue app with the canvas container (after mount). Initializes materials, scene, chunks, player, controls, then starts animate loop.
  * @param container - Optional DOM element for the WebGL canvas
- * @param options - multiplayer flag and optional onHotbarChange callback for UI sync
+ * @param options - multiplayer flag and optional callbacks for UI sync and crafting table use
  */
 export async function initGame(
   container?: HTMLElement,
   options?: {
     multiplayer?: boolean
     onHotbarChange?: (blocks: BlockType[], counts: number[]) => void
+    onCraftingTableUse?: () => void
   },
 ): Promise<void> {
   multiplayerEnabled = options?.multiplayer === true
   setOnHotbarChange(options?.onHotbarChange ?? null)
+  onCraftingTableUse = options?.onCraftingTableUse ?? null
   await init(container)
 }
 
@@ -1123,7 +1471,7 @@ async function initMaterialsAndColormaps(): Promise<void> {
 }
 
 /**
- * Creates scene, camera, renderer, torch container, FPS overlay; wires terrain debug overlay.
+ * Creates scene, camera, renderer, torch container, FPS overlay; wires terrain debug overlay and block-crack 3D overlay.
  */
 function initSceneAndRenderer(container?: HTMLElement): void {
   const res = initSceneAndRendererSystem(container)
@@ -1133,6 +1481,24 @@ function initSceneAndRenderer(container?: HTMLElement): void {
   renderer = res.renderer
   fpsEl = res.fpsEl
   createTerrainDebugOverlaySystem(terrainDebug)
+
+  const crackGeom = new THREE.PlaneGeometry(1, 1)
+  const crackMat = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+  blockCrackOverlayMesh = new THREE.Mesh(crackGeom, crackMat)
+  blockCrackOverlayMesh.visible = false
+  blockCrackOverlayMesh.renderOrder = 1
+  scene.add(blockCrackOverlayMesh)
+  const loader = new THREE.TextureLoader()
+  loader.load('/crack_stages.svg', (tex) => {
+    tex.repeat.set(1, 0.1)
+    crackMat.map = tex
+    crackMat.needsUpdate = true
+  })
 }
 
 /**
@@ -1182,6 +1548,7 @@ function initPostProcessing(): void {
 function initChunkWorker(): void {
   const client = initChunkWorkerClient({
     seed: WORLD_SEED,
+    pois: POI_REGISTRY,
     maxWorkers: Infinity,
     onPayload: (payload) =>
       applyChunkPayloadToScene(
@@ -1196,6 +1563,10 @@ function initChunkWorker(): void {
           getResolvedBiome,
           onChunkAdded: (data) => {
             spawnEntitiesForChunk(scene, chunkKey(data.cx, data.cz), data.cx, data.cz)
+            const keyNum = chunkKeyNumeric(data.cx, data.cz)
+            if (discoveredChunkKeys.has(keyNum) && data.heightmapBuffer) {
+              writeHeightmap(WORLD_SEED, keyNum, data.heightmapBuffer, data.biomeMapBuffer)
+            }
           },
           onChunkChanged: () => {
             raycastMeshCache.markDirty()
@@ -1290,7 +1661,9 @@ function initControlsAndInput(): void {
   document.addEventListener('mousedown', (e) => {
     if (e.button === 0) {
       isMouseDown = true
-      if (isWeapon(getSelectedBlockType()) && attackState === 'idle') {
+      const weapon = getEffectiveWeapon()
+      if (weapon && attackState === 'idle') {
+        currentSlashWeapon = weapon
         attackState = 'slashing'
         slashPhase = 0
         slashHitCheckedThisCycle = false
@@ -1307,8 +1680,7 @@ function initControlsAndInput(): void {
     isMouseDown = false
     breakTarget = null
     breakProgress = 0
-    const crackEl = document.getElementById('block-crack')
-    if (crackEl) crackEl.style.visibility = 'hidden'
+    if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
   })
   document.addEventListener('wheel', (e) => e.preventDefault(), {
     passive: false,
@@ -1455,6 +1827,16 @@ document.addEventListener('keydown', (e) => {
   if (code === getKeyBinding('place') && !e.repeat) {
     rightMouseJustPressed = true
     fKeyJustPressed = true
+    return
+  }
+
+  // Skill 1 (e.g. Warrior Strike): next slash deals bonus damage; cooldown applied
+  if (code === getKeyBinding('skill1') && !e.repeat) {
+    const skill = getFirstSkillForClass(playerClass)
+    if (skill && (skillCooldowns[skill.id] ?? 0) <= 0) {
+      nextSlashEnhanced = true
+      skillCooldowns[skill.id] = skill.cooldownSeconds
+    }
     return
   }
 
@@ -1651,6 +2033,24 @@ function updateChunkVisibility(): void {
     })
     lastPlayerChunkX = playerChunkX
     lastPlayerChunkZ = playerChunkZ
+    const r = MAP_DISCOVER_RADIUS_CHUNKS
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const cx = playerChunkX + dx
+        const cz = playerChunkZ + dz
+        const keyNum = chunkKeyNumeric(cx, cz)
+        discoveredChunkKeys.add(keyNum)
+        const chunkData = chunks.get(keyNum)
+        if (chunkData?.heightmapBuffer) {
+          writeHeightmap(
+            WORLD_SEED,
+            keyNum,
+            chunkData.heightmapBuffer,
+            chunkData.biomeMapBuffer,
+          )
+        }
+      }
+    }
   }
   _right.crossVectors(_direction, camera.up).normalize()
 }
@@ -1850,6 +2250,11 @@ function updateMovementAndCollision(dt: number, time: number): void {
  * Updates look yaw/pitch, first/third person visibility and camera position (POV hands, head bob, third-person orbit), and limb swing animations.
  */
 function updateCameraAndViewMode(time: number, dt: number): void {
+  // Skill cooldowns: tick down every frame
+  for (const id of Object.keys(skillCooldowns)) {
+    skillCooldowns[id] = Math.max(0, skillCooldowns[id] - dt)
+  }
+
   controls.getDirection(_lookDir)
 
   // Blickrichtung: Yaw (horizontal) und Pitch (vertikal), Pitch begrenzt
@@ -1899,8 +2304,17 @@ function updateCameraAndViewMode(time: number, dt: number): void {
         rayOrigin.copy(camera.position)
         camera.getWorldDirection(rayDirection)
         const hit = raycastEntities(rayOrigin, rayDirection, ENTITY_ATTACK_DISTANCE)
-        if (hit) {
-          hit.entity.health -= DAMAGE_PER_SLASH
+        if (hit && hit.entity.disposition !== 'friendly') {
+          if (hit.entity.disposition === 'neutral') {
+            hit.entity.disposition = 'aggro'
+          }
+          const weaponType = getWeaponType(currentSlashWeapon ?? '')
+          let damage = getSlashDamage(weaponType)
+          if (nextSlashEnhanced) {
+            damage *= 1.5
+            nextSlashEnhanced = false
+          }
+          hit.entity.health -= damage
           hit.entity.fleeUntilTime = time + FLEE_DURATION_AFTER_HIT
           if (hit.entity.health <= 0) {
             const deadKind = hit.entity.kind
@@ -1917,18 +2331,18 @@ function updateCameraAndViewMode(time: number, dt: number): void {
                 }
               })
             }
-            if (deadKind === 'pig') {
-              const dropSize = 0.35
-              let groundY = pos.y - 0.5
-              for (let by = Math.floor(pos.y - 1); by >= 0; by--) {
-                const t = getBlockAt(pos.x, by, pos.z)
-                if (t !== null && t !== 'air' && isBlockTypeSolid(t as BlockType)) {
-                  groundY = by + getBlockHeight(t as BlockType)
-                  break
-                }
+            const dropSize = 0.35
+            let groundY = pos.y - 0.5
+            for (let by = Math.floor(pos.y - 1); by >= 0; by--) {
+              const t = getBlockAt(pos.x, by, pos.z)
+              if (t !== null && t !== 'air' && isBlockTypeSolid(t as BlockType)) {
+                groundY = by + getBlockHeight(t as BlockType)
+                break
               }
-              const restY = groundY + dropSize * 0.5
-              const count = 1 + Math.floor(Math.random() * 3)
+            }
+            const restY = groundY + dropSize * 0.5
+            const loot = rollLoot(deadKind)
+            for (const { item, count } of loot) {
               for (let i = 0; i < count; i++) {
                 const offsetX = (Math.random() - 0.5) * 0.4
                 const offsetZ = (Math.random() - 0.5) * 0.4
@@ -1939,11 +2353,28 @@ function updateCameraAndViewMode(time: number, dt: number): void {
                   worldZ: pos.z + offsetZ,
                   startY: pos.y,
                   restY,
-                  blockType: 'raw_porkchop',
+                  blockType: item as BlockType,
                   time,
                 })
               }
             }
+            if (deadKind !== 'villager') {
+              const area = getAreaAt(pos.x, pos.z)
+              if (area) {
+                const xpAmount = getXpDropForArea(area)
+                spawnXpDropItem({
+                  scene,
+                  drops,
+                  worldX: pos.x,
+                  worldZ: pos.z,
+                  startY: pos.y,
+                  restY,
+                  amount: xpAmount,
+                  time,
+                })
+              }
+            }
+            notifyQuestKill(deadKind)
           }
         }
       }
@@ -2025,16 +2456,15 @@ function updateCameraAndViewMode(time: number, dt: number): void {
 
     povShadowBody.visible = false
 
-    // Third-Person: Körper in Bewegungsrichtung, Kopf relativ zum Körper
+    // Third-Person: body/head face look direction. Look yaw 0 = -Z; mesh forward = +Z, so use meshYaw = lookYaw - PI.
     const isMovingThird = moveState.forward || moveState.back || moveState.left || moveState.right
     const velLenSq = velocityX * velocityX + velocityZ * velocityZ
-    if (isMovingThird && velLenSq > 1e-6) {
-      bodyYaw = Math.atan2(velocityX, velocityZ)
-    } else {
-      bodyYaw = lookYaw // stehen: Körper folgt Blick
-    }
-    player.rotation.y = bodyYaw
-    const headYawRel = lookYaw - bodyYaw
+    const bodyMeshYaw =
+      isMovingThird && velLenSq > 1e-6
+        ? Math.atan2(velocityX, velocityZ)
+        : lookYaw - Math.PI
+    player.rotation.y = bodyMeshYaw
+    const headYawRel = (lookYaw - Math.PI) - bodyMeshYaw
     head.rotation.y = THREE.MathUtils.euclideanModulo(headYawRel + Math.PI, Math.PI * 2) - Math.PI
     head.rotation.x = lookPitch
 
@@ -2091,6 +2521,11 @@ function updateDropsAndPickup(time: number, dt: number): void {
       bobHeight: DROP_BOB_HEIGHT,
       magnetRadius: MAGNET_RADIUS,
       magnetSpeed: MAGNET_SPEED,
+    },
+    onXpPickup(amount) {
+      const next = addExperienceFn(playerLevel, playerExperience, amount)
+      playerLevel = next.level
+      playerExperience = next.experience
     },
   })
 }
@@ -2249,6 +2684,44 @@ function runWaterSpreadFromNeighbors(bx: number, by: number, bz: number): void {
 }
 
 /**
+ * Returns true if the 1×1×1 block cell at (adjX, adjY, adjZ) overlaps any living entity's AABB.
+ */
+function blockCellOverlapsAnyEntity(adjX: number, adjY: number, adjZ: number): boolean {
+  for (const e of getAllEntities()) {
+    if (e.state === 'dead') continue
+    const overlapX =
+      Math.min(adjX + 0.5, e.position.x + e.aabb.halfX) >
+      Math.max(adjX - 0.5, e.position.x - e.aabb.halfX)
+    const overlapY =
+      Math.min(adjY + 0.5, e.position.y + e.aabb.height) > Math.max(adjY - 0.5, e.position.y)
+    const overlapZ =
+      Math.min(adjZ + 0.5, e.position.z + e.aabb.halfZ) >
+      Math.max(adjZ - 0.5, e.position.z - e.aabb.halfZ)
+    if (overlapX && overlapY && overlapZ) return true
+  }
+  return false
+}
+
+/**
+ * Returns true if point (x, y, z) is inside any living entity's AABB (e.g. for torch placement).
+ */
+function pointInAnyEntityAABB(x: number, y: number, z: number): boolean {
+  for (const e of getAllEntities()) {
+    if (e.state === 'dead') continue
+    if (
+      x >= e.position.x - e.aabb.halfX &&
+      x <= e.position.x + e.aabb.halfX &&
+      y >= e.position.y &&
+      y <= e.position.y + e.aabb.height &&
+      z >= e.position.z - e.aabb.halfZ &&
+      z <= e.position.z + e.aabb.halfZ
+    )
+      return true
+  }
+  return false
+}
+
+/**
  * Handles block break (hold-to-mine with progress, raycast to block), block/torch place (right-click or F), and block-crack overlay updates.
  */
 function updateBlockBreakAndPlace(dt: number, time: number): void {
@@ -2266,7 +2739,15 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     const blockMeshesPlace = getRaycastMeshes()
     const placeHits = raycaster.intersectObjects(blockMeshesPlace)
     const placeHit = placeHits[0]
-    if (placeHit && placeHit.face) {
+    if (!placeHit || !placeHit.face) {
+      if (isPlaceDebug()) {
+        console.warn(
+          'Place (F): no block hit — raycast missed (looking at sky, empty space, or chunk not loaded). Meshes:',
+          blockMeshesPlace.length,
+          '— No item was consumed on this keypress.'
+        )
+      }
+    } else {
       _direction.copy(placeHit.face.normal).transformDirection(placeHit.object.matrixWorld)
       const placeX = placeHit.point.x + _direction.x * 0.5
       const placeY = placeHit.point.y + _direction.y * 0.5
@@ -2275,7 +2756,16 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
         (placeX - camera.position.x) ** 2 +
         (placeY - camera.position.y) ** 2 +
         (placeZ - camera.position.z) ** 2
-      if (distSq <= PLACE_DISTANCE * PLACE_DISTANCE) {
+      if (distSq > PLACE_DISTANCE * PLACE_DISTANCE) {
+        if (isPlaceDebug()) {
+          console.warn(
+            'Place (F): too far — distance',
+            Math.sqrt(distSq).toFixed(2),
+            '>',
+            PLACE_DISTANCE
+          )
+        }
+      } else {
         // Use: block we're looking at (the one that has the hit face)
         const useBx = Math.floor(placeHit.point.x - 0.01 * _direction.x)
         const useBy = Math.floor(placeHit.point.y - 0.01 * _direction.y)
@@ -2286,6 +2776,8 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
           const next = useBlock === 'door_closed' ? 'door_open' : 'door_closed'
           blockModifications.set(keyStr, next)
           applyBlockChangeToLoadedChunk({ bx: useBx, by: useBy, bz: useBz, next })
+        } else if (useBlock === 'crafting_table') {
+          onCraftingTableUse?.()
         } else {
           const sel = getSelectedBlockType()
           const count = getSelectedSlotCount()
@@ -2297,8 +2789,32 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
               placeY <= player.position.y + PLAYER_HEIGHT &&
               placeZ >= player.position.z - PLAYER_HALF &&
               placeZ <= player.position.z + PLAYER_HALF
-            if (!torchInPlayer && placeTorch(placeX, placeY, placeZ)) {
+            const torchInEntity = pointInAnyEntityAABB(placeX, placeY, placeZ)
+            if (torchInPlayer) {
+              if (isPlaceDebug()) console.warn('Place (F): torch would be inside player.')
+            } else if (torchInEntity) {
+              if (isPlaceDebug()) console.warn('Place (F): torch would be inside an entity.')
+            } else if (
+              !placeTorch(placeX, placeY, placeZ, {
+                x: _direction.x,
+                y: _direction.y,
+                z: _direction.z,
+              })
+            ) {
+              if (isPlaceDebug()) console.warn('Place (F): torch placement rejected (e.g. already a torch there).')
+            } else {
               consumeOneFromSelectedSlot()
+            }
+          } else if (sel === 'torch') {
+            if (isPlaceDebug() && count === 0) console.warn('Place (F): torch selected but slot empty.')
+          } else if (count === 0 || !isPlaceableBlock(sel)) {
+            if (isPlaceDebug()) {
+              console.warn(
+                'Place (F): cannot place — slot empty or not placeable. Selected:',
+                sel,
+                'count:',
+                count
+              )
             }
           } else if (sel !== 'torch' && count > 0 && isPlaceableBlock(sel)) {
             const adjX = Math.floor(placeHit.point.x + _direction.x * 0.01)
@@ -2307,17 +2823,30 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             const px = player.position.x
             const py = player.position.y
             const pz = player.position.z
+            // Block at (adjX, adjY, adjZ) occupies [adjX, adjX+1] x [adjY, adjY+1] x [adjZ, adjZ+1].
             const blockOverlapsPlayer =
-              Math.min(adjX + 0.5, px + PLAYER_HALF) > Math.max(adjX - 0.5, px - PLAYER_HALF) &&
-              Math.min(adjY + 0.5, py + PLAYER_HEIGHT) > Math.max(adjY - 0.5, py) &&
-              Math.min(adjZ + 0.5, pz + PLAYER_HALF) > Math.max(adjZ - 0.5, pz - PLAYER_HALF)
+              Math.min(adjX + 1, px + PLAYER_HALF) > Math.max(adjX, px - PLAYER_HALF) &&
+              Math.min(adjY + 1, py + PLAYER_HEIGHT) > Math.max(adjY, py) &&
+              Math.min(adjZ + 1, pz + PLAYER_HALF) > Math.max(adjZ, pz - PLAYER_HALF)
             const at = getBlockAt(adjX, adjY, adjZ)
             const keyStr = blockKeyString(adjX, adjY, adjZ)
-            if (
-              !blockOverlapsPlayer &&
-              (at === null || at === 'air') &&
-              !blockModifications.has(keyStr)
-            ) {
+            const blockOverlapsEntity = blockCellOverlapsAnyEntity(adjX, adjY, adjZ)
+            if (blockOverlapsPlayer) {
+              if (isPlaceDebug()) console.warn('Place (F): block would overlap player.')
+            } else if (blockOverlapsEntity) {
+              if (isPlaceDebug()) console.warn('Place (F): block would overlap an entity.')
+            } else if (at !== null && at !== 'air' && !isReplaceableByPlacement(at)) {
+              if (isPlaceDebug()) console.warn('Place (F): target cell not empty. Block at', adjX, adjY, adjZ, ':', at)
+            } else {
+              const ctx = getChunkSyncCtx()
+              removeTorchAt({
+                bx: adjX,
+                by: adjY,
+                bz: adjZ,
+                torchContainer: ctx.torchContainer,
+                placedTorches: ctx.placedTorches,
+                blockKeyNumeric,
+              })
               const blockToPlace = sel === 'water' ? ('water_source' as BlockType) : sel
               blockModifications.set(keyStr, blockToPlace)
               applyBlockChangeToLoadedChunk({
@@ -2336,17 +2865,17 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
 
   // Block-Abbau: Halten auf Block (Raycast von Kamera-Mitte, nur bei Pointer Lock). Skip when holding a weapon (left-click triggers slash instead).
   if (document.pointerLockElement === renderer.domElement && isMouseDown && camera) {
-    if (isWeapon(getSelectedBlockType())) {
+    if (getEffectiveWeapon()) {
       breakTarget = null
       breakProgress = 0
-      const crackEl = document.getElementById('block-crack')
-      if (crackEl) crackEl.style.visibility = 'hidden'
+      if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
     } else {
     rayOrigin.copy(camera.position)
     camera.getWorldDirection(rayDirection)
     raycaster.set(rayOrigin, rayDirection)
     raycaster.far = BREAK_DISTANCE
 
+    const heldItem = getSelectedBlockType()
     const blockMeshes = getRaycastMeshes()
     const hits = raycaster.intersectObjects(blockMeshes)
     const hit = hits[0]
@@ -2394,8 +2923,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
         if (!pos) {
           breakTarget = null
           breakProgress = 0
-          const crackEl = document.getElementById('block-crack')
-          if (crackEl) crackEl.style.visibility = 'hidden'
+          if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
         } else if (
           breakTarget &&
           breakTarget.chunkKeyNum === chunkKeyNum &&
@@ -2404,14 +2932,13 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
           breakTarget.y === pos.y &&
           breakTarget.z === pos.z
         ) {
-          const required = getBlockBreakTime(blockType)
+          const required = getBlockBreakTimeWithTool(blockType, heldItem)
           breakProgress += dt
           if (breakProgress >= required) {
             breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
             breakTarget = null
             breakProgress = 0
-            const crackEl = document.getElementById('block-crack')
-            if (crackEl) crackEl.style.visibility = 'hidden'
+            if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
           }
         } else {
           if (!isUnbreakableBlock(blockType)) {
@@ -2421,15 +2948,15 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
               x: pos.x,
               y: pos.y,
               z: pos.z,
+              faceNormal: _direction.clone(),
             }
             breakProgress = dt
-            const required = getBlockBreakTime(blockType)
+            const required = getBlockBreakTimeWithTool(blockType, heldItem)
             if (required <= 0 || breakProgress >= required) {
               breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
               breakTarget = null
               breakProgress = 0
-              const crackEl = document.getElementById('block-crack')
-              if (crackEl) crackEl.style.visibility = 'hidden'
+              if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
             }
           } else {
             breakTarget = null
@@ -2469,7 +2996,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             breakTarget.y === by &&
             breakTarget.z === bz
           ) {
-            const required = getBlockBreakTime(at)
+            const required = getBlockBreakTimeWithTool(at, heldItem)
             breakProgress += dt
             if (breakProgress >= required) {
               breakBlock(chunkKeyNum, at, bx, by, bz, time)
@@ -2483,9 +3010,10 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
               x: bx,
               y: by,
               z: bz,
+              faceNormal: _direction.clone(),
             }
             breakProgress = dt
-            const required = getBlockBreakTime(at)
+            const required = getBlockBreakTimeWithTool(at, heldItem)
             if (required <= 0 || breakProgress >= required) {
               breakBlock(chunkKeyNum, at, bx, by, bz, time)
               breakTarget = null
@@ -2504,17 +3032,45 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     breakProgress = 0
   }
 
-  // Block-Riss-Overlay (Minecraft-Style): 10 Stufen, je mehr Fortschritt desto stärker die Risse
-  const crackEl = document.getElementById('block-crack')
-  if (crackEl) {
-    const visible = breakTarget !== null
-    crackEl.style.visibility = visible ? 'visible' : 'hidden'
+  // Block-Riss-Overlay (Minecraft-Style): 10 Stufen, je mehr Fortschritt desto stärker die Risse (HUD + 3D auf Blockfläche)
+  const visible = breakTarget !== null
+  let stage = 0
+  if (visible && breakTarget) {
+    const heldItem = getSelectedBlockType()
+    const breakTime = getBlockBreakTimeWithTool(breakTarget.blockType, heldItem)
+    const progress = breakTime > 0 ? Math.min(1, breakProgress / breakTime) : 1
+    const rawStage = Math.floor(progress * 10)
+    stage = progress > 0 ? Math.min(9, Math.max(1, rawStage)) : 0
+  }
+  if (blockCrackElement) {
+    blockCrackElement.style.visibility = visible ? 'visible' : 'hidden'
+    if (visible) {
+      blockCrackElement.style.backgroundPosition = `0 ${-stage * 10}%`
+      blockCrackElement.setAttribute('data-stage', String(stage))
+    }
+  }
+  if (blockCrackOverlayMesh) {
+    blockCrackOverlayMesh.visible = visible
     if (visible && breakTarget) {
-      const breakTime = getBlockBreakTime(breakTarget.blockType)
-      const progress = breakTime > 0 ? Math.min(1, breakProgress / breakTime) : 1
-      const stage = Math.min(9, Math.floor(progress * 10))
-      crackEl.style.backgroundPosition = `0 ${-stage * 10}%`
-      crackEl.setAttribute('data-stage', String(stage))
+      const n = breakTarget.faceNormal
+      const cx = breakTarget.x + 0.5
+      const cy = breakTarget.y + 0.5
+      const cz = breakTarget.z + 0.5
+      const faceOffset = 0.501
+      blockCrackOverlayMesh.position.set(
+        cx + n.x * faceOffset,
+        cy + n.y * faceOffset,
+        cz + n.z * faceOffset,
+      )
+      blockCrackOverlayMesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        n,
+      )
+      const mat = blockCrackOverlayMesh.material as THREE.MeshBasicMaterial
+      if (mat.map) {
+        mat.map.offset.set(0, 0.9 - stage * 0.1)
+        mat.map.repeat.set(1, 0.1)
+      }
     }
   }
 }

@@ -124,16 +124,16 @@ describe('ChunkDataPayload contract', () => {
   it('matches a golden hash summary for seed=12345 chunk=(0,0)', () => {
     expect(hashPayloadGolden(payload)).toMatchInlineSnapshot(`
       {
-        "bufferHash": "72866b4e",
+        "bufferHash": "8f28da48",
         "geometry": {
           "layerCount": 7,
-          "sumFaceVertexCounts": 74004,
+          "sumFaceVertexCounts": 74916,
           "totalFaceVertexCounts": 42,
-          "totalNormals": 148008,
-          "totalPositions": 148008,
-          "totalUvs": 98672,
+          "totalNormals": 149832,
+          "totalPositions": 149832,
+          "totalUvs": 99888,
         },
-        "heightmapHash": "87fc3a05",
+        "heightmapHash": "f2cbb809",
       }
     `)
   })

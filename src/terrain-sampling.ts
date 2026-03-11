@@ -22,7 +22,16 @@ const BASE_HEIGHT = 64
  * match that relative behaviour. See docs/VANILLA_BIOME_REFERENCE.md §5.
  */
 const CLIMATE_PARAM_SCALE = 0.0012
-const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44
+const OCEAN_CONTINENTALNESS_THRESHOLD = 0.36
+
+/** Radius (blocks) around world origin (0,0) where climate is biased toward forest so first POI/spawn is in forest. */
+const SPAWN_ORIGIN_FOREST_RADIUS = 64
+const SPAWN_ORIGIN_FOREST_RADIUS_SQ = SPAWN_ORIGIN_FOREST_RADIUS * SPAWN_ORIGIN_FOREST_RADIUS
+/** Continentalness to force land at origin (above ocean threshold). */
+const SPAWN_ORIGIN_FOREST_CONTINENTALNESS = 0.5
+/** Forest climate center (temp, humidity) from terrain/biomes/forest.ts. */
+const SPAWN_ORIGIN_FOREST_TEMP = 0.475
+const SPAWN_ORIGIN_FOREST_HUMIDITY = 0.7
 const EROSION_SCALE = CLIMATE_PARAM_SCALE
 const EROSION_AMPLITUDE = 7
 const EROSION_DETAIL_BOOST_MAX = 1.65
@@ -187,9 +196,35 @@ export function createTerrainSampling(seed: number) {
     )
   }
 
+  /**
+   * Blends (c, temp, humidity) toward forest at world origin so first POI/spawn is in forest.
+   * Must match terrain/index.ts spawn-origin bias.
+   */
+  function applySpawnOriginForestBias(
+    x: number,
+    z: number,
+    c: number,
+    temp: number,
+    humidity: number,
+  ): { c: number; temp: number; humidity: number } {
+    const distSq = x * x + z * z
+    if (distSq >= SPAWN_ORIGIN_FOREST_RADIUS_SQ) return { c, temp, humidity }
+    const t = 1 - distSq / SPAWN_ORIGIN_FOREST_RADIUS_SQ
+    const blendT = t * t * (3 - 2 * t)
+    return {
+      c: lerp(c, SPAWN_ORIGIN_FOREST_CONTINENTALNESS, blendT),
+      temp: lerp(temp, SPAWN_ORIGIN_FOREST_TEMP, blendT),
+      humidity: lerp(humidity, SPAWN_ORIGIN_FOREST_HUMIDITY, blendT),
+    }
+  }
+
   function getBiome(x: number, z: number): Biome {
-    if (getContinentalness(x, z) < OCEAN_CONTINENTALNESS_THRESHOLD) return 'ocean'
-    return getLandBiomeByClimate(getTemperature(x, z), getHumidity(x, z))
+    let c = getContinentalness(x, z)
+    let temp = getTemperature(x, z)
+    let humidity = getHumidity(x, z)
+    const biased = applySpawnOriginForestBias(x, z, c, temp, humidity)
+    if (biased.c < OCEAN_CONTINENTALNESS_THRESHOLD) return 'ocean'
+    return getLandBiomeByClimate(biased.temp, biased.humidity)
   }
 
   const _blendOut: { primary: Biome; secondary: Biome; t: number } = {
@@ -199,11 +234,12 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getBiomeBlend(x: number, z: number): { primary: Biome; secondary: Biome; t: number } {
-    const c = getContinentalnessSmoothed(x, z)
-    const land = getLandBiomeBlendByClimate(
-      getTemperatureSmoothed(x, z),
-      getHumiditySmoothed(x, z),
-    )
+    let c = getContinentalnessSmoothed(x, z)
+    let temp = getTemperatureSmoothed(x, z)
+    let humidity = getHumiditySmoothed(x, z)
+    const biased = applySpawnOriginForestBias(x, z, c, temp, humidity)
+    c = biased.c
+    const land = getLandBiomeBlendByClimate(biased.temp, biased.humidity)
     // Base land biome from climate only so main thread and worker agree (forest, spawn, colors).
     // Multi-noise is still used for peak variant selection (frozen/jagged/stony_peaks).
     const USE_MULTI_NOISE_BASE_SELECTION = false

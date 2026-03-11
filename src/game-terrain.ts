@@ -3,13 +3,14 @@
  * Uses chunk-runtime for height cache and block lookup; no THREE scene dependency.
  */
 import * as THREE from 'three'
-import { createNoise2D } from 'simplex-noise'
+import { createNoise2D, createNoise3D } from 'simplex-noise'
 import type { BlockType, TreeNoiseCaches } from './types'
 import type { Biome } from './types'
-import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from './constants'
+import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from './constants'
 import { columnHeightCache, columnCacheKey, getBlockAt } from './chunk-runtime'
 import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from './block-registry'
 import { createTerrainSampling } from './terrain-sampling'
+import { getPoiBiomeOverride, POI_REGISTRY } from './world-pois'
 import { BIOME_REGISTRY } from './terrain/biomes'
 import {
   MOUNTAIN_STONE_SURFACE_HEIGHT,
@@ -65,6 +66,11 @@ const treePlacementNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 888))
 const treeShapeNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 999))
 const detailNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 456))
 
+/** 3D cave noise (same seed as terrain pipeline). Used only for debug spawn above cave. */
+const caveNoise3D = createNoise3D(makeSeededRandom(WORLD_SEED + 400))
+/** Carve threshold for cave detection; must match terrain/index.ts stage2Carve3D. */
+const CAVE_THRESHOLD = 0.56
+
 /** Biomes that can be chosen for spawn; each has equal probability (deterministic per WORLD_SEED). */
 export const SPAWNABLE_BIOMES: Biome[] = [
   'desert',
@@ -99,8 +105,10 @@ export function getHeight(x: number, z: number): number {
   return result
 }
 
-/** Resolved biome for surface/blocks (delegates to terrain sampler with cached getHeight). */
+/** Resolved biome for surface/blocks. POI area-theme overrides procedural biome when (x,z) is inside a placed POI. */
 export function getResolvedBiome(x: number, z: number): Biome {
+  const override = getPoiBiomeOverride(POI_REGISTRY, x, z)
+  if (override !== null) return override
   return terrainSampling.getResolvedBiome(x, z, getHeight)
 }
 
@@ -186,6 +194,8 @@ export function getColumnSurfaceY(wx: number, wz: number): number {
 
 const SPAWN_BIOME_MIN_RADIUS = 2 * CHUNK_SIZE
 const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
+/** Minimum chunks of land in all directions from spawn; avoids spawning at the coast. */
+const SPAWN_OCEAN_BUFFER_CHUNKS = 5
 
 /** Surface block type at (wx, wz) given biome and topY; handles shore, underwater, stone layers, snow/grass variants. */
 export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
@@ -269,12 +279,74 @@ function isBiomeSolid(wx: number, wz: number, biome: Biome): boolean {
   )
 }
 
+/**
+ * Returns true if any column within the given chunk radius of (wx, wz) is ocean.
+ * Used to avoid spawning at the coast.
+ */
+function hasOceanNearby(wx: number, wz: number, bufferChunks: number): boolean {
+  for (let dcx = -bufferChunks; dcx <= bufferChunks; dcx++) {
+    for (let dcz = -bufferChunks; dcz <= bufferChunks; dcz++) {
+      if (getResolvedBiome(wx + dcx * CHUNK_SIZE, wz + dcz * CHUNK_SIZE) === 'ocean')
+        return true
+    }
+  }
+  return false
+}
+
 /** Max height for spawn so surface is grass (not stone). */
 function getSpawnMaxHeightForGrass(biome: Biome): number {
   if (biome === 'mountain' || biome === 'meadow') return MOUNTAIN_STONE_SURFACE_HEIGHT - 1
   if (biome === 'forest' || biome === 'plains' || biome === 'savanna' || biome === 'jungle')
     return SURFACE_STONE_HEIGHT - 1
   return SPAWN_MAX_HEIGHT
+}
+
+/**
+ * Returns true if the terrain pipeline would carve a cave below (x, z) within the carve range.
+ * Uses the same noise and threshold as terrain/index.ts stage2Carve3D.
+ */
+function hasCaveBelow(x: number, z: number): boolean {
+  const surfaceY = getHeight(x, z)
+  const carveCeiling = Math.max(1, surfaceY - MIN_CAVE_DEPTH_BELOW_SURFACE)
+  for (let y = 1; y < carveCeiling && y < WORLD_HEIGHT; y++) {
+    if (caveNoise3D(x, y, z) > CAVE_THRESHOLD) return true
+  }
+  return false
+}
+
+/**
+ * Finds a spawn position above a cave (for debugging). Spiral from (0,0), first valid land column with cave below.
+ */
+export function findSpawnAboveCave(): { x: number; z: number } {
+  const step = CHUNK_SIZE
+  const maxRadius = 80 * CHUNK_SIZE
+  for (let radius = SPAWN_BIOME_MIN_RADIUS; radius <= maxRadius; radius += step) {
+    const half = radius
+    for (let x = -half; x <= half; x += step) {
+      for (const z of [-half, half]) {
+        if (half === 0 && z === half) continue
+        const biome = getResolvedBiome(x, z)
+        if (!SPAWNABLE_BIOMES.includes(biome)) continue
+        if (!isBiomeSolid(x, z, biome)) continue
+        if (hasOceanNearby(x, z, SPAWN_OCEAN_BUFFER_CHUNKS)) continue
+        const h = getHeight(x, z)
+        if (h < WATER_LEVEL - 1 || h > SPAWN_MAX_HEIGHT) continue
+        if (hasCaveBelow(x, z)) return { x, z }
+      }
+    }
+    for (let z = -half + step; z < half; z += step) {
+      for (const x of [-half, half]) {
+        const biome = getResolvedBiome(x, z)
+        if (!SPAWNABLE_BIOMES.includes(biome)) continue
+        if (!isBiomeSolid(x, z, biome)) continue
+        if (hasOceanNearby(x, z, SPAWN_OCEAN_BUFFER_CHUNKS)) continue
+        const h = getHeight(x, z)
+        if (h < WATER_LEVEL - 1 || h > SPAWN_MAX_HEIGHT) continue
+        if (hasCaveBelow(x, z)) return { x, z }
+      }
+    }
+  }
+  return { x: 0, z: 0 }
 }
 
 /** Find next spawn position in the given biome (spiral from (0,0)). Prefers land and grass surface. */
@@ -292,7 +364,8 @@ export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
           getResolvedBiome(x, -half) === biome &&
           isBiomeSolid(x, -half, biome) &&
           h1 >= WATER_LEVEL - 1 &&
-          h1 <= maxHeight
+          h1 <= maxHeight &&
+          !hasOceanNearby(x, -half, SPAWN_OCEAN_BUFFER_CHUNKS)
         )
           return { x, z: -half }
         if (half > 0) {
@@ -301,7 +374,8 @@ export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
             getResolvedBiome(x, half) === biome &&
             isBiomeSolid(x, half, biome) &&
             h2 >= WATER_LEVEL - 1 &&
-            h2 <= maxHeight
+            h2 <= maxHeight &&
+            !hasOceanNearby(x, half, SPAWN_OCEAN_BUFFER_CHUNKS)
           )
             return { x, z: half }
         }
@@ -312,7 +386,8 @@ export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
           getResolvedBiome(-half, z) === biome &&
           isBiomeSolid(-half, z, biome) &&
           h1 >= WATER_LEVEL - 1 &&
-          h1 <= maxHeight
+          h1 <= maxHeight &&
+          !hasOceanNearby(-half, z, SPAWN_OCEAN_BUFFER_CHUNKS)
         )
           return { x: -half, z }
         const h2 = getHeight(half, z)
@@ -320,7 +395,8 @@ export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
           getResolvedBiome(half, z) === biome &&
           isBiomeSolid(half, z, biome) &&
           h2 >= WATER_LEVEL - 1 &&
-          h2 <= maxHeight
+          h2 <= maxHeight &&
+          !hasOceanNearby(half, z, SPAWN_OCEAN_BUFFER_CHUNKS)
         )
           return { x: half, z }
       }
