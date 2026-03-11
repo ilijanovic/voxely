@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.0.5
+
+[compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.4...v0.0.5)
+
+### 🚀 Enhancements
+
+- **game:** Add postprocessing options and interactive blocks ([39035bf2](https://github.com/ilijanovic/voxely/commit/39035bf2))
+
+### 🩹 Fixes
+
+- **game:** Keep chunks and snow layers in sync ([2f7e44d3](https://github.com/ilijanovic/voxely/commit/2f7e44d3))
+- **atmosphere:** Revert weather to snow-only and blend biome tints ([6aedeb49](https://github.com/ilijanovic/voxely/commit/6aedeb49))
+- **terrain:** Align plains layers and world uv mapping ([ecf60717](https://github.com/ilijanovic/voxely/commit/ecf60717))
+
+### ❤️ Contributors
+
+- Ilijanovic <ilija.marijanovic@gmx.at>
+
 ## v0.0.4
 
 [compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.3...v0.0.4)
