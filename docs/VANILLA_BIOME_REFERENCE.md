@@ -1,10 +1,11 @@
 # Vanilla Reference (Minecraft Java 1.20.2)
 
-**Vanilla is the single authoritative reference for worldgen in this project.** All parameters for biomes, terrain (global noise), and caves are documented here from Minecraft Java 1.20.2. We align only what is clearly comparable (e.g. climate scales); the rest is recorded for reference and optional tuning.
+**Vanilla is the single authoritative reference for worldgen in this project.** All parameters for biomes, terrain (global noise), caves, and surface rules are documented here from Minecraft Java 1.20.2. We align only what is clearly comparable (e.g. climate scales); the rest is recorded for reference and optional tuning.
 
 **Sources:**
 - Biomes: `https://assets.mcasset.cloud/1.20.2/data/minecraft/worldgen/biome/<id>.json`
 - Terrain / caves: `worldgen/noise_settings/overworld.json` and `worldgen/density_function/overworld/` (depth, erosion, continents, caves/*, sloped_cheese, etc.)
+- Surface rules: `worldgen/noise_settings/overworld.json` → `surface_rule`; [Minecraft Wiki – Surface rule](https://minecraft.wiki/w/Surface_rule)
 
 Vanilla biome JSONs do **not** define surface/subsurface blocks; those come from the chunk generator's surface rules. Our [BiomeDefinition](src/terrain/biomes/types.ts) keeps its own blocks; this doc records vanilla climate and features for reference.
 
@@ -113,3 +114,68 @@ Source: `noise_settings/overworld.json` and `density_function/overworld/erosion.
 | spaghetti| Worm tunnels      | radius: 1.5, cellSize: 48, steps: 32, maxY: WATER_LEVEL+48, minDepthBelowSurface: 5 | [terrain/index.ts](src/terrain/index.ts), [carve-spaghetti.ts](src/terrain/stages/carve-spaghetti.ts) |
 
 We align where comparable: climate scales are shared (section 5). For caves, we aligned cheese **threshold to 0.27** (vanilla cave_cheese additive constant) and **scale to 0.03** (vanilla uses xz_scale 1.0; we keep lower so caverns stay larger). 3D and spaghetti stages are unchanged. Machine-readable summary: [docs/vanilla_terrain_cave_reference.json](vanilla_terrain_cave_reference.json).
+
+---
+
+## 7. Surface rules
+
+Vanilla determines the block at each solid terrain position (grass, dirt, terracotta, deepslate, bedrock, etc.) via **surface rules**: a JSON decision tree in **noise settings** (`worldgen/noise_settings/overworld.json` → `surface_rule`).  
+**Reference:** [Surface rule – Minecraft Wiki](https://minecraft.wiki/w/Surface_rule).
+
+**Rule types:**
+
+| type       | Purpose |
+|------------|--------|
+| block      | Place a block (`result_state`). |
+| sequence   | List of rules; first matching rule applies. |
+| condition  | If condition `if_true` matches, run `then_run`. |
+| bandlands  | Special rule for badlands terracotta (no extra fields). |
+
+**Surface conditions (used inside conditions):**
+
+| type                      | Purpose |
+|---------------------------|--------|
+| biome                     | Biome at position. `biome_is`: list of biome IDs. |
+| stone_depth               | Distance from surface (offset, `add_surface_depth`, `surface_type`: floor/ceiling, `secondary_depth_range`). Used for grass vs dirt layers. |
+| steep                     | Steep face on north or east side of mountain. |
+| y_above                   | Y above a vertical anchor (exclusive). |
+| vertical_gradient         | Gradient between two Y anchors (e.g. deepslate, bedrock). Success probability `(false_at_and_above - Y) / (false_at_and_above - true_at_and_below)`. |
+| temperature               | Biome cold enough for snowfall. |
+| water                     | Position relative to water surface (offset, `add_stone_depth`, `surface_depth_multiplier`). |
+| noise_threshold           | Column noise between `min_threshold` and `max_threshold` (noise ID). |
+| above_preliminary_surface | Above preliminary surface (from `initial_density_without_jaggedness`); avoids grass in noise caves. |
+| hole                      | Surface depth 0 (column). |
+| not                       | Invert a condition (`invert`). |
+
+**Surface depth (vanilla formula):**  
+Integer per column: `floor(surface(X,0,Z) × 2.75 + 3.0 + positional_noise(X,0,Z) × 0.25)`  
+where `surface` is `minecraft:surface` noise and `positional_noise` is a random value in [0, 1].
+
+**Secondary surface depth:**  
+Value in [-1, 1] from `minecraft:surface_secondary` noise; can be used in `stone_depth` via `secondary_depth_range`.
+
+**Terrain depth:**  
+The generator tracks vertical distance to surface above (`stoneDepthAbove`), cavity below (`stoneDepthBelow`), and water depth; used by stone_depth, water, y_above.
+
+**Our game:** We implement equivalent logic in code in [surface-rules.ts](src/terrain/surface-rules.ts) (height-to-stone, steep, frozen_peaks, grass_snow, etc.) and in [surface-constants.ts](src/terrain/surface-constants.ts); we do not use JSON surface rules.
+
+**Implementation status (vanilla → our code):**
+
+| Vanilla rule / condition | Status | Where in our code |
+|--------------------------|--------|-------------------|
+| sequence (first match)   | Yes    | [surface-rules.ts](src/terrain/surface-rules.ts): order of `if` branches. |
+| condition + block        | Yes    | Same: each branch returns a block. |
+| **biome**                | Yes    | All rules key off `biome` (mountain, meadow, frozen_peaks, jagged_peaks, snowy_slopes, savanna, BIOMES_WITHOUT_GRASS_SNOW). |
+| **steep**                | Yes    | `slope` (max cardinal height delta) used for mountain/meadow stone, frozen_peaks (packed_ice/ice), jagged_peaks (≥6 → stone), snowy_slopes (≥9 → stone). [surface-constants.ts](src/terrain/surface-constants.ts): JAGGED_PEAKS_STONE_SLOPE_MIN, SNOWY_SLOPES_STONE_SLOPE_MIN. |
+| **y_above**              | Yes    | `topY >= MOUNTAIN_STONE_SURFACE_HEIGHT`, `topY >= SURFACE_STONE_HEIGHT`, `topY >= WATER_LEVEL + 20` (grass_snow), `topY >= WATER_LEVEL + 30` (frozen_peaks high). |
+| **temperature**          | Yes    | Via biome (snow biomes, BIOMES_WITHOUT_GRASS_SNOW); grass_snow when cold biome / snow neighbor. |
+| **water**                | Yes    | Shore and underwater blocks set in stratigraphy / getBlockTypeAt (sand, gravel, etc.) before surface rules; [surface-rules.ts](src/terrain/surface-rules.ts) receives effective surface after blend. |
+| **noise_threshold**      | Yes    | `frozenPeaksNoiseN`, `frozenPeaksNoiseBlob` in options for frozen_peaks (ice/packed_ice on steep + noise). |
+| **above_preliminary_surface** | Yes | We only assign surface at heightmap topY; carved cells are air, so no grass in caves. |
+| **stone_depth**          | Partial | We use per-biome **subsurfaceDepth** (fixed layers of dirt/sand below grass). We do **not** use vanilla’s formula `floor(surface(X,0,Z)×2.75+3+...)` or secondary surface depth. |
+| **vertical_gradient**    | Partial | We use hard Y thresholds (SURFACE_STONE_HEIGHT, etc.), not a smooth probability gradient. No deepslate-style gradient. |
+| **bandlands**            | Partial | We have a badlands biome (red_sand/sandstone); we do **not** place terracotta bands. |
+| **hole**                 | No     | Not used (column surface depth 0). |
+| **not**                  | N/A    | Can be expressed by branch order. |
+| Surface depth formula    | No     | We use constant subsurfaceDepth per biome, not `minecraft:surface` noise formula. |
+| Secondary surface depth  | No     | We do not use `minecraft:surface_secondary` noise. |

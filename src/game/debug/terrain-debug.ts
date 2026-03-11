@@ -7,7 +7,7 @@ import { isSolidBlock as isBlockTypeSolid } from '../../block-registry'
 import {
   getResolvedBiome,
   getHeight,
-  getBlockTypeAt,
+  getSurfaceBlockAt,
   getTemperature,
   getHumidity,
   getContinentalness,
@@ -203,7 +203,7 @@ export function updateTerrainDebugOverlay(
   const biome = getResolvedBiome(wx, wz)
   const topY = getHeight(wx, wz)
   const layerSurface = BIOME_LAYERS[biome].surface
-  const finalSurface = getBlockTypeAt(biome, topY, topY)
+  const finalSurface = getSurfaceBlockAt(wx, wz, biome, topY)
   const loadedSurface = getBlockAt(wx, topY, wz)
   const reason = getSurfaceDecisionReason(biome, topY, finalSurface)
 

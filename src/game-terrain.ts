@@ -188,7 +188,7 @@ const SPAWN_BIOME_MIN_RADIUS = 2 * CHUNK_SIZE
 const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
 
 /** Surface block type at (wx, wz) given biome and topY; handles shore, underwater, stone layers, snow/grass variants. */
-function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
+export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
   const def = BIOME_REGISTRY[biome]
   const surface = def.blocks.surface as BlockType
 

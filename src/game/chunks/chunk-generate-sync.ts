@@ -14,6 +14,7 @@ import {
   getHeight,
   getResolvedBiome,
   getBlockTypeAt,
+  getSurfaceBlockAt,
   generateTree,
   shouldPlaceTree,
   getTreePlacement,
@@ -628,7 +629,10 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
       const biome = getResolvedBiome(wx, wz)
 
       for (let y = 0; y <= topY; y++) {
-        let type = getBlockTypeAt(biome, y, topY)
+        let type =
+          y === topY
+            ? getSurfaceBlockAt(wx, wz, biome, topY)
+            : getBlockTypeAt(biome, y, topY)
         const mod = blockModifications.get(blockKeyString(wx, y, wz))
         if (mod === 'air') continue
         if (mod !== undefined) type = mod

@@ -31,6 +31,8 @@ const MOUNTAIN_MASK_SCALE = 0.003
 const MOUNTAIN_HEIGHT_SCALE = 0.008
 const MOUNTAIN_AMPLITUDE = 24
 const MOUNTAIN_THRESHOLD = 0.3
+/** Smooth transition width for mountain contribution (parity with terrain/index). */
+const MOUNTAIN_TRANSITION_WIDTH = 0.12
 const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1
 const SNOW_BIOME_HEIGHT_BOOST = 4.5
 const TEMP_SCALE = CLIMATE_PARAM_SCALE
@@ -92,7 +94,8 @@ export function createTerrainSampling(seed: number) {
   const weirdnessNoise2D = createNoise(seed + 909)
   const heightTransitionNoise2D = createNoise(seed + 4242)
 
-  const COAST_BLEND_BAND = 0.06
+  /** Must match terrain/index.ts for worker/sync height parity. */
+  const COAST_BLEND_BAND = 0.09
   const CLIMATE_WARP_SCALE = 0.0014
   const CLIMATE_WARP_AMP = 42
 
@@ -112,6 +115,26 @@ export function createTerrainSampling(seed: number) {
     const { xw, zw } = getClimateWarpedPos(x, z)
     const n = humidityNoise2D(xw * HUMIDITY_SCALE, zw * HUMIDITY_SCALE)
     return (n + 1) * 0.5
+  }
+
+  /** 5-tap smoothed temperature in [0,1] for biome blend (parity with terrain/index). */
+  function getTemperatureSmoothed(x: number, z: number): number {
+    const tC = getTemperature(x, z)
+    const tN = getTemperature(x, z - 1)
+    const tS = getTemperature(x, z + 1)
+    const tW = getTemperature(x - 1, z)
+    const tE = getTemperature(x + 1, z)
+    return tC * 0.5 + (tN + tS + tW + tE) * 0.125
+  }
+
+  /** 5-tap smoothed humidity in [0,1] for biome blend (parity with terrain/index). */
+  function getHumiditySmoothed(x: number, z: number): number {
+    const hC = getHumidity(x, z)
+    const hN = getHumidity(x, z - 1)
+    const hS = getHumidity(x, z + 1)
+    const hW = getHumidity(x - 1, z)
+    const hE = getHumidity(x + 1, z)
+    return hC * 0.5 + (hN + hS + hW + hE) * 0.125
   }
 
   function getTemperatureSigned(x: number, z: number): number {
@@ -153,6 +176,17 @@ export function createTerrainSampling(seed: number) {
     return (n + 1) * 0.5
   }
 
+  /** 5-tap smoothed continentalness for ocean/land blend (parity with terrain/index). */
+  function getContinentalnessSmoothed(x: number, z: number): number {
+    return smooth5tap(
+      getContinentalness(x, z),
+      getContinentalness(x, z - 1),
+      getContinentalness(x, z + 1),
+      getContinentalness(x + 1, z),
+      getContinentalness(x - 1, z),
+    )
+  }
+
   function getBiome(x: number, z: number): Biome {
     if (getContinentalness(x, z) < OCEAN_CONTINENTALNESS_THRESHOLD) return 'ocean'
     return getLandBiomeByClimate(getTemperature(x, z), getHumidity(x, z))
@@ -165,8 +199,11 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getBiomeBlend(x: number, z: number): { primary: Biome; secondary: Biome; t: number } {
-    const c = getContinentalness(x, z)
-    const land = getLandBiomeBlendByClimate(getTemperature(x, z), getHumidity(x, z))
+    const c = getContinentalnessSmoothed(x, z)
+    const land = getLandBiomeBlendByClimate(
+      getTemperatureSmoothed(x, z),
+      getHumiditySmoothed(x, z),
+    )
     // Base land biome from climate only so main thread and worker agree (forest, spawn, colors).
     // Multi-noise is still used for peak variant selection (frozen/jagged/stony_peaks).
     const USE_MULTI_NOISE_BASE_SELECTION = false
@@ -234,8 +271,11 @@ export function createTerrainSampling(seed: number) {
   function getMountainContribution(x: number, z: number, biome: Biome): number {
     if (!BIOME_TERRAIN[biome].mountainAllowed) return 0
     const mask = (mountainMaskNoise2D(x * MOUNTAIN_MASK_SCALE, z * MOUNTAIN_MASK_SCALE) + 1) * 0.5
-    if (mask < MOUNTAIN_THRESHOLD) return 0
-    const t = (mask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD)
+    const tMaskSmooth = smoothstep01(
+      (mask - MOUNTAIN_THRESHOLD) / Math.max(MOUNTAIN_TRANSITION_WIDTH, 1e-6),
+    )
+    if (tMaskSmooth <= 0) return 0
+    const t = clamp01((mask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD))
     const mountain =
       (mountainHeightNoise2D(x * MOUNTAIN_HEIGHT_SCALE, z * MOUNTAIN_HEIGHT_SCALE) + 1) * 0.5
     const biomeBoost =
@@ -244,7 +284,7 @@ export function createTerrainSampling(seed: number) {
         : biome === 'snow'
           ? SNOW_BIOME_HEIGHT_BOOST
           : 1
-    return t * mountain * MOUNTAIN_AMPLITUDE * biomeBoost
+    return tMaskSmooth * t * mountain * MOUNTAIN_AMPLITUDE * biomeBoost
   }
 
   function getErosionSigned(x: number, z: number): number {
@@ -320,11 +360,13 @@ export function createTerrainSampling(seed: number) {
     let mountain = 0
     if (mountainAllowedFactor > 0) {
       const mask = (mountainMaskNoise2D(x * MOUNTAIN_MASK_SCALE, z * MOUNTAIN_MASK_SCALE) + 1) * 0.5
-      if (mask >= MOUNTAIN_THRESHOLD) {
-        const tMask = (mask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD)
+      const tMaskSmooth = smoothstep01(
+        (mask - MOUNTAIN_THRESHOLD) / Math.max(MOUNTAIN_TRANSITION_WIDTH, 1e-6),
+      )
+      const tMaskRamp = clamp01((mask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD))
+      if (tMaskSmooth > 0) {
         const m =
           (mountainHeightNoise2D(x * MOUNTAIN_HEIGHT_SCALE, z * MOUNTAIN_HEIGHT_SCALE) + 1) * 0.5
-        // Keep boosts for mountain/snow primary dominance, but blend softly.
         const boostA =
           blend.primary === 'mountain'
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
@@ -338,7 +380,8 @@ export function createTerrainSampling(seed: number) {
               ? SNOW_BIOME_HEIGHT_BOOST
               : 1
         const boost = lerp(boostA, boostB, t)
-        mountain = tMask * m * MOUNTAIN_AMPLITUDE * boost * mountainAllowedFactor
+        mountain =
+          tMaskSmooth * tMaskRamp * m * MOUNTAIN_AMPLITUDE * boost * mountainAllowedFactor
       }
     }
     const erosion = getErosion(x, z)

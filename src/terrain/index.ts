@@ -139,7 +139,8 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const BASE_HEIGHT = 64
   const CONTINENTAL_SCALE = CLIMATE_PARAM_SCALE
   const OCEAN_CONTINENTALNESS_THRESHOLD = 0.44
-  const COAST_BLEND_BAND = 0.06
+  /** Width of ocean/land blend in continentalness space; wider band softens coast height edges. */
+  const COAST_BLEND_BAND = 0.09
   /** Base land biome from climate only so worker and main thread agree. Multi-noise still used for peak variants. */
   const USE_MULTI_NOISE_BASE_SELECTION = false
   const CLIMATE_WARP_SCALE = 0.0014
@@ -152,6 +153,8 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
   const MOUNTAIN_HEIGHT_SCALE = 0.008
   const MOUNTAIN_AMPLITUDE = 24
   const MOUNTAIN_THRESHOLD = 0.3
+  /** Width of smooth transition from no mountain to full mountain contribution (avoids hard cliffs). */
+  const MOUNTAIN_TRANSITION_WIDTH = 0.12
   const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1
   const SNOW_BIOME_HEIGHT_BOOST = 4.5
   const WEIRDNESS_SCALE = 0.0016
@@ -218,6 +221,18 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     return (n + 1) * 0.5
   }
 
+  /**
+   * 5-tap smoothed humidity in [0,1] for softer biome blend transitions.
+   */
+  function getHumiditySmoothed(x: number, z: number): number {
+    const hC = getHumidity(x, z)
+    const hN = getHumidity(x, z - 1)
+    const hS = getHumidity(x, z + 1)
+    const hW = getHumidity(x - 1, z)
+    const hE = getHumidity(x + 1, z)
+    return hC * 0.5 + (hN + hS + hW + hE) * 0.125
+  }
+
   function getTemperatureSigned(x: number, z: number): number {
     const { xw, zw } = getClimateWarpedPos(x, z)
     return temperatureNoise2D(xw * TEMP_SCALE, zw * TEMP_SCALE)
@@ -264,9 +279,25 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     return (n + 1) * 0.5
   }
 
+  /**
+   * 5-tap smoothed continentalness for softer ocean/land and coast blend transitions.
+   */
+  function getContinentalnessSmoothed(x: number, z: number): number {
+    return smooth5tap(
+      getContinentalness(x, z),
+      getContinentalness(x, z - 1),
+      getContinentalness(x, z + 1),
+      getContinentalness(x + 1, z),
+      getContinentalness(x - 1, z),
+    )
+  }
+
   function getBiomeBlendAt(x: number, z: number): { primary: Biome; secondary: Biome; t: number } {
-    const c = getContinentalness(x, z)
-    const land = getLandBiomeBlendByClimate(getTemperature(x, z), getHumidity(x, z))
+    const c = getContinentalnessSmoothed(x, z)
+    const land = getLandBiomeBlendByClimate(
+      getTemperatureSmoothed(x, z),
+      getHumiditySmoothed(x, z),
+    )
     if (USE_MULTI_NOISE_BASE_SELECTION) {
       const pick = getBiomeByMultiNoise({
         continentalness: c,
@@ -368,8 +399,11 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
     let mountain = 0
     if (mountainAllowedFactor > 0) {
       const mask = (mountainMaskNoise2D(x * MOUNTAIN_MASK_SCALE, z * MOUNTAIN_MASK_SCALE) + 1) * 0.5
-      if (mask >= MOUNTAIN_THRESHOLD) {
-        const tMask = (mask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD)
+      const tMaskSmooth = smoothstep01(
+        (mask - MOUNTAIN_THRESHOLD) / Math.max(MOUNTAIN_TRANSITION_WIDTH, 1e-6),
+      )
+      const tMaskRamp = clamp01((mask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD))
+      if (tMaskSmooth > 0) {
         const m =
           (mountainHeightNoise2D(x * MOUNTAIN_HEIGHT_SCALE, z * MOUNTAIN_HEIGHT_SCALE) + 1) * 0.5
         const boostA =
@@ -385,7 +419,8 @@ export function createChunkGenerator(seed: number, options?: { snowAccumulationH
               ? SNOW_BIOME_HEIGHT_BOOST
               : 1
         const boost = lerp(boostA, boostB, t)
-        mountain = tMask * m * MOUNTAIN_AMPLITUDE * boost * mountainAllowedFactor
+        mountain =
+          tMaskSmooth * tMaskRamp * m * MOUNTAIN_AMPLITUDE * boost * mountainAllowedFactor
       }
     }
 

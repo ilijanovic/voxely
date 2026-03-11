@@ -2,31 +2,14 @@
  * Smoke tests for the terrain pipeline: generator and payload shape.
  */
 import { describe, it, expect } from 'vitest'
+import type { Biome } from '../types'
 import { createChunkGenerator } from './index'
-import { getBiomeByClimate } from './biomes'
+import { getBiomeByClimate, BIOME_REGISTRY } from './biomes'
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../constants'
 import { localKey, idToType, CARVED_ID, VOXEL_BUFFER_LENGTH } from './block-ids'
 
-const ALL_BIOMES = [
-  'plains',
-  'ocean',
-  'desert',
-  'savanna',
-  'forest',
-  'jungle',
-  'mountain',
-  'snow',
-  'meadow',
-  'grove',
-  'snowy_slopes',
-  'stony_peaks',
-  'frozen_peaks',
-  'jagged_peaks',
-  'cherry_grove',
-  'windswept_hills',
-  'windswept_gravelly_hills',
-  'windswept_forest',
-] as const
+/** All biomes from registry so tests accept any resolved biome. */
+const ALL_BIOMES: readonly Biome[] = Object.keys(BIOME_REGISTRY) as Biome[]
 
 describe('createChunkGenerator', () => {
   it('returns generateChunkData, getHeight, getResolvedBiome', () => {
