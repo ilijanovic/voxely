@@ -29,5 +29,35 @@ export interface ChunkContext {
 /** A pipeline stage: reads/writes context. */
 export type PipelineStage = (ctx: ChunkContext) => void
 
+/**
+ * Optional hook called before and after each pipeline stage.
+ * Mutate ctx in place; no return value. stageName is from RunPipelineOptions.stageNames.
+ */
+export type PipelineOverrideHook = (
+  ctx: ChunkContext,
+  phase: 'before' | 'after',
+  stageIndex: number,
+  stageName?: string,
+) => void
+
+/** Options for runPipeline: override hook and optional stage names for the hook. */
+export interface RunPipelineOptions {
+  override?: PipelineOverrideHook
+  stageNames?: readonly string[]
+}
+
 /** A feature runs in Stage 4; can read heightmap/biomeMap and write voxelMap. */
 export type FeatureFn = (ctx: ChunkContext) => void
+
+/**
+ * Names of the no-op pipeline stages (for documentation and createNoopStage).
+ * Order: empty (1), structures_references (3), initialize_light (9), light (10), spawn (11), full (12).
+ */
+export const PIPELINE_NOP_STAGE_NAMES = [
+  'empty',
+  'structures_references',
+  'initialize_light',
+  'light',
+  'spawn',
+  'full',
+] as const

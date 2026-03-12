@@ -62,11 +62,11 @@ describe('biome selection parity (sampler-only)', () => {
 
     function getContinentalnessSmoothed(x: number, z: number): number {
       return smooth5tap(
-        climate.getContinentalness01(x, z),
-        climate.getContinentalness01(x, z - 1),
-        climate.getContinentalness01(x, z + 1),
-        climate.getContinentalness01(x + 1, z),
-        climate.getContinentalness01(x - 1, z),
+        climate.getContinentalnessSigned(x, z),
+        climate.getContinentalnessSigned(x, z - 1),
+        climate.getContinentalnessSigned(x, z + 1),
+        climate.getContinentalnessSigned(x + 1, z),
+        climate.getContinentalnessSigned(x - 1, z),
       )
     }
 

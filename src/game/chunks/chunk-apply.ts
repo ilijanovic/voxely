@@ -8,8 +8,9 @@ import {
   WATER_LEVEL,
   WATER_PLANE_Y_OFFSET,
   WORLD_HEIGHT,
+  WORLD_MIN_Y,
 } from '../../constants'
-import { localKey, chunkKeyNumeric } from '../../chunk-runtime'
+import { columnCacheKey, columnHeightCache, localKey, chunkKeyNumeric } from '../../chunk-runtime'
 import {
   sharedBlockGeometry,
   sharedTallGrassGeometry,
@@ -27,9 +28,9 @@ import {
   isOccludingBlock as isBlockTypeOccluding,
   getBlockHeight,
   isFenceBlock,
+  getFenceConnectionMask,
   isPlacedStairsVariant,
   getStairsFacingAndHalfFromId,
-  isSolidBlock as isBlockTypeSolid,
 } from '../../block-registry'
 import { filterVisibleBlocks } from './visible-blocks'
 import { sharedWaterPlaneGeometry } from '../../block-materials'
@@ -160,7 +161,7 @@ export function buildPositionsByTypeFromVisibleKeys(
       const lx = k % CHUNK_SIZE
       const ly = Math.floor(k / CHUNK_SIZE) % WORLD_HEIGHT
       const lz = Math.floor(k / (CHUNK_SIZE * WORLD_HEIGHT))
-      positions[i] = { x: worldX + lx, y: ly, z: worldZ + lz }
+      positions[i] = { x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz }
     }
     out.set(blockType, positions)
   }
@@ -250,30 +251,12 @@ function makeGetBlockForChunk(
     const lx = bx - worldX
     const lz = bz - worldZ
     if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
-      const key = localKey(lx, by, lz)
+      const ly = by - WORLD_MIN_Y
+      const key = localKey(lx, ly, lz)
       return voxelMap.get(key) ?? 'air'
     }
     return getBlockAt(bx, by, bz) ?? 'air'
   }
-}
-
-/** Connection mask: North=1, South=2, East=4, West=8. Connects to fences and solid blocks. */
-function getFenceConnectionMask(
-  bx: number,
-  by: number,
-  bz: number,
-  getBlock: (bx: number, by: number, bz: number) => BlockType,
-): number {
-  const connects = (nx: number, ny: number, nz: number) => {
-    const t = getBlock(nx, ny, nz)
-    return isFenceBlock(t) || isBlockTypeSolid(t)
-  }
-  let mask = 0
-  if (connects(bx, by, bz - 1)) mask |= 1
-  if (connects(bx, by, bz + 1)) mask |= 2
-  if (connects(bx + 1, by, bz)) mask |= 4
-  if (connects(bx - 1, by, bz)) mask |= 8
-  return mask
 }
 
 function addFenceInstancedLayer(
@@ -335,7 +318,7 @@ export function getTallGrassPositions(
     for (const p of positions) {
       const lx = p.x - worldX
       const lz = p.z - worldZ
-      const keyAbove = localKey(lx, p.y + 1, lz)
+      const keyAbove = localKey(lx, p.y + 1 - WORLD_MIN_Y, lz)
       if (voxelMap.has(keyAbove)) continue
       const chance =
         getBiome && (getBiome(p.x, p.z) === 'forest' || getBiome(p.x, p.z) === 'jungle')
@@ -536,7 +519,7 @@ export function applyChunkPayload(
               const lx = i % CHUNK_SIZE
               const ly = Math.floor(i / CHUNK_SIZE) % WORLD_HEIGHT
               const lz = Math.floor(i / (CHUNK_SIZE * WORLD_HEIGHT))
-              const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz }
+              const pos: BlockPos = { x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz }
               const arr = positionsByType.get(blockType) ?? []
               arr.push(pos)
               positionsByType.set(blockType, arr)
@@ -743,6 +726,14 @@ export function applyChunkPayload(
     biomeMapBuffer: payload.biomeMapBuffer,
   }
   deps.chunks.set(keyNum, data)
+  if (heightmapBuffer) {
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const surfaceY = Math.floor(heightmapBuffer[lx + lz * CHUNK_SIZE])
+        columnHeightCache.set(columnCacheKey(worldX + lx, worldZ + lz), surfaceY)
+      }
+    }
+  }
   scene.add(group)
   if (!wasReplacing) deps.onChunkAdded?.(data)
   deps.pendingChunkKeys.delete(keyNum)

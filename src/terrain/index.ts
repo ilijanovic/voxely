@@ -19,7 +19,14 @@ import {
   getHouseDimensions,
   getVillageHouseSizeFromSeed,
 } from './structures/templates/village'
-import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from '../constants'
+import {
+  CHUNK_SIZE,
+  MIN_CAVE_DEPTH_BELOW_SURFACE,
+  WATER_LEVEL,
+  WORLD_HEIGHT,
+  WORLD_MAX_Y,
+  WORLD_MIN_Y,
+} from '../constants'
 import {
   BASE_HEIGHT,
   CAVE_THRESHOLD,
@@ -45,6 +52,10 @@ import {
   HIGHLAND_MEADOW_MAX,
   HIGHLAND_SNOWY_SLOPES_MAX,
   HIGHLAND_VARIANT_SCALE,
+  MACRO_TERRAIN_DEEP_OCEAN_MAX,
+  MACRO_TERRAIN_FAR_INLAND_MIN,
+  MACRO_TERRAIN_MID_INLAND_MIN,
+  MACRO_TERRAIN_NEAR_INLAND_MIN,
   MOUNTAIN_AMPLITUDE,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
@@ -55,6 +66,7 @@ import {
   PEAK_Y_MIN,
   PEAK_Y_RANGE,
   SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
+  WEIRDNESS_VANILLA_RANGE_SCALE,
   SPAWN_ORIGIN_FOREST_HUMIDITY,
   SPAWN_ORIGIN_FOREST_RADIUS_SQ,
   SPAWN_ORIGIN_FOREST_TEMP,
@@ -62,7 +74,23 @@ import {
   WEIRDNESS_RIDGE_AMP,
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './constants'
-import { getSurfaceBlockFromRules } from './surface-rules'
+import {
+  BADLANDS_BAND_SCALE_XZ,
+  BADLANDS_BAND_SCALE_Y,
+  SURFACE_DITHER_COAST_OFFSET_X,
+  SURFACE_DITHER_COAST_OFFSET_Z,
+  SURFACE_DITHER_COAST_SCALE,
+  SURFACE_DITHER_LAND_OFFSET_X,
+  SURFACE_DITHER_LAND_OFFSET_Z,
+  SURFACE_DITHER_LAND_SCALE,
+  SURFACE_FROZEN_PEAKS_BLOB_OFFSET_X,
+  SURFACE_FROZEN_PEAKS_BLOB_OFFSET_Z,
+  SURFACE_FROZEN_PEAKS_BLOB_SCALE,
+  SURFACE_FROZEN_PEAKS_N_OFFSET_X,
+  SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
+  SURFACE_FROZEN_PEAKS_N_SCALE,
+} from './surface-constants'
+import { getBadlandsBlockFromNoise, resolveSurfaceBlock } from './surface-resolver'
 import {
   SNOW_LAYER_FLAT_SLOPE_MAX,
   SNOW_LAYER_MODERATE_SLOPE_MAX,
@@ -78,7 +106,13 @@ import {
 import { createClimateSampler } from './climate-sampler'
 import { makeSeededRandom, clamp } from './utils'
 import { runPipeline, createChunkContext } from './pipeline'
-import type { ChunkContext, FeatureFn } from './pipeline-types'
+import { override as defaultOverride } from './override'
+import {
+  PIPELINE_NOP_STAGE_NAMES,
+  type ChunkContext,
+  type FeatureFn,
+  type PipelineOverrideHook,
+} from './pipeline-types'
 import { createNoopStage } from './stages/noop'
 import { createStageStructuresStarts } from './stages/structures-starts'
 import { createStageNoise } from './stages/noise'
@@ -199,6 +233,8 @@ export interface ChunkGeneratorOptions {
   snowAccumulationHeight?: number
   /** Pre-defined POIs for biome override and fixed village/NPC/mob placement. */
   pois?: WorldPoi[]
+  /** Optional hook called before/after each pipeline stage; defaults to terrain/override.ts. */
+  override?: PipelineOverrideHook
 }
 
 /** Temple structure side length in blocks; must match paint-structures / stage5-structures. */
@@ -207,6 +243,7 @@ const TEMPLE_SIZE = 6
 export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptions) {
   const snowAccumulationHeight = clamp(options?.snowAccumulationHeight ?? 1, 0, 8)
   const pois = options?.pois ?? []
+  const overrideFn = options?.override ?? defaultOverride
   const getPoiOverride = (x: number, z: number): Biome | null => getPoiBiomeOverride(pois, x, z)
   /** Cache of structure origins per chunk so we don't place trees inside village/temple footprints. */
   const structureOriginsCache = new Map<string, import('./structures/origins').StructureOrigin[]>()
@@ -343,16 +380,18 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   function getMacroTerrain(x: number, z: number): number {
     const c = getContinentalness(x, z)
     const s = (a: number, b: number, v: number) => smoothstep01((v - a) / (b - a))
-    if (c < 0.3) return -18
+    if (c < MACRO_TERRAIN_DEEP_OCEAN_MAX) return -18
     if (c < OCEAN_CONTINENTALNESS_THRESHOLD)
-      return lerp(-18, -8, s(0.3, OCEAN_CONTINENTALNESS_THRESHOLD, c))
-    if (c < 0.52) return lerp(-8, 0, s(OCEAN_CONTINENTALNESS_THRESHOLD, 0.52, c))
-    if (c < 0.75) return lerp(0, 14, s(0.52, 0.75, c))
-    return lerp(14, 22, s(0.75, 0.95, c))
+      return lerp(-18, -8, s(MACRO_TERRAIN_DEEP_OCEAN_MAX, OCEAN_CONTINENTALNESS_THRESHOLD, c))
+    if (c < MACRO_TERRAIN_NEAR_INLAND_MIN)
+      return lerp(-8, 0, s(OCEAN_CONTINENTALNESS_THRESHOLD, MACRO_TERRAIN_NEAR_INLAND_MIN, c))
+    if (c < MACRO_TERRAIN_MID_INLAND_MIN)
+      return lerp(0, 14, s(MACRO_TERRAIN_NEAR_INLAND_MIN, MACRO_TERRAIN_MID_INLAND_MIN, c))
+    return lerp(14, 22, s(MACRO_TERRAIN_MID_INLAND_MIN, MACRO_TERRAIN_FAR_INLAND_MIN, c))
   }
 
   function getContinentalness(x: number, z: number): number {
-    return climate.getContinentalness01(x, z)
+    return climate.getContinentalnessSigned(x, z)
   }
 
   /**
@@ -532,7 +571,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       }
     }
 
-    const ridge = 1 - Math.abs(getWeirdness(x, z))
+    const ridge = 1 - Math.abs(getWeirdness(x, z)) / WEIRDNESS_VANILLA_RANGE_SCALE
     const ridgeTerm = ridge * ridge * WEIRDNESS_RIDGE_AMP * mountainAllowedFactor
 
     return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - getErosion(x, z)
@@ -596,7 +635,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const h22 = getHeightForBase(getBaseBiomeAt(x + 1, z + 1), x + 1, z + 1)
     const smoothedH =
       h11 * 0.25 + (h01 + h21 + h10 + h12) * 0.125 + (h00 + h02 + h20 + h22) * 0.0625
-    return Math.floor(clamp(smoothedH, 0, WORLD_HEIGHT))
+    return Math.floor(clamp(smoothedH, WORLD_MIN_Y, WORLD_MAX_Y))
   }
 
   /**
@@ -617,7 +656,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     else if (d >= flatten.radius) t = 1
     else t = smoothstep01((d - flatEnd) / flatten.transitionBlocks)
     const natural = getHeightUncached(x, z)
-    return clamp(lerp(centerY, natural, t), 0, WORLD_HEIGHT)
+    return clamp(lerp(centerY, natural, t), WORLD_MIN_Y, WORLD_MAX_Y)
   }
 
   /** Resolved biome using POI-only height; used when computing procedural village centers. */
@@ -719,7 +758,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     else if (d >= flatten.radius) t = 1
     else t = smoothstep01((d - flatEnd) / flatten.transitionBlocks)
     const natural = getHeightUncached(x, z)
-    return clamp(lerp(centerY, natural, t), 0, WORLD_HEIGHT)
+    return clamp(lerp(centerY, natural, t), WORLD_MIN_Y, WORLD_MAX_Y)
   }
 
   function getResolvedBiome(x: number, z: number): Biome {
@@ -911,7 +950,8 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       biome === 'windswept_gravelly_hills'
     )
       return false
-    const surfaceId = ctx.voxelMap[localKey(lx, topY, lz)]
+    const surfaceLy = topY - WORLD_MIN_Y
+    const surfaceId = ctx.voxelMap[localKey(lx, surfaceLy, lz)]
     const surface = surfaceId !== undefined ? idToType(surfaceId) : 'air'
     const allowedSurface =
       surface === 'grass' ||
@@ -1074,25 +1114,25 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     return { wood, leaves }
   }
 
-  const stageEmpty = createNoopStage('empty')
+  const stageEmpty = createNoopStage(PIPELINE_NOP_STAGE_NAMES[0])
   const stageStructuresStarts = createStageStructuresStarts({
     seed,
     getHeight,
     getResolvedBiome,
     pois,
   })
-  const stageStructuresReferences = createNoopStage('structures_references')
+  const stageStructuresReferences = createNoopStage(PIPELINE_NOP_STAGE_NAMES[1])
   const stageNoise = createStageNoise({ getHeight })
   const stageBiomes = createStageBiomes({
     getBaseBiomeAt,
     getResolvedBiomeFromHeight,
     getPoiBiomeOverride: getPoiOverride,
   })
-  /** Vanilla sloped_cheese: more caves at mid depth, fewer near surface and at bedrock. Returns 0..1. */
+  /** Vanilla sloped_cheese: more caves at mid depth, fewer near surface and at bedrock. Returns 0..1. y is world Y. */
   function createCheeseCaveDensityFactor(): (y: number) => number {
     const peakY = WATER_LEVEL - 16
-    const yMin = 1
-    const yMax = WORLD_HEIGHT - 1
+    const yMin = WORLD_MIN_Y + 1
+    const yMax = WORLD_MAX_Y
     return (y: number): number => {
       if (y <= yMin || y >= yMax) return 0
       if (y <= peakY) return (y - yMin) / (peakY - yMin)
@@ -1145,6 +1185,16 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     },
   })
 
+  /** Max cardinal height delta for slope (cliff) detection. */
+  function getMaxSlopeDelta(x: number, z: number): number {
+    const h = getHeight(x, z)
+    const dN = Math.abs(getHeight(x, z - 1) - h)
+    const dS = Math.abs(getHeight(x, z + 1) - h)
+    const dW = Math.abs(getHeight(x - 1, z) - h)
+    const dE = Math.abs(getHeight(x + 1, z) - h)
+    return Math.max(dN, dS, dW, dE)
+  }
+
   function getSurfaceBlock(ctx: ChunkContext, lx: number, lz: number): BlockType {
     const topY = ctx.heightmap[lx][lz]
     const biome = ctx.biomeMap[lx][lz]
@@ -1170,50 +1220,36 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       return naturalDef.blocks.surface as BlockType
     }
 
-    const getMaxSlopeDelta = (x: number, z: number): number => {
-      const h = getHeight(x, z)
-      // Cardinal neighbors are enough for a stable "cliff" signal.
-      const dN = Math.abs(getHeight(x, z - 1) - h)
-      const dS = Math.abs(getHeight(x, z + 1) - h)
-      const dW = Math.abs(getHeight(x - 1, z) - h)
-      const dE = Math.abs(getHeight(x + 1, z) - h)
-      return Math.max(dN, dS, dW, dE)
-    }
-
-    if (topY < WATER_LEVEL) return def.blocks.underwater as BlockType
-    if (topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1) return def.blocks.shore as BlockType
-
-    // Dither transitions near biome boundaries so surfaces don't flip abruptly.
-    // Coastline: blend sand <-> land surface inside the coastal band.
     const blend = getBiomeBlendAt(wx, wz)
-    if (blend.primary === 'ocean' && blend.secondary !== 'ocean') {
-      const landSurface = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
-      const n = (detailNoise2D(wx * 0.11 + 19.3, wz * 0.11 - 71.7) + 1) * 0.5 // [0..1]
-      return n < blend.t ? landSurface : 'sand'
-    }
-
-    // Land biome boundary: probabilistic surface swap based on blend weight.
-    // Minecraft-style: no dithering when desert is involved — sharp sand/grass boundary.
-    if (
-      blend.primary !== blend.secondary &&
-      blend.primary !== 'ocean' &&
-      blend.secondary !== 'ocean' &&
-      blend.primary !== 'desert' &&
-      blend.secondary !== 'desert'
-    ) {
-      const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType
-      const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
-      if (a !== b && blend.t > 0.1 && blend.t < 0.9) {
-        const n = (detailNoise2D(wx * 0.13 - 33.1, wz * 0.13 + 5.7) + 1) * 0.5
-        return n < blend.t ? b : a
-      }
-    }
-
     const slope = getMaxSlopeDelta(wx, wz)
+    const ditherNoiseCoast =
+      (detailNoise2D(
+        wx * SURFACE_DITHER_COAST_SCALE + SURFACE_DITHER_COAST_OFFSET_X,
+        wz * SURFACE_DITHER_COAST_SCALE + SURFACE_DITHER_COAST_OFFSET_Z,
+      ) +
+        1) *
+      0.5
+    const ditherNoiseLand =
+      (detailNoise2D(
+        wx * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_X,
+        wz * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_Z,
+      ) +
+        1) *
+      0.5
     const frozenPeaksNoiseN =
-      (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5
+      (detailNoise2D(
+        wx * SURFACE_FROZEN_PEAKS_N_SCALE + SURFACE_FROZEN_PEAKS_N_OFFSET_X,
+        wz * SURFACE_FROZEN_PEAKS_N_SCALE + SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
+      ) +
+        1) *
+      0.5
     const frozenPeaksNoiseBlob =
-      (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5
+      (detailNoise2D(
+        wx * SURFACE_FROZEN_PEAKS_BLOB_SCALE + SURFACE_FROZEN_PEAKS_BLOB_OFFSET_X,
+        wz * SURFACE_FROZEN_PEAKS_BLOB_SCALE + SURFACE_FROZEN_PEAKS_BLOB_OFFSET_Z,
+      ) +
+        1) *
+      0.5
     let hasSnowNeighbor = false
     if (surface === 'grass') {
       for (let dx = -1; dx <= 1; dx++) {
@@ -1226,15 +1262,54 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
         }
       }
     }
-    return getSurfaceBlockFromRules(biome, topY, surface as BlockType, {
+    const badlandsBandNoise =
+      biome === 'badlands'
+        ? (detailNoise2D(
+            wx * BADLANDS_BAND_SCALE_XZ + topY * BADLANDS_BAND_SCALE_Y,
+            wz * BADLANDS_BAND_SCALE_XZ,
+          ) +
+            1) *
+            0.5
+        : undefined
+    return resolveSurfaceBlock({
+      topY,
+      biome,
+      blend,
       slope,
       frozenPeaksNoiseN,
       frozenPeaksNoiseBlob,
       hasSnowNeighbor,
+      ditherNoiseCoast,
+      ditherNoiseLand,
+      badlandsBandNoise,
     })
   }
 
-  const stageSurface = createStageSurface({ getSurfaceBlock })
+  /** For badlands, top 2 layers below surface use the same band noise as surface (Minecraft-style bands). */
+  function getSubsurfaceBlock(
+    ctx: ChunkContext,
+    lx: number,
+    lz: number,
+    ly: number,
+  ): BlockType | null {
+    const topY = ctx.heightmap[lx][lz]
+    const biome = ctx.biomeMap[lx][lz]
+    if (biome !== 'badlands') return null
+    if (ly < topY - 2 || ly >= topY) return null
+    const wx = ctx.worldX + lx
+    const wz = ctx.worldZ + lz
+    const depthFromSurface = topY - ly
+    const noise =
+      (detailNoise2D(
+        wx * BADLANDS_BAND_SCALE_XZ + depthFromSurface * BADLANDS_BAND_SCALE_Y,
+        wz * BADLANDS_BAND_SCALE_XZ,
+      ) +
+        1) *
+      0.5
+    return getBadlandsBlockFromNoise(noise)
+  }
+
+  const stageSurface = createStageSurface({ getSurfaceBlock, getSubsurfaceBlock })
 
   const treeFeature = createTreeFeature({ shouldPlaceTree, getTreeBlocks })
   const fernFeature = createFernFeature()
@@ -1267,10 +1342,10 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     paintStructuresDeps: { seed, getHeight, getResolvedBiome, pois },
   })
 
-  const stageInitializeLight = createNoopStage('initialize_light')
-  const stageLight = createNoopStage('light')
-  const stageSpawn = createNoopStage('spawn')
-  const stageFull = createNoopStage('full')
+  const stageInitializeLight = createNoopStage(PIPELINE_NOP_STAGE_NAMES[2])
+  const stageLight = createNoopStage(PIPELINE_NOP_STAGE_NAMES[3])
+  const stageSpawn = createNoopStage(PIPELINE_NOP_STAGE_NAMES[4])
+  const stageFull = createNoopStage(PIPELINE_NOP_STAGE_NAMES[5])
 
   const stages = [
     stageEmpty,
@@ -1287,6 +1362,22 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     stageFull,
   ]
 
+  /** Stage names for override hook; order must match stages. */
+  const PIPELINE_STAGE_NAMES = [
+    'empty',
+    'structures_starts',
+    'structures_references',
+    'noise',
+    'biomes',
+    'carvers',
+    'surface',
+    'features',
+    'initialize_light',
+    'light',
+    'spawn',
+    'full',
+  ] as const
+
   function generateChunkData(
     chunkX: number,
     chunkZ: number,
@@ -1296,7 +1387,10 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     try {
       const ctx = createChunkContext(chunkX, chunkZ, blockMods)
       ctx.getFeatureNoise = getFeatureNoise
-      runPipeline(ctx, stages)
+      runPipeline(ctx, stages, {
+        override: overrideFn,
+        stageNames: PIPELINE_STAGE_NAMES,
+      })
 
       for (const m of ctx.blockMods) {
         const lx = m.bx - ctx.worldX
@@ -1306,10 +1400,11 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
           lx < CHUNK_SIZE &&
           lz >= 0 &&
           lz < CHUNK_SIZE &&
-          m.by >= 0 &&
-          m.by < WORLD_HEIGHT
+          m.by >= WORLD_MIN_Y &&
+          m.by < WORLD_MIN_Y + WORLD_HEIGHT
         ) {
-          const lk = localKey(lx, m.by, lz)
+          const ly = m.by - WORLD_MIN_Y
+          const lk = localKey(lx, ly, lz)
           ctx.voxelMap[lk] = m.value === 'air' ? AIR_ID : typeToId(m.value)
         }
       }
@@ -1320,9 +1415,10 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
         for (let lx = 0; lx < CHUNK_SIZE; lx++) {
           for (let lz = 0; lz < CHUNK_SIZE; lz++) {
             const topY = ctx.heightmap[lx][lz]
-            if (topY + 1 >= WORLD_HEIGHT) continue
-            const surfaceLk = localKey(lx, topY, lz)
-            const aboveLk = localKey(lx, topY + 1, lz)
+            if (topY >= WORLD_MAX_Y) continue
+            const surfaceLy = topY - WORLD_MIN_Y
+            const surfaceLk = localKey(lx, surfaceLy, lz)
+            const aboveLk = localKey(lx, surfaceLy + 1, lz)
             if (!isAirOrCarved(ctx.voxelMap[aboveLk])) continue
             const surfaceType = idToType(ctx.voxelMap[surfaceLk])
             if (surfaceType !== 'grass_snow' && surfaceType !== 'snow') continue

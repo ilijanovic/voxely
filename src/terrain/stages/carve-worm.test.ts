@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y } from '../../constants'
 import type { ChunkContext } from '../pipeline-types'
 import { localKey, CARVED_ID, typeToId } from '../block-ids'
 import { createStage2Worm } from './carve-worm'
@@ -65,11 +65,12 @@ describe('carve-worm', () => {
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-        const carveCeiling = ctx.heightmap[lx][lz] - TEST_MIN_DEPTH_BELOW_SURFACE
+        const carveCeilingWorldY = ctx.heightmap[lx][lz] - TEST_MIN_DEPTH_BELOW_SURFACE
+        const carveCeilingLy = carveCeilingWorldY - WORLD_MIN_Y
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           const v = ctx.voxelMap[localKey(lx, y, lz)]
           if (v !== CARVED_ID) continue
-          expect(y).toBeLessThan(carveCeiling)
+          expect(y).toBeLessThan(carveCeilingLy)
         }
       }
     }

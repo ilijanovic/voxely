@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { createWorkerHandler } from './chunk-worker-handler'
-import { CHUNK_SIZE, WORLD_HEIGHT } from './constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y } from './constants'
 import { typeToId } from './terrain/block-ids'
 import { localKey } from './terrain/block-ids'
 
@@ -117,9 +117,9 @@ describe('createWorkerHandler', () => {
     handler.handleMessage({ type: 'init', seed: TEST_SEED })
 
     const stoneId = typeToId('stone')
-    const modX = 5,
-      modY = 70,
-      modZ = 5
+    const modX = 5
+    const modY = 70 // world Y
+    const modZ = 5
     const payloads = handler.handleMessage({
       type: 'generate',
       chunkX: 0,
@@ -127,7 +127,8 @@ describe('createWorkerHandler', () => {
       blockMods: [{ bx: modX, by: modY, bz: modZ, value: 'stone' }],
     })
 
-    const key = localKey(modX, modY, modZ)
+    const ly = modY - WORLD_MIN_Y
+    const key = localKey(modX, ly, modZ)
     expect(payloads[0].buffer[key]).toBe(stoneId)
   })
 

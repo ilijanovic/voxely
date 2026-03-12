@@ -29,11 +29,11 @@ export const snowDefinition: BiomeDefinition = {
   climate: { tempMin: 0, tempMax: 0.35, humidityMin: 0.2, humidityMax: 0.6 },
   multiNoise: {
     center: {
-      continentalness: 0.78,
+      continentalness: 0.516,
       erosion: -0.22,
       temperature: -0.65,
       humidity: -0.2,
-      weirdness: 0.1,
+      weirdness: 0.2,
       y: 0.25,
     },
     weights: {

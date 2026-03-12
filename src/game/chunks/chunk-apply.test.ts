@@ -10,7 +10,7 @@ import {
   getTallGrassPositions,
 } from './chunk-apply'
 import { localKey } from '../../chunk-runtime'
-import { CHUNK_SIZE, WORLD_HEIGHT, WATER_LEVEL } from '../../constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
 import { CARVED_ID } from '../../terrain-core'
 import type { BlockPos } from '../../types'
 
@@ -73,8 +73,8 @@ describe('buildPositionsByTypeFromVisibleKeys', () => {
     expect(out.size).toBe(1)
     const positions = out.get('stone')!
     expect(positions).toHaveLength(2)
-    expect(positions[0]).toEqual({ x: worldX + 0, y: 0, z: worldZ + 0 })
-    expect(positions[1]).toEqual({ x: worldX + 1, y: 1, z: worldZ + 1 })
+    expect(positions[0]).toEqual({ x: worldX + 0, y: WORLD_MIN_Y + 0, z: worldZ + 0 })
+    expect(positions[1]).toEqual({ x: worldX + 1, y: WORLD_MIN_Y + 1, z: worldZ + 1 })
   })
 
   it('skips air blockTypeId', () => {
@@ -138,7 +138,8 @@ describe('getTallGrassPositions', () => {
 
   it('excludes positions with block above (voxelMap has keyAbove)', () => {
     const voxelMap = new Map<number, string>()
-    voxelMap.set(localKey(0, 1, 0), 'stone') // block above (0,0,0)
+    // World (0,0,0): block above is (0,1,0) → local ly = 1 - WORLD_MIN_Y
+    voxelMap.set(localKey(0, 1 - WORLD_MIN_Y, 0), 'stone')
     const positionsByType = new Map<string, BlockPos[]>()
     positionsByType.set('grass', [{ x: 0, y: 0, z: 0 }])
     const out = getTallGrassPositions(12345, worldX, worldZ, voxelMap, positionsByType)
@@ -148,10 +149,11 @@ describe('getTallGrassPositions', () => {
   it('includes worker-placed tall_grass with y-1 mesh base', () => {
     const voxelMap = new Map<number, string>()
     const positionsByType = new Map<string, BlockPos[]>()
-    positionsByType.set('tall_grass', [{ x: 5, y: 65, z: 5 }]) // block at topY+1 in worker
+    const topYPlusOne = WATER_LEVEL + 4 // e.g. 66
+    positionsByType.set('tall_grass', [{ x: 5, y: topYPlusOne, z: 5 }]) // block at topY+1 in worker
     const out = getTallGrassPositions(999, worldX, worldZ, voxelMap, positionsByType)
     expect(out).toHaveLength(1)
-    expect(out[0]).toEqual({ x: 5, y: 64, z: 5 })
+    expect(out[0]).toEqual({ x: 5, y: topYPlusOne - 1, z: 5 })
   })
 
   it('respects pseudoRandom threshold so some grass positions are skipped', () => {

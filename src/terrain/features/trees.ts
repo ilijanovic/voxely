@@ -2,7 +2,7 @@
  * Tree feature for Stage 4: places trees using placement/density noise and getTreeBlocks.
  */
 import type { Biome } from '../../types'
-import { CHUNK_SIZE } from '../../constants'
+import { CHUNK_SIZE, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId } from '../block-ids'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
@@ -55,7 +55,7 @@ export function createTreeFeature(deps: TreeFeatureDeps): FeatureFn {
           ) {
             const lkx = b.x - worldX
             const lkz = b.z - worldZ
-            voxelMap[localKey(lkx, b.y, lkz)] = typeToId('wood')
+            voxelMap[localKey(lkx, b.y - WORLD_MIN_Y, lkz)] = typeToId('wood')
           }
         }
         for (const b of leaves) {
@@ -68,7 +68,7 @@ export function createTreeFeature(deps: TreeFeatureDeps): FeatureFn {
             const lkx = b.x - worldX
             const lkz = b.z - worldZ
             const topY = heightmap[lkx][lkz]
-            if (b.y > topY) voxelMap[localKey(lkx, b.y, lkz)] = typeToId('leaves')
+            if (b.y > topY) voxelMap[localKey(lkx, b.y - WORLD_MIN_Y, lkz)] = typeToId('leaves')
           }
         }
       }

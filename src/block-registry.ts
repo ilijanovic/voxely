@@ -368,6 +368,34 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     breakTimeSeconds: 0.5,
   }),
   D({
+    id: 'orange_terracotta',
+    displayName: 'Orange Terracotta',
+    textures: { type: 'single', texture: 'hardened_clay_stained_orange' },
+    breakTimeSeconds: 0.9,
+    harvestCategory: 'dirt',
+  }),
+  D({
+    id: 'yellow_terracotta',
+    displayName: 'Yellow Terracotta',
+    textures: { type: 'single', texture: 'hardened_clay_stained_yellow' },
+    breakTimeSeconds: 0.9,
+    harvestCategory: 'dirt',
+  }),
+  D({
+    id: 'red_terracotta',
+    displayName: 'Red Terracotta',
+    textures: { type: 'single', texture: 'hardened_clay_stained_red' },
+    breakTimeSeconds: 0.9,
+    harvestCategory: 'dirt',
+  }),
+  D({
+    id: 'white_terracotta',
+    displayName: 'White Terracotta',
+    textures: { type: 'single', texture: 'hardened_clay_stained_white' },
+    breakTimeSeconds: 0.9,
+    harvestCategory: 'dirt',
+  }),
+  D({
     id: 'mycelium',
     displayName: 'Mycelium',
     textures: {
@@ -1098,54 +1126,78 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   // --- Stairs (items + placed variants) ---
   ...(
     [
-      { baseId: 'oak_planks', stairsItemId: 'oak_stairs', display: 'Oak Stairs', harvestCategory: 'wood' as const },
+      {
+        baseId: 'oak_planks',
+        stairsItemId: 'oak_stairs',
+        display: 'Oak Stairs',
+        harvestCategory: 'wood' as const,
+        textureName: 'planks_oak',
+      },
       {
         baseId: 'spruce_planks',
         stairsItemId: 'spruce_stairs',
         display: 'Spruce Stairs',
         harvestCategory: 'wood' as const,
+        textureName: 'planks_spruce',
       },
-      { baseId: 'birch_planks', stairsItemId: 'birch_stairs', display: 'Birch Stairs', harvestCategory: 'wood' as const },
+      {
+        baseId: 'birch_planks',
+        stairsItemId: 'birch_stairs',
+        display: 'Birch Stairs',
+        harvestCategory: 'wood' as const,
+        textureName: 'planks_birch',
+      },
       {
         baseId: 'jungle_planks',
         stairsItemId: 'jungle_stairs',
         display: 'Jungle Stairs',
         harvestCategory: 'wood' as const,
+        textureName: 'planks_jungle',
       },
       {
         baseId: 'acacia_planks',
         stairsItemId: 'acacia_stairs',
         display: 'Acacia Stairs',
         harvestCategory: 'wood' as const,
+        textureName: 'planks_acacia',
       },
       {
         baseId: 'dark_oak_planks',
         stairsItemId: 'dark_oak_stairs',
         display: 'Dark Oak Stairs',
         harvestCategory: 'wood' as const,
+        textureName: 'planks_big_oak',
       },
       {
         baseId: 'cobblestone',
         stairsItemId: 'cobblestone_stairs',
         display: 'Cobblestone Stairs',
         harvestCategory: 'stone' as const,
+        textureName: 'cobblestone',
       },
       {
         baseId: 'stone_bricks',
         stairsItemId: 'stone_bricks_stairs',
         display: 'Stone Brick Stairs',
         harvestCategory: 'stone' as const,
+        textureName: 'stonebrick',
       },
-      { baseId: 'bricks', stairsItemId: 'brick_stairs', display: 'Brick Stairs', harvestCategory: 'stone' as const },
+      {
+        baseId: 'bricks',
+        stairsItemId: 'brick_stairs',
+        display: 'Brick Stairs',
+        harvestCategory: 'stone' as const,
+        textureName: 'brick',
+      },
       {
         baseId: 'sandstone',
         stairsItemId: 'sandstone_stairs',
         display: 'Sandstone Stairs',
         harvestCategory: 'dirt' as const,
+        textureName: 'sandstone_normal',
       },
     ] as const
-  ).flatMap(({ baseId, stairsItemId, display, harvestCategory }) => {
-    const texture = baseId === 'bricks' ? 'brick' : baseId === 'stone_bricks' ? 'stonebrick' : baseId
+  ).flatMap(({ stairsItemId, display, harvestCategory, textureName }) => {
     const placed = [
       `${stairsItemId}_north`,
       `${stairsItemId}_east`,
@@ -1162,7 +1214,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
       D({
         id: stairsItemId,
         displayName: display,
-        textures: { type: 'single', texture },
+        textures: { type: 'single', texture: textureName },
         stairs: true,
         harvestCategory,
       }),
@@ -1170,7 +1222,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
         D({
           id,
           displayName: display,
-          textures: { type: 'single', texture },
+          textures: { type: 'single', texture: textureName },
           stairs: true,
           harvestCategory,
         }),
@@ -1179,7 +1231,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
         D({
           id,
           displayName: display,
-          textures: { type: 'single', texture },
+          textures: { type: 'single', texture: textureName },
           stairs: true,
           harvestCategory,
         }),
@@ -1350,6 +1402,67 @@ export function isFenceBlock(id: string): boolean {
   return REGISTRY.get(id)?.fence === true
 }
 
+/** Fence connection mask: North=1, South=2, East=4, West=8. Used for collision and rendering. */
+const FENCE_MASK_NORTH = 1
+const FENCE_MASK_SOUTH = 2
+const FENCE_MASK_EAST = 4
+const FENCE_MASK_WEST = 8
+
+/**
+ * Returns the fence connection mask at (bx, by, bz) from neighbor blocks.
+ * A neighbor connects if it is a fence or solid block. Mask bits: North=1, South=2, East=4, West=8.
+ * @param getBlock Returns block type at world position, or 'air' / null for empty or unloaded.
+ */
+export function getFenceConnectionMask(
+  bx: number,
+  by: number,
+  bz: number,
+  getBlock: (bx: number, by: number, bz: number) => string | 'air' | null,
+): number {
+  const connects = (nx: number, ny: number, nz: number) => {
+    const t = getBlock(nx, ny, nz)
+    return t != null && t !== 'air' && (isFenceBlock(t) || isSolidBlock(t))
+  }
+  let mask = 0
+  if (connects(bx, by, bz - 1)) mask |= FENCE_MASK_NORTH
+  if (connects(bx, by, bz + 1)) mask |= FENCE_MASK_SOUTH
+  if (connects(bx + 1, by, bz)) mask |= FENCE_MASK_EAST
+  if (connects(bx - 1, by, bz)) mask |= FENCE_MASK_WEST
+  return mask
+}
+
+/** Center post box for fences (1.5 blocks tall, narrow in XZ). */
+const FENCE_POST_BOX: CollisionBoxLocal = {
+  minX: 0.375,
+  minY: 0,
+  minZ: 0.375,
+  maxX: 0.625,
+  maxY: 1.5,
+  maxZ: 0.625,
+}
+
+/**
+ * Returns collision boxes in local block space [0..1] for a fence with the given connection mask.
+ * Always includes the center post; adds one box per connected direction to close gaps between adjacent fences.
+ * @param mask Connection mask: North=1, South=2, East=4, West=8.
+ */
+export function getFenceCollisionBoxesLocal(mask: number): CollisionBoxLocal[] {
+  const boxes: CollisionBoxLocal[] = [FENCE_POST_BOX]
+  if (mask & FENCE_MASK_NORTH) {
+    boxes.push({ minX: 0.375, minY: 0, minZ: 0, maxX: 0.625, maxY: 1.5, maxZ: 0.5 })
+  }
+  if (mask & FENCE_MASK_SOUTH) {
+    boxes.push({ minX: 0.375, minY: 0, minZ: 0.5, maxX: 0.625, maxY: 1.5, maxZ: 1 })
+  }
+  if (mask & FENCE_MASK_EAST) {
+    boxes.push({ minX: 0.5, minY: 0, minZ: 0.375, maxX: 1, maxY: 1.5, maxZ: 0.625 })
+  }
+  if (mask & FENCE_MASK_WEST) {
+    boxes.push({ minX: 0, minY: 0, minZ: 0.375, maxX: 0.5, maxY: 1.5, maxZ: 0.625 })
+  }
+  return boxes
+}
+
 /**
  * Returns the stairs item id for a stairs id (placed or item). For non-stairs ids, returns the id unchanged.
  */
@@ -1498,7 +1611,6 @@ export function getBlockCollisionBoxesLocal(blockType: string): CollisionBoxLoca
   const stairsState = getStairsFacingAndHalfFromId(blockType)
   if (stairsState) {
     const { facing, half } = stairsState
-    // Bottom slab (full XZ, half height) + step (half block in facing direction).
     const slabBottom: CollisionBoxLocal = { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 }
     const slabTop: CollisionBoxLocal = { minX: 0, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 }
     const stepBottom: CollisionBoxLocal =
@@ -1523,18 +1635,9 @@ export function getBlockCollisionBoxesLocal(blockType: string): CollisionBoxLoca
     return [slabBottom, stepBottom]
   }
 
-  // Fences: 1.5 blocks tall, narrow in XZ (Minecraft-style; cannot jump over).
+  // Fences: connection-independent call uses mask 0 (center post only); runtime uses getFenceCollisionBoxesLocal(mask) in getBlockCollisionBoxesAt.
   if (def.fence === true) {
-    return [
-      {
-        minX: 0.375,
-        minY: 0,
-        minZ: 0.375,
-        maxX: 0.625,
-        maxY: 1.5,
-        maxZ: 0.625,
-      },
-    ]
+    return getFenceCollisionBoxesLocal(0)
   }
 
   // Default: full block, but respect height-based blocks (e.g. flowing water already handled above).

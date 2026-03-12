@@ -2,7 +2,7 @@
  * Mushroom feature for Stage 4: places brown_mushroom and red_mushroom on grass/dirt in forest, jungle, mushroom_fields, mangrove_swamp.
  */
 import type { Biome, BlockType } from '../../types'
-import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
 import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
@@ -47,11 +47,12 @@ export function createMushroomFeature(): FeatureFn {
         const biome = biomeMap[lx][lz]
         if (!BIOME_MUSHROOM[biome]) continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as BlockType
         if (!SURFACE_BLOCKS_FOR_MUSHROOM.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (voxelMap[keyAbove]) continue
 
         const wx = worldX + lx

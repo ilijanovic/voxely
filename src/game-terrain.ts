@@ -6,7 +6,13 @@ import * as THREE from 'three'
 import { createNoise2D, createNoise3D } from 'simplex-noise'
 import type { BlockType, TreeNoiseCaches } from './types'
 import type { Biome } from './types'
-import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from './constants'
+import {
+  CHUNK_SIZE,
+  MIN_CAVE_DEPTH_BELOW_SURFACE,
+  WATER_LEVEL,
+  WORLD_MAX_Y,
+  WORLD_MIN_Y,
+} from './constants'
 import { columnHeightCache, columnCacheKey, getBlockAt } from './chunk-runtime'
 import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from './block-registry'
 import { createTerrainSampling } from './terrain-sampling'
@@ -16,7 +22,7 @@ import {
   MOUNTAIN_STONE_SURFACE_HEIGHT,
   SURFACE_STONE_HEIGHT,
 } from './terrain/surface-constants'
-import { getSurfaceBlockFromRules } from './terrain/surface-rules'
+import { resolveSurfaceBlock } from './terrain/surface-resolver'
 import {
   FOREST_DENSITY_SCALE,
   FOREST_DENSITY_THRESHOLD,
@@ -30,6 +36,22 @@ import {
   type TreeShapeConfig,
 } from './terrain/tree-constants'
 import { CAVE_THRESHOLD } from './terrain/constants'
+import {
+  BADLANDS_BAND_SCALE_XZ,
+  BADLANDS_BAND_SCALE_Y,
+  SURFACE_DITHER_COAST_OFFSET_X,
+  SURFACE_DITHER_COAST_OFFSET_Z,
+  SURFACE_DITHER_COAST_SCALE,
+  SURFACE_DITHER_LAND_OFFSET_X,
+  SURFACE_DITHER_LAND_OFFSET_Z,
+  SURFACE_DITHER_LAND_SCALE,
+  SURFACE_FROZEN_PEAKS_BLOB_OFFSET_X,
+  SURFACE_FROZEN_PEAKS_BLOB_OFFSET_Z,
+  SURFACE_FROZEN_PEAKS_BLOB_SCALE,
+  SURFACE_FROZEN_PEAKS_N_OFFSET_X,
+  SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
+  SURFACE_FROZEN_PEAKS_N_SCALE,
+} from './terrain/surface-constants'
 import { makeSeededRandom } from './terrain/utils'
 
 export type { Biome }
@@ -92,7 +114,7 @@ export function getHeight(x: number, z: number): number {
   if (cached !== undefined) return cached
 
   const h = terrainSampling.getSmoothedHeight(x, z)
-  const result = Math.floor(THREE.MathUtils.clamp(h, 0, WORLD_HEIGHT))
+  const result = Math.floor(THREE.MathUtils.clamp(h, WORLD_MIN_Y, WORLD_MAX_Y))
   columnHeightCache.set(key, result)
   return result
 }
@@ -141,12 +163,12 @@ function getSurfaceYVoxel(px: number, pz: number, searchMaxY: number): number {
   const maxBx = Math.floor(px + SPAWN_FOOT_HALF + 0.5)
   const minBz = Math.ceil(pz - SPAWN_FOOT_HALF - 0.5)
   const maxBz = Math.floor(pz + SPAWN_FOOT_HALF + 0.5)
-  let maxSurfaceY = -0.5
-  const top = Math.min(searchMaxY, WORLD_HEIGHT - 1)
+  let maxSurfaceY = WORLD_MIN_Y - 0.5
+  const top = Math.min(searchMaxY, WORLD_MAX_Y)
   for (let bx = minBx; bx <= maxBx; bx++) {
     for (let bz = minBz; bz <= maxBz; bz++) {
-      let columnTop = -0.5
-      for (let by = top; by >= 0; by--) {
+      let columnTop = WORLD_MIN_Y - 0.5
+      for (let by = top; by >= WORLD_MIN_Y; by--) {
         const type = getBlockAt(bx, by, bz)
         if (type === null) {
           columnTop = getHeight(bx, bz) + 0.5
@@ -167,14 +189,14 @@ function getSurfaceYVoxel(px: number, pz: number, searchMaxY: number): number {
  * World Y of the top face of solid terrain at (x, z). Uses foot-area expansion for spawn; do not use for physics/grounded/jump.
  */
 export function getSurfaceY(x: number, z: number): number {
-  return getSurfaceYVoxel(x, z, WORLD_HEIGHT)
+  return getSurfaceYVoxel(x, z, WORLD_MAX_Y)
 }
 
 /** Surface Y for a single block column (no foot-area expansion). Used for entity spawns. */
 export function getColumnSurfaceY(wx: number, wz: number): number {
   const bx = Math.floor(wx)
   const bz = Math.floor(wz)
-  for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
+  for (let by = WORLD_MAX_Y; by >= WORLD_MIN_Y; by--) {
     const type = getBlockAt(bx, by, bz)
     if (type === null) return getHeight(bx, bz) + 0.5
     if (type !== 'wood' && type !== 'leaves' && isBlockTypeSolid(type as BlockType)) {
@@ -189,74 +211,92 @@ const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
 /** Minimum chunks of land in all directions from spawn; avoids spawning at the coast. */
 const SPAWN_OCEAN_BUFFER_CHUNKS = 5
 
+/** Biomes that count as snow for grass → grass_snow neighbor rule. Must match terrain worker. */
+const SNOW_BIOMES: Biome[] = [
+  'snow',
+  'grove',
+  'snowy_slopes',
+  'frozen_peaks',
+  'jagged_peaks',
+]
+
+/** Max cardinal height delta for slope (cliff) detection. */
+function getMaxSlopeDelta(x: number, z: number): number {
+  const h = getHeight(x, z)
+  const dN = Math.abs(getHeight(x, z - 1) - h)
+  const dS = Math.abs(getHeight(x, z + 1) - h)
+  const dW = Math.abs(getHeight(x - 1, z) - h)
+  const dE = Math.abs(getHeight(x + 1, z) - h)
+  return Math.max(dN, dS, dW, dE)
+}
+
 /** Surface block type at (wx, wz) given biome and topY; handles shore, underwater, stone layers, snow/grass variants. */
 export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
   const def = BIOME_REGISTRY[biome]
   const surface = def.blocks.surface as BlockType
 
-  const getMaxSlopeDelta = (x: number, z: number): number => {
-    const h = getHeight(x, z)
-    const dN = Math.abs(getHeight(x, z - 1) - h)
-    const dS = Math.abs(getHeight(x, z + 1) - h)
-    const dW = Math.abs(getHeight(x - 1, z) - h)
-    const dE = Math.abs(getHeight(x + 1, z) - h)
-    return Math.max(dN, dS, dW, dE)
-  }
-
-  if (topY < WATER_LEVEL) return def.blocks.underwater as BlockType
-  if (topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1) return def.blocks.shore as BlockType
-
   const blend = terrainSampling.getBiomeBlend(wx, wz)
-  if (blend.primary === 'ocean' && blend.secondary !== 'ocean') {
-    const landSurface = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
-    const n = (detailNoise2D(wx * 0.11 + 19.3, wz * 0.11 - 71.7) + 1) * 0.5
-    return n < blend.t ? landSurface : 'sand'
-  }
-
-  if (
-    blend.primary !== blend.secondary &&
-    blend.primary !== 'ocean' &&
-    blend.secondary !== 'ocean' &&
-    blend.primary !== 'desert' &&
-    blend.secondary !== 'desert'
-  ) {
-    const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType
-    const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
-    if (a !== b && blend.t > 0.1 && blend.t < 0.9) {
-      const n = (detailNoise2D(wx * 0.13 - 33.1, wz * 0.13 + 5.7) + 1) * 0.5
-      return n < blend.t ? b : a
-    }
-  }
-
   const slope = getMaxSlopeDelta(wx, wz)
+  const ditherNoiseCoast =
+    (detailNoise2D(
+      wx * SURFACE_DITHER_COAST_SCALE + SURFACE_DITHER_COAST_OFFSET_X,
+      wz * SURFACE_DITHER_COAST_SCALE + SURFACE_DITHER_COAST_OFFSET_Z,
+    ) +
+      1) *
+    0.5
+  const ditherNoiseLand =
+    (detailNoise2D(
+      wx * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_X,
+      wz * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_Z,
+    ) +
+      1) *
+    0.5
   const frozenPeaksNoiseN =
-    (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5
+    (detailNoise2D(
+      wx * SURFACE_FROZEN_PEAKS_N_SCALE + SURFACE_FROZEN_PEAKS_N_OFFSET_X,
+      wz * SURFACE_FROZEN_PEAKS_N_SCALE + SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
+    ) +
+      1) *
+    0.5
   const frozenPeaksNoiseBlob =
-    (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5
-  const snowBiomes: Biome[] = [
-    'snow',
-    'grove',
-    'snowy_slopes',
-    'frozen_peaks',
-    'jagged_peaks',
-  ]
+    (detailNoise2D(
+      wx * SURFACE_FROZEN_PEAKS_BLOB_SCALE + SURFACE_FROZEN_PEAKS_BLOB_OFFSET_X,
+      wz * SURFACE_FROZEN_PEAKS_BLOB_SCALE + SURFACE_FROZEN_PEAKS_BLOB_OFFSET_Z,
+    ) +
+      1) *
+    0.5
   let hasSnowNeighbor = false
   if (surface === 'grass') {
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         if (dx === 0 && dz === 0) continue
-        if (snowBiomes.includes(getResolvedBiome(wx + dx, wz + dz))) {
+        if (SNOW_BIOMES.includes(getResolvedBiome(wx + dx, wz + dz))) {
           hasSnowNeighbor = true
           break
         }
       }
     }
   }
-  return getSurfaceBlockFromRules(biome, topY, surface, {
+  const badlandsBandNoise =
+    biome === 'badlands'
+      ? (detailNoise2D(
+          wx * BADLANDS_BAND_SCALE_XZ + topY * BADLANDS_BAND_SCALE_Y,
+          wz * BADLANDS_BAND_SCALE_XZ,
+        ) +
+          1) *
+        0.5
+      : undefined
+  return resolveSurfaceBlock({
+    topY,
+    biome,
+    blend,
     slope,
     frozenPeaksNoiseN,
     frozenPeaksNoiseBlob,
     hasSnowNeighbor,
+    ditherNoiseCoast,
+    ditherNoiseLand,
+    badlandsBandNoise,
   })
 }
 
@@ -299,8 +339,8 @@ function getSpawnMaxHeightForGrass(biome: Biome): number {
  */
 function hasCaveBelow(x: number, z: number): boolean {
   const surfaceY = getHeight(x, z)
-  const carveCeiling = Math.max(1, surfaceY - MIN_CAVE_DEPTH_BELOW_SURFACE)
-  for (let y = 1; y < carveCeiling && y < WORLD_HEIGHT; y++) {
+  const carveCeiling = Math.max(WORLD_MIN_Y + 1, surfaceY - MIN_CAVE_DEPTH_BELOW_SURFACE)
+  for (let y = WORLD_MIN_Y + 1; y < carveCeiling && y <= WORLD_MAX_Y; y++) {
     if (caveNoise3D(x, y, z) > CAVE_THRESHOLD) return true
   }
   return false

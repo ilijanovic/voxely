@@ -3,9 +3,16 @@
  * applyChunkPayload, updateChunks, generateChunk stay in game.ts (scene/worker/meshes).
  */
 import type { BlockType, ChunkData } from './types'
-import { CHUNK_SIZE, WORLD_HEIGHT } from './constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y } from './constants'
 import type { BlockModEntry } from './terrain-core'
-import { getBlockCollisionBoxesLocal, type CollisionBoxLocal, getBlockHeight } from './block-registry'
+import {
+  getBlockCollisionBoxesLocal,
+  type CollisionBoxLocal,
+  getBlockHeight,
+  isFenceBlock,
+  getFenceConnectionMask,
+  getFenceCollisionBoxesLocal,
+} from './block-registry'
 
 export const chunks = new Map<number, ChunkData>()
 export const blockModifications = new Map<string, BlockType | 'air'>()
@@ -19,11 +26,14 @@ export function chunkKeyNumeric(cx: number, cz: number): number {
   return ((cx & 0xffff) << 16) | (cz & 0xffff)
 }
 
+/** 9-bit Y index (world Y - WORLD_MIN_Y) for block key; supports Y in [-64, 319]. */
+const BLOCK_KEY_Y_MASK = 0x1ff
+
 export function blockKeyNumeric(bx: number, by: number, bz: number): number {
   const ix = (Math.floor(bx) + 1024) & 0x7ff
-  const iy = Math.floor(by) & 0xff
+  const iy = (Math.floor(by) - WORLD_MIN_Y) & BLOCK_KEY_Y_MASK
   const iz = (Math.floor(bz) + 1024) & 0x7ff
-  return ix | (iy << 11) | (iz << 19)
+  return ix | (iy << 11) | (iz << 20)
 }
 
 export function columnCacheKey(bx: number, bz: number): number {
@@ -46,8 +56,8 @@ export function decodeLocalKey(key: number): { lx: number; ly: number; lz: numbe
 
 export function blockKeyFromNumeric(k: number): { bx: number; by: number; bz: number } {
   const bx = (k & 0x7ff) - 1024
-  const by = (k >> 11) & 0xff
-  const bz = ((k >> 19) & 0x7ff) - 1024
+  const by = ((k >> 11) & BLOCK_KEY_Y_MASK) + WORLD_MIN_Y
+  const bz = ((k >> 20) & 0x7ff) - 1024
   return { bx, by, bz }
 }
 
@@ -67,7 +77,7 @@ export function getBlockAt(bx: number, by: number, bz: number): BlockType | 'air
   const ix = Math.floor(bx)
   const iy = Math.floor(by)
   const iz = Math.floor(bz)
-  if (iy < 0 || iy >= WORLD_HEIGHT) return 'air'
+  if (iy < WORLD_MIN_Y || iy >= WORLD_MIN_Y + WORLD_HEIGHT) return 'air'
   const mod = blockModifications.get(blockKeyString(ix, iy, iz))
   if (mod !== undefined) return mod
   const cx = Math.floor(ix / CHUNK_SIZE)
@@ -75,8 +85,9 @@ export function getBlockAt(bx: number, by: number, bz: number): BlockType | 'air
   const data = chunks.get(chunkKeyNumeric(cx, cz))
   if (!data) return null
   const lx = ix - data.cx * CHUNK_SIZE
+  const ly = iy - WORLD_MIN_Y
   const lz = iz - data.cz * CHUNK_SIZE
-  const type = data.voxelMap.get(localKey(lx, iy, lz))
+  const type = data.voxelMap.get(localKey(lx, ly, lz))
   return type ?? 'air'
 }
 
@@ -98,12 +109,15 @@ export type CollisionBoxWorld = {
 
 /**
  * Returns collision boxes for the block at (bx, by, bz) in world space.
+ * For fences, boxes depend on connection mask so gaps between adjacent fences are closed.
  * @returns Empty array for air/unloaded/non-solid blocks.
  */
 export function getBlockCollisionBoxesAt(bx: number, by: number, bz: number): CollisionBoxWorld[] {
   const type = getBlockAt(bx, by, bz)
   if (type === null || type === 'air') return []
-  const local: CollisionBoxLocal[] = getBlockCollisionBoxesLocal(type)
+  const local: CollisionBoxLocal[] = isFenceBlock(type)
+    ? getFenceCollisionBoxesLocal(getFenceConnectionMask(bx, by, bz, getBlockAt))
+    : getBlockCollisionBoxesLocal(type)
   if (local.length === 0) return []
   return local.map((b) => ({
     minX: bx + b.minX,

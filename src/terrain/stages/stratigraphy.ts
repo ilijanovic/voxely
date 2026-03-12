@@ -1,10 +1,10 @@
 /**
- * Stage 3: Stratigraphy. Fill voxelMap from 0 to heightmap using BiomeRegistry blocks.
+ * Stratigraphy: fill voxelMap from 0 to heightmap using BiomeRegistry blocks. Used as pipeline stage 7 (surface).
  * Only writes where voxelMap is empty (0); skips CARVED_ID (cave).
  * When getSurfaceBlock is provided, it overrides the surface block (e.g. grass_snow near snow biomes).
  */
 import type { BlockType } from '../../types'
-import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, CARVED_ID } from '../block-ids'
 import { BIOME_REGISTRY } from '../biomes'
 import type { ChunkContext, PipelineStage } from '../pipeline-types'
@@ -16,10 +16,16 @@ function isShore(topY: number): boolean {
 export interface Stage3Deps {
   /** Optional: return surface block for column (lx, lz), e.g. grass_snow at snow boundaries. */
   getSurfaceBlock?: (ctx: ChunkContext, lx: number, lz: number) => BlockType
+  /**
+   * Optional: return subsurface block for (lx, lz, ly). When non-null, overrides def.blocks.subsurface
+   * (e.g. badlands banding for top 1–2 layers below surface).
+   */
+  getSubsurfaceBlock?: (ctx: ChunkContext, lx: number, lz: number, ly: number) => BlockType | null
 }
 
 export function createStage3(deps?: Stage3Deps): PipelineStage {
   const getSurfaceBlock = deps?.getSurfaceBlock
+  const getSubsurfaceBlock = deps?.getSubsurfaceBlock
 
   return function stage3Stratigraphy(ctx: ChunkContext): void {
     const { heightmap, biomeMap, voxelMap } = ctx
@@ -30,19 +36,21 @@ export function createStage3(deps?: Stage3Deps): PipelineStage {
         const def = BIOME_REGISTRY[biome]
         const blocks = def.blocks
         for (let ly = 0; ly < WORLD_HEIGHT; ly++) {
-          if (ly > topY) break
+          const worldY = WORLD_MIN_Y + ly
+          if (worldY > topY) break
           const lk = localKey(lx, ly, lz)
           if (voxelMap[lk] === CARVED_ID) continue
           if (voxelMap[lk] !== 0) continue
           let block: string
           if (ly === 0) {
             block = 'bedrock'
-          } else if (ly === topY) {
+          } else if (worldY === topY) {
             if (topY < WATER_LEVEL) block = blocks.underwater
             else if (isShore(topY)) block = blocks.shore
             else block = getSurfaceBlock ? getSurfaceBlock(ctx, lx, lz) : blocks.surface
-          } else if (ly >= topY - blocks.subsurfaceDepth) {
-            block = blocks.subsurface
+          } else if (worldY >= topY - blocks.subsurfaceDepth) {
+            const override = getSubsurfaceBlock?.(ctx, lx, lz, ly)
+            block = override ?? blocks.subsurface
           } else {
             block = 'stone'
           }

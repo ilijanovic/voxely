@@ -102,14 +102,14 @@ export function resetKeyBindingsToDefaults(): void {
 
 /** Human-readable label for UI. */
 export const keyActionLabels: Record<KeyAction, string> = {
-  forward: 'Vorwärts',
-  back: 'Rückwärts',
-  left: 'Links',
-  right: 'Rechts',
-  jump: 'Springen',
+  forward: 'Forward',
+  back: 'Back',
+  left: 'Left',
+  right: 'Right',
+  jump: 'Jump',
   sprint: 'Sprint',
-  sneak: 'Schleichen',
-  toggleView: 'Ansicht wechseln (1./3. Person)',
+  sneak: 'Sneak',
+  toggleView: 'Toggle view (1st/3rd person)',
   place: 'Place block / torch',
   openMap: 'Map',
   hotbar1: 'Hotbar 1',
@@ -130,8 +130,8 @@ const KEY_CODE_TO_DISPLAY: Record<string, string> = {
   Space: 'Space',
   ShiftLeft: 'Shift',
   ShiftRight: 'Shift',
-  ControlLeft: 'Strg',
-  ControlRight: 'Strg',
+  ControlLeft: 'Ctrl',
+  ControlRight: 'Ctrl',
   AltLeft: 'Alt',
   AltRight: 'Alt',
 }

@@ -1,6 +1,6 @@
 /**
- * Stage 4: Structures and decoration. Runs a list of feature callbacks that can
- * read heightmap/biomeMap and write to voxelMap (e.g. trees, cacti).
+ * Feature runner: runs a list of feature callbacks that can read heightmap/biomeMap and write to voxelMap (e.g. trees, cacti).
+ * Used only inside the features stage (pipeline stage 8), not as a standalone pipeline stage.
  */
 import type { ChunkContext, PipelineStage, FeatureFn } from '../pipeline-types'
 

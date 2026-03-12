@@ -25,6 +25,10 @@ import {
   HIGHLAND_MEADOW_MAX,
   HIGHLAND_SNOWY_SLOPES_MAX,
   HIGHLAND_VARIANT_SCALE,
+  MACRO_TERRAIN_DEEP_OCEAN_MAX,
+  MACRO_TERRAIN_FAR_INLAND_MIN,
+  MACRO_TERRAIN_MID_INLAND_MIN,
+  MACRO_TERRAIN_NEAR_INLAND_MIN,
   MOUNTAIN_AMPLITUDE,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
@@ -40,6 +44,7 @@ import {
   SPAWN_ORIGIN_FOREST_TEMP,
   SNOW_BIOME_HEIGHT_BOOST,
   WEIRDNESS_RIDGE_AMP,
+  WEIRDNESS_VANILLA_RANGE_SCALE,
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './terrain/constants'
 import {
@@ -80,6 +85,8 @@ function smooth5tap(center: number, n: number, s: number, e: number, w: number):
 /**
  * Creates the main-thread terrain sampling API: getResolvedBiome, getSmoothedHeight, getBlockTypeAt, getBiomeBlend.
  * Uses same formulas as terrain/ pipeline; getHeight is injected so game can pass its cached column height.
+ * Full surface block logic (coast blend, dither, slope, frozen_peaks, snow neighbor) is in terrain/surface-resolver.ts;
+ * getBlockTypeAt is a simplified path for approximate column block type only.
  */
 export function createTerrainSampling(seed: number) {
   const temperatureNoise2D = createNoise(seed + 500)
@@ -165,7 +172,7 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getContinentalness(x: number, z: number): number {
-    return climate.getContinentalness01(x, z)
+    return climate.getContinentalnessSigned(x, z)
   }
 
   /** 5-tap smoothed continentalness for ocean/land blend (parity with terrain/index). */
@@ -263,12 +270,14 @@ export function createTerrainSampling(seed: number) {
   function getMacroTerrain(x: number, z: number): number {
     const c = getContinentalness(x, z)
     const s = (a: number, b: number, v: number) => smoothstep01((v - a) / (b - a))
-    if (c < 0.3) return -18
+    if (c < MACRO_TERRAIN_DEEP_OCEAN_MAX) return -18
     if (c < OCEAN_CONTINENTALNESS_THRESHOLD)
-      return lerp(-18, -8, s(0.3, OCEAN_CONTINENTALNESS_THRESHOLD, c))
-    if (c < 0.52) return lerp(-8, 0, s(OCEAN_CONTINENTALNESS_THRESHOLD, 0.52, c))
-    if (c < 0.75) return lerp(0, 14, s(0.52, 0.75, c))
-    return lerp(14, 22, s(0.75, 0.95, c))
+      return lerp(-18, -8, s(MACRO_TERRAIN_DEEP_OCEAN_MAX, OCEAN_CONTINENTALNESS_THRESHOLD, c))
+    if (c < MACRO_TERRAIN_NEAR_INLAND_MIN)
+      return lerp(-8, 0, s(OCEAN_CONTINENTALNESS_THRESHOLD, MACRO_TERRAIN_NEAR_INLAND_MIN, c))
+    if (c < MACRO_TERRAIN_MID_INLAND_MIN)
+      return lerp(0, 14, s(MACRO_TERRAIN_NEAR_INLAND_MIN, MACRO_TERRAIN_MID_INLAND_MIN, c))
+    return lerp(14, 22, s(MACRO_TERRAIN_MID_INLAND_MIN, MACRO_TERRAIN_FAR_INLAND_MIN, c))
   }
 
   function getLocalTerrain(x: number, z: number, biome: Biome): number {
@@ -419,7 +428,7 @@ export function createTerrainSampling(seed: number) {
       }
     }
     const erosion = getErosion(x, z)
-    const ridge = 1 - Math.abs(getWeirdness(x, z))
+    const ridge = 1 - Math.abs(getWeirdness(x, z)) / WEIRDNESS_VANILLA_RANGE_SCALE
     const ridgeTerm = ridge * ridge * WEIRDNESS_RIDGE_AMP * mountainAllowedFactor
     return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - erosion
   }
@@ -491,8 +500,7 @@ export function createTerrainSampling(seed: number) {
   }
 
   /**
-   * Simplified surface/column block type. Does not replicate full worker surface rules
-   * (coast blend, land boundary dither, frozen_peaks packed_ice/ice, grass_snow neighbor).
+   * Simplified surface/column block type. Does not use terrain/surface-resolver (no blend, dither, slope, frozen_peaks noise, snow neighbor).
    * For authoritative surface at a position, use chunk data or game-terrain getSurfaceBlockAt.
    */
   function getBlockTypeAt(biome: Biome, y: number, topY: number): BlockType {

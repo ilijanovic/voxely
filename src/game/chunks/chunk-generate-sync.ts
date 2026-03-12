@@ -6,6 +6,8 @@ import {
   WATER_BLOCK_HEIGHT,
   WATER_PLANE_Y_OFFSET,
   WORLD_HEIGHT,
+  WORLD_MAX_Y,
+  WORLD_MIN_Y,
   SNOW_GROWTH_INTERVAL_SEC,
   SNOW_GROWTH_CANDIDATES_PER_INTERVAL,
 } from '../../constants'
@@ -38,6 +40,7 @@ import {
   isUnbreakableBlock,
   getBlockHeight,
   isFenceBlock,
+  getFenceConnectionMask,
 } from '../../block-registry'
 import {
   setGrassInstanceColors,
@@ -240,7 +243,7 @@ export function buildPositionsByType(
   const byType = new Map<BlockType, BlockPos[]>()
   for (const [key, blockType] of voxelMapEntries) {
     const { lx, ly, lz } = decodeLocalKey(key)
-    const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz }
+    const pos: BlockPos = { x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz }
     const arr = byType.get(blockType) ?? []
     arr.push(pos)
     byType.set(blockType, arr)
@@ -349,25 +352,6 @@ function makeGetBlockForChunk(
     }
     return getBlockAt(bx, by, bz) ?? 'air'
   }
-}
-
-/** Fence connection mask: North=1, South=2, East=4, West=8. */
-function getFenceConnectionMask(
-  bx: number,
-  by: number,
-  bz: number,
-  getBlock: (bx: number, by: number, bz: number) => BlockType,
-): number {
-  const connects = (nx: number, ny: number, nz: number) => {
-    const t = getBlock(nx, ny, nz)
-    return isFenceBlock(t) || isBlockTypeSolid(t)
-  }
-  let mask = 0
-  if (connects(bx, by, bz - 1)) mask |= 1
-  if (connects(bx, by, bz + 1)) mask |= 2
-  if (connects(bx + 1, by, bz)) mask |= 4
-  if (connects(bx - 1, by, bz)) mask |= 8
-  return mask
 }
 
 function addFenceInstancedLayer(
@@ -734,16 +718,17 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
       const topY = heightmap[x][z]
       const biome = getResolvedBiome(wx, wz)
 
-      for (let y = 0; y <= topY; y++) {
+      for (let worldY = WORLD_MIN_Y; worldY <= topY; worldY++) {
+        const ly = worldY - WORLD_MIN_Y
         let type =
-          y === topY
+          worldY === topY
             ? getSurfaceBlockAt(wx, wz, biome, topY)
-            : getBlockTypeAt(biome, y, topY)
-        const mod = blockModifications.get(blockKeyString(wx, y, wz))
+            : getBlockTypeAt(biome, worldY, topY)
+        const mod = blockModifications.get(blockKeyString(wx, worldY, wz))
         if (mod === 'air') continue
         if (mod !== undefined) type = mod
         if (type === 'water') continue
-        voxelMap.set(localKey(x, y, z), type)
+        voxelMap.set(localKey(x, ly, z), type)
       }
     }
   }
@@ -778,7 +763,7 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
           b.z < worldZ + CHUNK_SIZE &&
           blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== 'air'
         ) {
-          voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), 'wood')
+          voxelMap.set(localKey(b.x - worldX, b.y - WORLD_MIN_Y, b.z - worldZ), 'wood')
         }
       }
       for (const b of leaves) {
@@ -790,7 +775,7 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
           blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== 'air' &&
           b.y > getHeight(b.x, b.z)
         ) {
-          voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), 'leaves')
+          voxelMap.set(localKey(b.x - worldX, b.y - WORLD_MIN_Y, b.z - worldZ), 'leaves')
         }
       }
     }
@@ -923,7 +908,7 @@ export function tryUpdateSnowAccumulation(
   snowForced: boolean | null,
   waterSurfaceY: number,
 ): void {
-  if (waterSurfaceY >= WORLD_HEIGHT) return
+  if (waterSurfaceY > WORLD_MAX_Y) return
 
   _snowGrowthAccumulator += dt
   if (_snowGrowthAccumulator < SNOW_GROWTH_INTERVAL_SEC) return
@@ -950,7 +935,7 @@ export function tryUpdateSnowAccumulation(
 
     let topY = -1
     let topType: BlockType | 'air' | null = null
-    for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
+    for (let by = WORLD_MAX_Y; by >= WORLD_MIN_Y; by--) {
       const t = getBlockAt(bx, by, bz)
       if (t !== null && t !== 'air' && isBlockTypeSolid(t as BlockType)) {
         topY = by
@@ -958,9 +943,9 @@ export function tryUpdateSnowAccumulation(
         break
       }
     }
-    if (topY < 0 || topType === null) continue
+    if (topY < WORLD_MIN_Y || topType === null) continue
 
-    const above = topY + 1 < WORLD_HEIGHT ? getBlockAt(bx, topY + 1, bz) : null
+    const above = topY < WORLD_MAX_Y ? getBlockAt(bx, topY + 1, bz) : null
 
     let affectedBlockTypes = chunksToRefresh.get(keyNum)
     if (!affectedBlockTypes) {
@@ -972,7 +957,7 @@ export function tryUpdateSnowAccumulation(
       const ny = topY + 1
       const newType: BlockType = 'snow_layer_1'
       blockModifications.set(blockKeyString(bx, ny, bz), newType)
-      const lk = localKey(lx, ny, lz)
+      const lk = localKey(lx, ny - WORLD_MIN_Y, lz)
       data.voxelMap.set(lk, newType)
       invalidateColumnHeight(bx, bz)
       affectedBlockTypes.add(newType)
@@ -984,7 +969,7 @@ export function tryUpdateSnowAccumulation(
       const k = parseInt(snowLayerMatch[1], 10)
       const newType = `snow_layer_${k + 1}` as BlockType
       blockModifications.set(blockKeyString(bx, topY, bz), newType)
-      const lk = localKey(lx, topY, lz)
+      const lk = localKey(lx, topY - WORLD_MIN_Y, lz)
       data.voxelMap.set(lk, newType)
       invalidateColumnHeight(bx, bz)
       affectedBlockTypes.add(topType)

@@ -50,7 +50,7 @@ describe('game-hotbar', () => {
     it('returns block type at selected index', () => {
       setHotbarIndex(0)
       expect(getSelectedBlockType()).toBe('wood_sword')
-      setHotbarIndex(3)
+      setHotbarIndex(4)
       expect(getSelectedBlockType()).toBe('stone')
     })
   })
@@ -59,7 +59,7 @@ describe('game-hotbar', () => {
     it('stacks onto existing slot with same block type', () => {
       const cb = vi.fn()
       setOnHotbarChange(cb)
-      setHotbarIndex(3)
+      setHotbarIndex(4) // stone slot in default hotbar
       const countBefore = getSelectedSlotCount()
       addBlockToInventory('stone')
       expect(getSelectedSlotCount()).toBe(countBefore + 1)

@@ -23,7 +23,7 @@ export const badlandsDefinition: BiomeDefinition = {
   climate: { tempMin: 0.75, tempMax: 1.0, humidityMin: 0, humidityMax: 0.25 },
   multiNoise: {
     center: {
-      continentalness: 0.65,
+      continentalness: 0.23,
       erosion: 0.2,
       temperature: 0.9,
       humidity: -0.8,

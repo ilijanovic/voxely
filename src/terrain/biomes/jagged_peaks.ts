@@ -25,11 +25,11 @@ export const jaggedPeaksDefinition: BiomeDefinition = {
   terrainParams: jaggedPeaksTerrain,
   multiNoise: {
     center: {
-      continentalness: 0.78,
+      continentalness: 0.516,
       erosion: -0.86,
       temperature: -0.05,
       humidity: 0.25,
-      weirdness: 0.35,
+      weirdness: 0.7,
       y: 0.86,
     },
     weights: {

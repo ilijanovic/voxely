@@ -40,7 +40,7 @@ import { getQuestById } from './quests/quest-registry'
 import { getLevelProgress } from './experience'
 import { getGold, setOnGoldChange } from './gold'
 import { MAX_LEVEL, LEVEL_UP_DISPLAY_MS } from './constants'
-import { getKeyBinding } from './key-settings'
+import { getKeyBinding, codeToDisplayName } from './key-settings'
 import { subscribeConnection } from './multiplayer'
 import type { ConnectionStatus } from './multiplayer/types'
 import type { BlockType } from './types'
@@ -92,6 +92,17 @@ const questLogOfferedIds = ref<string[] | null>(null)
 const mapOpen = ref(false)
 const connectionStatus = ref<ConnectionStatus>({ connected: false, playerCount: 0 })
 const hintVisible = ref(true)
+/** True while the game is initializing (materials, scene, chunks) after mode selection. */
+const loadingRef = ref(false)
+
+/** Builds the controls hint from current key bindings so rebinded keys are shown correctly. */
+const controlsHintText = computed(() => {
+  const jump = codeToDisplayName(getKeyBinding('jump'))
+  const view = codeToDisplayName(getKeyBinding('toggleView'))
+  const map = codeToDisplayName(getKeyBinding('openMap'))
+  const place = codeToDisplayName(getKeyBinding('place'))
+  return `Click to start · WASD = Move · ${jump} = Jump · Mouse = Look · ${view} = Third-person · T = Chat · ${map} = Map · 1–9 / Scroll = Block · ${place} = Place · I = Inventory · ESC / O = Pause / Options`
+})
 
 /** Toggles inventory overlay; exits pointer lock when opening so user can interact with UI. */
 function toggleInventory() {
@@ -351,10 +362,12 @@ let unsubscribeConnection: (() => void) | null = null
 
 watch(gameMode, async (mode) => {
   if (!mode) return
-  await nextTick()
-  const crackEl = document.getElementById('block-crack')
-  setBlockCrackElement(crackEl)
-  function openQuestLogFromNpc(questGiver: {
+  loadingRef.value = true
+  try {
+    await nextTick()
+    const crackEl = document.getElementById('block-crack')
+    setBlockCrackElement(crackEl)
+    function openQuestLogFromNpc(questGiver: {
     offeredQuestIds: string[]
     prerequisiteQuestIds?: string[]
   }) {
@@ -394,9 +407,9 @@ watch(gameMode, async (mode) => {
     onQuestNpcInteract: openQuestLogFromNpc,
   }
   if (canvasContainer.value) {
-    initGame(canvasContainer.value, opts)
+    await initGame(canvasContainer.value, opts)
   } else {
-    initGame(undefined, opts)
+    await initGame(undefined, opts)
   }
   inventorySlots.value = getAllSlots()
   craftingTableSlots.value = getCraftingTableSlots()
@@ -455,6 +468,9 @@ watch(gameMode, async (mode) => {
   unsubscribeConnection = subscribeConnection((status) => {
     connectionStatus.value = status
   })
+  } finally {
+    loadingRef.value = false
+  }
 })
 
 let hintTimeout: ReturnType<typeof setTimeout> | null = null
@@ -485,6 +501,16 @@ onUnmounted(() => {
 
     <!-- Game (after mode selection) -->
     <template v-else>
+      <!-- Loading overlay while initGame runs -->
+      <div
+        v-if="loadingRef"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <span class="text-lg font-medium text-white" style="font-family: var(--ui-font)">Loading…</span>
+      </div>
+
       <!-- Level + XP (top left) -->
       <div
         aria-hidden="true"
@@ -600,8 +626,7 @@ onUnmounted(() => {
           class="hud-panel fixed left-1/2 top-6 z-10 -translate-x-1/2 rounded-[var(--ui-radius-lg)] border-2 px-4 py-2 text-sm text-[var(--ui-text)] pointer-events-none"
           style="font-family: var(--ui-font)"
         >
-          Click to start · WASD = Move · Space = Jump · Mouse = Look · V = Third-person · T = Chat ·
-          1–9 / Scroll = Block · ESC / O = Pause / Options
+          {{ controlsHintText }}
         </div>
       </Transition>
 

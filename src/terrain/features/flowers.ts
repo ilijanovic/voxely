@@ -2,7 +2,7 @@
  * Flower feature for Stage 4: places flowers (dandelion, poppy, tulips, oxeye_daisy, cornflower, etc.) on grass/dirt surface by biome.
  */
 import type { Biome, BlockType } from '../../types'
-import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
 import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import { getFeatureDensityForBiome } from './feature-registry'
@@ -126,12 +126,13 @@ export function createFlowersFeature(): FeatureFn {
         const entries = BIOME_FLOWERS[biome]
         if (!entries || entries.length === 0) continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceId = voxelMap[surfaceKey]
         const surfaceType = idToType(surfaceId) as BlockType
         if (!SURFACE_BLOCKS_FOR_FLOWERS.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (voxelMap[keyAbove]) continue
 
         const wx = worldX + lx

@@ -1,5 +1,14 @@
 import type { NoiseFunction2D } from 'simplex-noise'
-import { CLIMATE_PARAM_SCALE, CLIMATE_WARP_AMP, CLIMATE_WARP_SCALE, EROSION_SCALE, WEIRDNESS_SCALE } from './constants'
+import {
+  CLIMATE_PARAM_SCALE,
+  CLIMATE_WARP_AMP,
+  CLIMATE_WARP_SCALE,
+  CONTINENTALNESS_VANILLA_MAX,
+  CONTINENTALNESS_VANILLA_MIN,
+  EROSION_SCALE,
+  WEIRDNESS_SCALE,
+  WEIRDNESS_VANILLA_RANGE_SCALE,
+} from './constants'
 
 const CLIMATE_WARP_OFFSET_X = 77.7
 const CLIMATE_WARP_OFFSET_Z = -31.3
@@ -34,15 +43,15 @@ export interface ClimateSampler {
   getTemperature01: (x: number, z: number) => number
   /** Humidity in [0,1]. */
   getHumidity01: (x: number, z: number) => number
-  /** Continentalness in [0,1]. */
-  getContinentalness01: (x: number, z: number) => number
+  /** Continentalness in vanilla range [-1.2, 1] (signed). */
+  getContinentalnessSigned: (x: number, z: number) => number
   /** Temperature in [-1,1] (signed). */
   getTemperatureSigned: (x: number, z: number) => number
   /** Humidity in [-1,1] (signed). */
   getHumiditySigned: (x: number, z: number) => number
   /** Erosion in [-1,1] (signed). */
   getErosionSigned: (x: number, z: number) => number
-  /** Weirdness in [-1,1] (signed). */
+  /** Weirdness in vanilla range [-2, 2] (signed). */
   getWeirdnessSigned: (x: number, z: number) => number
 }
 
@@ -88,11 +97,13 @@ export function createClimateSampler(inputs: ClimateNoiseInputs): ClimateSampler
   }
 
   /**
-   * Samples continentalness in [0,1] without warping (keeps coast shapes stable).
+   * Maps raw noise in [-1, 1] to vanilla continentalness range [-1.2, 1].
+   * Sampled without warping (keeps coast shapes stable).
    */
-  function getContinentalness01(x: number, z: number): number {
-    const n = inputs.continentalNoise2D(x * CLIMATE_PARAM_SCALE, z * CLIMATE_PARAM_SCALE)
-    return signedTo01(n)
+  function getContinentalnessSigned(x: number, z: number): number {
+    const raw = inputs.continentalNoise2D(x * CLIMATE_PARAM_SCALE, z * CLIMATE_PARAM_SCALE)
+    const t = (raw + 1) * 0.5
+    return CONTINENTALNESS_VANILLA_MIN + t * (CONTINENTALNESS_VANILLA_MAX - CONTINENTALNESS_VANILLA_MIN)
   }
 
   /**
@@ -103,10 +114,11 @@ export function createClimateSampler(inputs: ClimateNoiseInputs): ClimateSampler
   }
 
   /**
-   * Samples signed weirdness noise in [-1,1].
+   * Samples weirdness in vanilla range [-2, 2] (raw noise [-1, 1] scaled).
    */
   function getWeirdnessSigned(x: number, z: number): number {
-    return inputs.weirdnessNoise2D(x * WEIRDNESS_SCALE, z * WEIRDNESS_SCALE)
+    const raw = inputs.weirdnessNoise2D(x * WEIRDNESS_SCALE, z * WEIRDNESS_SCALE)
+    return raw * WEIRDNESS_VANILLA_RANGE_SCALE
   }
 
   /**
@@ -127,7 +139,7 @@ export function createClimateSampler(inputs: ClimateNoiseInputs): ClimateSampler
     getClimateWarpedPos,
     getTemperature01,
     getHumidity01,
-    getContinentalness01,
+    getContinentalnessSigned,
     getTemperatureSigned,
     getHumiditySigned,
     getErosionSigned,

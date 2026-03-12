@@ -2,10 +2,14 @@
  * Desert and savanna decor for Stage 4: dead bush on sand, cactus on desert sand.
  * Cactus uses vanilla-style placement: no solid block in 4 cardinal directions, 2–3 blocks high, flower on top.
  */
-import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, idToType, AIR_ID, CARVED_ID } from '../block-ids'
 import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
+import { BADLANDS_BAND_BLOCKS } from '../surface-resolver'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
+
+/** Surface blocks in badlands (band blocks); dead bush and cactus can place on any of them. */
+const BADLANDS_SURFACE_BLOCKS = new Set(BADLANDS_BAND_BLOCKS)
 
 /** Seed offsets for feature noise; deterministic per world seed. */
 const DEAD_BUSH_NOISE_SEED = 400111
@@ -88,15 +92,16 @@ export function createDeadBushFeature(): FeatureFn {
         )
           continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as string
         const allowedForDeadBush =
           biome === 'old_growth_taiga'
             ? surfaceType === 'podzol' || surfaceType === 'coarse_dirt'
-            : surfaceType === 'sand' || (biome === 'badlands' && surfaceType === 'red_sand')
+            : surfaceType === 'sand' || (biome === 'badlands' && BADLANDS_SURFACE_BLOCKS.has(surfaceType))
         if (!allowedForDeadBush) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (voxelMap[keyAbove]) continue
 
         const wx = worldX + lx
@@ -128,10 +133,11 @@ export function createCactusFeature(): FeatureFn {
         const biome = biomeMap[lx][lz]
         if (biome !== 'desert' && biome !== 'badlands') continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as string
         const allowedForCactus =
-          surfaceType === 'sand' || (biome === 'badlands' && surfaceType === 'red_sand')
+          surfaceType === 'sand' || (biome === 'badlands' && BADLANDS_SURFACE_BLOCKS.has(surfaceType))
         if (!allowedForCactus) continue
 
         const wx = worldX + lx
@@ -144,7 +150,7 @@ export function createCactusFeature(): FeatureFn {
 
         let anySolidNeighbour = false
         for (let h = 1; h <= height && !anySolidNeighbour; h++) {
-          const ly = topY + h
+          const ly = surfaceLy + h
           const lkN = localKey(lx, ly, lz - 1)
           const lkS = localKey(lx, ly, lz + 1)
           const lkW = localKey(lx - 1, ly, lz)
@@ -161,14 +167,14 @@ export function createCactusFeature(): FeatureFn {
         if (anySolidNeighbour) continue
 
         for (let h = 1; h <= height; h++) {
-          const ly = topY + h
+          const ly = surfaceLy + h
           const lk = localKey(lx, ly, lz)
           if (voxelMap[lk] === AIR_ID || voxelMap[lk] === CARVED_ID) voxelMap[lk] = cactusId
         }
 
-        const topCactusY = topY + height
-        if (topCactusY + 1 < WORLD_HEIGHT) {
-          const flowerKey = localKey(lx, topCactusY + 1, lz)
+        const topCactusLy = surfaceLy + height
+        if (topCactusLy + 1 < WORLD_HEIGHT) {
+          const flowerKey = localKey(lx, topCactusLy + 1, lz)
           if (voxelMap[flowerKey] === AIR_ID || voxelMap[flowerKey] === CARVED_ID) {
             voxelMap[flowerKey] = cactusFlowerId
           }

@@ -26,7 +26,7 @@ export const frozenPeaksDefinition: BiomeDefinition = {
   terrainParams: frozenPeaksTerrain,
   multiNoise: {
     center: {
-      continentalness: 0.78,
+      continentalness: 0.516,
       erosion: -0.25,
       temperature: -0.72,
       humidity: 0.55,

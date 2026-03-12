@@ -1,5 +1,5 @@
 import type { Biome, BlockType } from '../../types'
-import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
 import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import { getFeatureDensityForBiome } from './feature-registry'
@@ -67,7 +67,8 @@ export function createGroundFeature(): FeatureFn {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const topY = heightmap[lx][lz]
         if (topY <= WATER_LEVEL) continue
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as BlockType
         if (!SURFACE_BLOCKS_FOR_GROUND.includes(surfaceType)) continue
 
@@ -83,7 +84,7 @@ export function createGroundFeature(): FeatureFn {
 
         for (const cfg of configs) {
           if (n >= cfg.minThreshold && n < cfg.maxThreshold) {
-            const key = localKey(lx, topY + 1, lz)
+            const key = localKey(lx, surfaceLy + 1, lz)
             // Only place if air currently (air is encoded as 0 in voxelMap by convention).
             if (!voxelMap[key]) {
               voxelMap[key] = typeToId(cfg.block)

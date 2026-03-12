@@ -60,11 +60,13 @@ Conceptually this is close to Minecraft (multi-scale noise, same controls); geom
 **Very similar to Minecraft:**
 
 - **Stratigraphy** per column: bedrock → stone → subsurface (depth per biome) → **surface** (biome-dependent). Water level and **shore** band are handled — [src/terrain/stages/stratigraphy.ts](../src/terrain/stages/stratigraphy.ts).
+- **Surface block resolution** is centralized in [src/terrain/surface-resolver.ts](../src/terrain/surface-resolver.ts) (`resolveSurfaceBlock`). Worker and main-thread `game-terrain.getSurfaceBlockAt` use it so logic stays in sync. Order: underwater → shore → coast blend (dither) → land boundary dither → surface rules.
 - **Surface rules** in [src/terrain/surface-rules.ts](../src/terrain/surface-rules.ts):
   - Stone above certain height (mountain/windswept/meadow vs global, with biome exemptions).
   - frozen_peaks: packed_ice/ice by height/slope/noise, else snow.
   - jagged_peaks / snowy_slopes: stone on steep slope.
   - Snow at altitude → grass_snow; savanna → grass_savanna; snow neighbor → grass_snow.
+  - **Badlands banding:** noise-based bands (red_sand, sandstone, orange/yellow/red/white terracotta). Subsurface: top 2 layers below surface use the same band noise ([stratigraphy](../src/terrain/stages/stratigraphy.ts) with `getSubsurfaceBlock`).
 
 Biome block sets (surface, subsurface, shore, underwater) come from [BIOME_REGISTRY](../src/terrain/biomes/registry.ts) and per-biome files — analogous to Minecraft surface rules.
 
@@ -96,6 +98,7 @@ Same idea as Minecraft: features/structures by biome and height, deterministic.
 - **Cave biomes:** No 3D biome assignment at depth (no Deep Dark etc.).
 - **Biome map independent of blocks:** As in Minecraft — player block edits do not change the stored biome map (only overrides for POI).
 - **Sub-biome / parentBiome:** Present in types ([src/terrain/biomes/types.ts](../src/terrain/biomes/types.ts)); not yet used in selection.
+- **Continentalness and weirdness:** Aligned with vanilla: continentalness in **[-1.2, 1]** (see [climate-sampler.ts](../src/terrain/climate-sampler.ts), `getContinentalnessSigned`); ocean/land use `OCEAN_CONTINENTALNESS_THRESHOLD` (-0.19). Weirdness in **[-2, 2]** via `WEIRDNESS_VANILLA_RANGE_SCALE` in [terrain/constants.ts](../src/terrain/constants.ts).
 
 ---
 

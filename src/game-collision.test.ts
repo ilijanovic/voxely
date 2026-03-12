@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { resolveVoxelCollisions, PLAYER_HALF, PLAYER_HEIGHT } from './game-collision'
+import { WORLD_MIN_Y } from './constants'
 import {
   chunks,
   chunkKeyNumeric,
@@ -31,10 +32,11 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('pushes player up onto floor and sets grounded when landing on solid block', () => {
+    const worldY = 4
     const voxel = new Map<number, string>()
-    voxel.set(localKey(0, 4, 0), 'stone')
+    voxel.set(localKey(0, worldY - WORLD_MIN_Y, 0), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
-    expect(getBlockAt(0, 4, 0)).toBe('stone')
+    expect(getBlockAt(0, worldY, 0)).toBe('stone')
 
     const position = { x: 0.5, y: 5.5, z: 0.5 }
     const velocity = { x: 0, y: -1, z: 0 }
@@ -53,8 +55,9 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('sets grounded when landing with feet near block top', () => {
+    const worldY = 4
     const voxel = new Map<number, string>()
-    voxel.set(localKey(0, 4, 0), 'stone')
+    voxel.set(localKey(0, worldY - WORLD_MIN_Y, 0), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
     const position = { x: 0.5, y: 5.95, z: 0.5 }
@@ -73,9 +76,11 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('does not snap up when standing on snow layer with adjacent full block', () => {
+    const worldY = 4
+    const ly = worldY - WORLD_MIN_Y
     const voxel = new Map<number, string>()
-    voxel.set(localKey(0, 4, 0), 'snow_layer_1')
-    voxel.set(localKey(1, 4, 0), 'stone')
+    voxel.set(localKey(0, ly, 0), 'snow_layer_1')
+    voxel.set(localKey(1, ly, 0), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
     const position = { x: 0.5, y: 4.12, z: 0.5 }
@@ -112,8 +117,9 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('pushes player down from ceiling (hitYUp)', () => {
+    const worldY = 8
     const voxel = new Map<number, string>()
-    voxel.set(localKey(5, 8, 5), 'stone')
+    voxel.set(localKey(5, worldY - WORLD_MIN_Y, 5), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
     const position = { x: 5.5, y: 6.0, z: 5.5 }
@@ -133,9 +139,11 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('resolves X-axis wall collision', () => {
+    const ly5 = 5 - WORLD_MIN_Y
+    const ly6 = 6 - WORLD_MIN_Y
     const voxel = new Map<number, string>()
-    voxel.set(localKey(5, 5, 5), 'stone')
-    voxel.set(localKey(5, 6, 5), 'stone')
+    voxel.set(localKey(5, ly5, 5), 'stone')
+    voxel.set(localKey(5, ly6, 5), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
     const position = { x: 4.0, y: 5.0, z: 5.5 }
@@ -155,9 +163,11 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('resolves Z-axis wall collision', () => {
+    const ly5 = 5 - WORLD_MIN_Y
+    const ly6 = 6 - WORLD_MIN_Y
     const voxel = new Map<number, string>()
-    voxel.set(localKey(5, 5, 5), 'stone')
-    voxel.set(localKey(5, 6, 5), 'stone')
+    voxel.set(localKey(5, ly5, 5), 'stone')
+    voxel.set(localKey(5, ly6, 5), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
     const position = { x: 5.5, y: 5.0, z: 4.0 }
@@ -178,11 +188,12 @@ describe('resolveVoxelCollisions', () => {
 
   it('resolves simultaneous X and Z wall collision (L-shaped corner)', () => {
     const voxel = new Map<number, string>()
-    for (let y = 5; y <= 7; y++) {
-      voxel.set(localKey(7, y, 5), 'stone')
-      voxel.set(localKey(7, y, 6), 'stone')
-      voxel.set(localKey(5, y, 7), 'stone')
-      voxel.set(localKey(6, y, 7), 'stone')
+    for (let worldY = 5; worldY <= 7; worldY++) {
+      const ly = worldY - WORLD_MIN_Y
+      voxel.set(localKey(7, ly, 5), 'stone')
+      voxel.set(localKey(7, ly, 6), 'stone')
+      voxel.set(localKey(5, ly, 7), 'stone')
+      voxel.set(localKey(6, ly, 7), 'stone')
     }
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
@@ -202,12 +213,14 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('handles floor block at chunk boundary (chunk 0 next to chunk 1)', () => {
+    const worldY = 4
+    const ly = worldY - WORLD_MIN_Y
     const voxel0 = new Map<number, string>()
-    voxel0.set(localKey(15, 4, 5), 'stone')
+    voxel0.set(localKey(15, ly, 5), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel0))
 
     const voxel1 = new Map<number, string>()
-    voxel1.set(localKey(0, 4, 5), 'stone')
+    voxel1.set(localKey(0, ly, 5), 'stone')
     chunks.set(chunkKeyNumeric(1, 0), makeChunkData(1, 0, voxel1))
 
     const position = { x: 15.8, y: 5.5, z: 5.5 }
@@ -226,8 +239,9 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('player stands on ground without falling through (grounded stability)', () => {
+    const worldY = 4
     const voxel = new Map<number, string>()
-    voxel.set(localKey(5, 4, 5), 'stone')
+    voxel.set(localKey(5, worldY - WORLD_MIN_Y, 5), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
     const position = { x: 5.5, y: 5.0, z: 5.5 }
@@ -246,8 +260,9 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('does not block X movement toward low block (snow_layer_1, height <= 0.5)', () => {
+    const worldY = 5
     const voxel = new Map<number, string>()
-    voxel.set(localKey(5, 5, 5), 'snow_layer_1')
+    voxel.set(localKey(5, worldY - WORLD_MIN_Y, 5), 'snow_layer_1')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
     const position = { x: 4.0, y: 5.0, z: 5.5 }
@@ -266,8 +281,9 @@ describe('resolveVoxelCollisions', () => {
   })
 
   it('does not block Z movement toward low block (snow_layer_1, height <= 0.5)', () => {
+    const worldY = 5
     const voxel = new Map<number, string>()
-    voxel.set(localKey(5, 5, 5), 'snow_layer_1')
+    voxel.set(localKey(5, worldY - WORLD_MIN_Y, 5), 'snow_layer_1')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
 
     const position = { x: 5.5, y: 5.0, z: 4.0 }

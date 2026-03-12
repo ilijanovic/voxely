@@ -5,7 +5,7 @@
  * is kept for a possible single-pass variant or tests.
  */
 import type { Biome } from '../../types'
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_MAX_Y, WORLD_MIN_Y } from '../../constants'
 import { clamp } from '../utils'
 import type { ChunkContext, PipelineStage } from '../pipeline-types'
 
@@ -28,7 +28,7 @@ export function createStage1(deps: Stage1Deps): PipelineStage {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const wx = worldX + lx
         const wz = worldZ + lz
-        const height = Math.floor(clamp(getHeight(wx, wz), 0, WORLD_HEIGHT))
+        const height = Math.floor(clamp(getHeight(wx, wz), WORLD_MIN_Y, WORLD_MAX_Y))
         heightmap[lx][lz] = height
         const override = getPoiBiomeOverride?.(wx, wz)
         if (override !== undefined && override !== null) {

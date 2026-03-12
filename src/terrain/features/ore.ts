@@ -3,7 +3,7 @@
  * Vanilla Minecraft 1.18–style: 3D density noise, triangular Y distribution, vein blobs.
  */
 import type { Biome } from '../../types'
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MAX_Y, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
 import { BIOME_REGISTRY } from '../biomes'
 import {
@@ -126,17 +126,20 @@ export function createOreFeature(deps: OreFeatureDeps): FeatureFn {
           const subsurfaceDepth = BIOME_REGISTRY[biome].blocks.subsurfaceDepth
           const stoneTop = topY - subsurfaceDepth
           const { minY, maxY, peakY, densityThreshold } = getEffectiveOreParams(cfg, biome)
-          for (let ly = Math.max(1, minY); ly < stoneTop && ly <= maxY && ly < WORLD_HEIGHT; ly++) {
+          const worldYMin = Math.max(WORLD_MIN_Y + 1, minY)
+          const worldYMax = Math.min(stoneTop, maxY, WORLD_MAX_Y)
+          for (let worldY = worldYMin; worldY < worldYMax; worldY++) {
+            const ly = worldY - WORLD_MIN_Y
             const lk = localKey(lx, ly, lz)
             if (idToType(voxelMap[lk]) !== 'stone') continue
             const wx = worldX + lx
             const wz = worldZ + lz
             const density = oreDensityNoise3D(
               wx * cfg.noiseScale,
-              ly * cfg.noiseScale,
+              worldY * cfg.noiseScale,
               wz * cfg.noiseScale,
             )
-            const tri = triangularWeight(ly, minY, maxY, peakY)
+            const tri = triangularWeight(worldY, minY, maxY, peakY)
             if (density * tri > densityThreshold) veinCenters.push([lx, ly, lz])
           }
         }

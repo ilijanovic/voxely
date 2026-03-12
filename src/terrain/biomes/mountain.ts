@@ -29,11 +29,11 @@ export const mountainDefinition: BiomeDefinition = {
   climate: { tempMin: 0.2, tempMax: 0.5, humidityMin: 0.2, humidityMax: 0.55 },
   multiNoise: {
     center: {
-      continentalness: 0.78,
+      continentalness: 0.516,
       erosion: -0.28,
       temperature: -0.25,
       humidity: -0.25,
-      weirdness: 0.2,
+      weirdness: 0.4,
       y: 0.25,
     },
     weights: {

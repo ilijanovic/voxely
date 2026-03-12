@@ -260,6 +260,11 @@ export function initMultiplayer(
   })
 }
 
+/** Adds a system message to the chat log (visible when the player opens chat). Works in singleplayer and multiplayer. */
+export function addSystemMessage(text: string): void {
+  notifyChat({ type: 'system', text, time: Date.now() })
+}
+
 /** Subscribe to chat messages (join, leave, chat). Returns unsubscribe function. */
 export function subscribeChat(callback: (msg: ChatMessage) => void): () => void {
   chatCallbacks.add(callback)

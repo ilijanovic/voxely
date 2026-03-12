@@ -4,8 +4,8 @@
  */
 import { WATER_LEVEL } from '../constants'
 
-/** Base height for terrain (same as classic Minecraft). */
-export const BASE_HEIGHT = 64
+/** Base height for terrain (Vanilla 1.18+ sea level). */
+export const BASE_HEIGHT = WATER_LEVEL
 
 /**
  * Horizontal sampling scale for climate parameters (temperature/humidity/continentalness/erosion).
@@ -13,17 +13,33 @@ export const BASE_HEIGHT = 64
  */
 export const CLIMATE_PARAM_SCALE = 0.0012
 
-/** Continentalness below this is ocean; above is land. Coast blend band applied around it. */
-export const OCEAN_CONTINENTALNESS_THRESHOLD = 0.36
+/**
+ * Map raw continentalness noise [-1, 1] to vanilla range [-1.2, 1].
+ * Vanilla mushroom_fields uses continentalness [-1.2, -1.05]; inland up to 1.
+ */
+export const CONTINENTALNESS_VANILLA_MIN = -1.2
+export const CONTINENTALNESS_VANILLA_MAX = 1
+
+/**
+ * Continentalness threshold for ocean vs. land (vanilla-aligned).
+ * Vanilla uses -0.19 as the above-water/underwater boundary; below this is ocean.
+ */
+export const OCEAN_CONTINENTALNESS_THRESHOLD = -0.19
 
 /** Width of ocean/land blend in continentalness space; wider band softens coast height edges. */
-export const COAST_BLEND_BAND = 0.09
+export const COAST_BLEND_BAND = 0.1
 
 /** Radius (blocks) around world origin (0,0) where climate is biased toward forest. */
 export const SPAWN_ORIGIN_FOREST_RADIUS = 64
 export const SPAWN_ORIGIN_FOREST_RADIUS_SQ = SPAWN_ORIGIN_FOREST_RADIUS * SPAWN_ORIGIN_FOREST_RADIUS
-/** Continentalness to force land at origin (above ocean threshold). */
-export const SPAWN_ORIGIN_FOREST_CONTINENTALNESS = 0.5
+/** Continentalness to force land at origin (above ocean threshold; vanilla inland). */
+export const SPAWN_ORIGIN_FOREST_CONTINENTALNESS = 0.3
+
+/** Continentalness bands for macro terrain height (vanilla-aligned signed space [-1.2, 1]). */
+export const MACRO_TERRAIN_DEEP_OCEAN_MAX = -0.7
+export const MACRO_TERRAIN_NEAR_INLAND_MIN = 0.04
+export const MACRO_TERRAIN_MID_INLAND_MIN = 0.5
+export const MACRO_TERRAIN_FAR_INLAND_MIN = 0.9
 /** Forest climate center (temp, humidity) from terrain/biomes/forest.ts. */
 export const SPAWN_ORIGIN_FOREST_TEMP = 0.475
 export const SPAWN_ORIGIN_FOREST_HUMIDITY = 0.7
@@ -49,8 +65,9 @@ export const MOUNTAIN_TRANSITION_WIDTH = 0.12
 export const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1
 export const SNOW_BIOME_HEIGHT_BOOST = 4.5
 
-/** Weirdness dimension for ridges. */
+/** Weirdness dimension for ridges. Vanilla uses [-2, 2]; we scale raw noise by this. */
 export const WEIRDNESS_SCALE = 0.0016
+export const WEIRDNESS_VANILLA_RANGE_SCALE = 2
 export const WEIRDNESS_RIDGE_AMP = 6
 
 /** Highland band thresholds (height above water). */

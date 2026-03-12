@@ -1,8 +1,8 @@
 /**
- * Stage 2e: Noodle caves. Thin, winding tunnels via intersection of two ridged 3D noises.
+ * Noodle caves: thin, winding tunnels via intersection of two ridged 3D noises. Part of the carvers pipeline stage (stage 6).
  * Vanilla-style: carve where both ridged values exceed threshold (intersection of hollow regions).
  */
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MAX_Y, WORLD_MIN_Y } from '../../constants'
 import { localKey, CARVED_ID } from '../block-ids'
 import type { ChunkContext, PipelineStage } from '../pipeline-types'
 
@@ -38,7 +38,7 @@ function getEdgeCappedTopY(options: {
   const wz = worldZ + lz
 
   const clampSurfaceY = (y: number): number =>
-    Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, y)))
+    Math.floor(Math.max(WORLD_MIN_Y, Math.min(WORLD_MAX_Y, y)))
 
   if (lx === 0) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx - 1, wz)))
   if (lx === CHUNK_SIZE - 1) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx + 1, wz)))
@@ -73,13 +73,14 @@ export function createStage2Noodle(deps: Stage2NoodleDeps): PipelineStage {
           topY: heightmap[lx][lz],
           getHeightAt,
         })
-        const carveCeiling = Math.max(1, topY - minDepthBelowSurface)
-        for (let ly = 1; ly < carveCeiling && ly < WORLD_HEIGHT; ly++) {
+        const carveCeilingWorldY = Math.max(WORLD_MIN_Y + 1, topY - minDepthBelowSurface)
+        for (let ly = 1; ly < WORLD_HEIGHT; ly++) {
+          const worldY = WORLD_MIN_Y + ly
+          if (worldY >= carveCeilingWorldY) break
           const wx = worldX + lx
-          const wy = ly
           const wz = worldZ + lz
           const nx = wx * scale
-          const ny = wy * scale
+          const ny = worldY * scale
           const nz = wz * scale
           const ridgeA = 1 - Math.abs(noodleNoiseA3D(nx, ny, nz))
           const ridgeB = 1 - Math.abs(noodleNoiseB3D(nx, ny, nz))

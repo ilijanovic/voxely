@@ -1,7 +1,7 @@
 /**
  * Shore and water vegetation for Stage 4: sugar cane on shores, kelp in ocean, lily pad on water in swamp.
  */
-import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, AIR_ID, CARVED_ID } from '../block-ids'
 import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
@@ -37,7 +37,8 @@ export function createSugarCaneFeature(): FeatureFn {
         const topY = heightmap[lx][lz]
         if (topY <= WATER_LEVEL) continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceId = voxelMap[surfaceKey]
         const isValidSurface =
           surfaceId !== 0 &&
@@ -73,7 +74,7 @@ export function createSugarCaneFeature(): FeatureFn {
         }
         if (!adjacentWater) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (voxelMap[keyAbove]) continue
 
         const biome = biomeMap[lx][lz]
@@ -90,7 +91,7 @@ export function createSugarCaneFeature(): FeatureFn {
           1 + Math.min(Math.floor(heightSample * SUGAR_CANE_HEIGHT_MAX), SUGAR_CANE_HEIGHT_MAX - 1)
 
         for (let h = 1; h <= height; h++) {
-          const lk = localKey(lx, topY + h, lz)
+          const lk = localKey(lx, surfaceLy + h, lz)
           if (!voxelMap[lk]) voxelMap[lk] = sugarCaneId
         }
       }
@@ -122,7 +123,7 @@ export function createKelpFeature(): FeatureFn {
         const kelpTop = WATER_LEVEL - 1
         const baseY = topY + 1
         for (let y = baseY; y <= kelpTop; y++) {
-          const ly = y
+          const ly = y - WORLD_MIN_Y
           const lk = localKey(lx, ly, lz)
           if (!voxelMap[lk]) voxelMap[lk] = kelpId
         }
@@ -152,7 +153,7 @@ export function createLilyPadFeature(): FeatureFn {
         const biome = biomeMap[lx][lz]
         if (biome !== 'mangrove_swamp') continue
 
-        const keyAboveWater = localKey(lx, WATER_LEVEL + 1, lz)
+        const keyAboveWater = localKey(lx, WATER_LEVEL + 1 - WORLD_MIN_Y, lz)
         const current = voxelMap[keyAboveWater]
         if (current && current !== AIR_ID && current !== CARVED_ID) continue
 
@@ -187,7 +188,8 @@ export function createSeagrassFeature(): FeatureFn {
         const biome = biomeMap[lx][lz]
         if (biome !== 'ocean') continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (voxelMap[keyAbove]) continue
 
         const wx = worldX + lx
@@ -221,7 +223,8 @@ export function createSeaPickleFeature(): FeatureFn {
         const biome = biomeMap[lx][lz]
         if (biome !== 'ocean') continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (voxelMap[keyAbove]) continue
 
         const wx = worldX + lx

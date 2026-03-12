@@ -5,13 +5,16 @@
  * Block convention (must match rendering and worker geometry): a block at integer (bx, by, bz)
  * occupies the world AABB [bx..bx+1], [by..by+1], [bz..bz+1] (corner-based, not center-based).
  */
-import { STEP_BLOCK_HEIGHT, STEP_HEIGHT } from './constants'
+import { STEP_BLOCK_HEIGHT, STEP_UP_MAX_CLIMB } from './constants'
 import {
   isSolidBlock as isSolidBlockRuntime,
   isSolidBlockLoadedOnly,
   getBlockCollisionBoxesAt,
 } from './chunk-runtime'
 import { isSolidBlock as isBlockTypeSolid } from './block-registry'
+
+/** Collision height (world units) of fence-like blocks; used to block horizontal movement when player is in the air (cannot jump over). */
+export const FENCE_COLLISION_HEIGHT = 1.5
 
 /** Player AABB: half extent in XZ, full height in Y. */
 export const PLAYER_HALF = 0.3
@@ -114,7 +117,8 @@ if (typeof window !== 'undefined') {
  * Mutates position and velocity in place. Returns collision flags; grounded is true only when landing on a block (Y down).
  * halfX, halfZ, height define the AABB (center at position, full height in Y).
  * If debug is provided, every position correction is recorded in debug.snaps (for debugging movement jitter).
- * When allowStepUp is true, a block within STEP_HEIGHT above feet can be climbed onto (e.g. exit water onto shore); default false so normal walking does not auto-step full blocks.
+ * When allowStepUp is true, a block within STEP_UP_MAX_CLIMB above feet can be climbed onto (e.g. stairs, slabs; full blocks are not step-up-able). Default false so normal walking does not auto-step.
+ * _wasGroundedAtStartOfFrame: when false, fence-height blocks (1.5) always block horizontal movement so the player cannot jump over them (Minecraft behavior).
  */
 export function resolveVoxelCollisions(
   position: { x: number; y: number; z: number },
@@ -125,6 +129,7 @@ export function resolveVoxelCollisions(
   height: number,
   debug?: CollisionDebug,
   allowStepUp: boolean = false,
+  _wasGroundedAtStartOfFrame: boolean = true,
 ): CollisionResult {
   const FLOOR_TOLERANCE = 0.05
   /** When moving down faster than this, treat as landing and allow any overlapping floor (avoid breaking landing). */
@@ -166,18 +171,46 @@ export function resolveVoxelCollisions(
         if (zOvlp <= 1e-4) return
         const effectiveHeightAboveBlockBase = box.maxY - by
         if (effectiveHeightAboveBlockBase <= STEP_BLOCK_HEIGHT) return
-        const isFloorBox = box.maxY <= position.y + FLOOR_TOLERANCE
-        const playerFullyAbove = position.y >= box.maxY - FLOOR_TOLERANCE
-        if (isFloorBox && playerFullyAbove) return
         const playerMinX = position.x - halfX
         const playerMaxX = position.x + halfX
         const overlapMinX = Math.max(playerMinX, box.minX)
         const overlapMaxX = Math.min(playerMaxX, box.maxX)
-        if (overlapMaxX - overlapMinX <= 0) return
+        const hasXOverlap = overlapMaxX - overlapMinX > 0
 
-        // Step-up: only when allowed (e.g. in water exiting onto shore); on land we don't auto-step full blocks
+        // Fence-height blocks: when player is in the air, always block horizontal movement (cannot jump over, Minecraft behavior).
+        if (
+          effectiveHeightAboveBlockBase >= FENCE_COLLISION_HEIGHT &&
+          !_wasGroundedAtStartOfFrame &&
+          hasXOverlap
+        ) {
+          const fromX = position.x
+          if (velocity.x > 0) position.x = box.minX - halfX
+          else if (velocity.x < 0) position.x = box.maxX + halfX
+          else position.x = position.x < bx + 0.5 ? box.minX - halfX : box.maxX + halfX
+          debug?.snaps.push({
+            axis: 'x',
+            reason: 'wall',
+            from: fromX,
+            to: position.x,
+          })
+          velocity.x = 0
+          result.hitX = true
+          resolved = true
+          resolvedThisCell = true
+          return
+        }
+
+        const isFloorBox = box.maxY <= position.y + FLOOR_TOLERANCE
+        const playerFullyAbove = position.y >= box.maxY - FLOOR_TOLERANCE
+        if (isFloorBox && playerFullyAbove) return
+        if (!hasXOverlap) return
+
+        // Step-up: only when allowed, obstacle is low enough, and at most 1 unit tall (no stepping onto fences).
         const canStepUpX =
-          allowStepUp && box.maxY > position.y && box.maxY <= position.y + STEP_HEIGHT
+          allowStepUp &&
+          effectiveHeightAboveBlockBase <= 1 &&
+          box.maxY > position.y &&
+          box.maxY <= position.y + STEP_UP_MAX_CLIMB
         if (canStepUpX) {
           const stepY = box.maxY
           fillBlocksInAABB(position.x, stepY, position.z, halfX, halfZ, height, false)
@@ -249,18 +282,46 @@ export function resolveVoxelCollisions(
         if (xOvlp <= 1e-4) return
         const effectiveHeightAboveBlockBase = box.maxY - by
         if (effectiveHeightAboveBlockBase <= STEP_BLOCK_HEIGHT) return
-        const isFloorBox = box.maxY <= position.y + FLOOR_TOLERANCE
-        const playerFullyAbove = position.y >= box.maxY - FLOOR_TOLERANCE
-        if (isFloorBox && playerFullyAbove) return
         const playerMinZ = position.z - halfZ
         const playerMaxZ = position.z + halfZ
         const overlapMinZ = Math.max(playerMinZ, box.minZ)
         const overlapMaxZ = Math.min(playerMaxZ, box.maxZ)
-        if (overlapMaxZ - overlapMinZ <= 0) return
+        const hasZOverlap = overlapMaxZ - overlapMinZ > 0
 
-        // Step-up: only when allowed (e.g. in water exiting onto shore); on land we don't auto-step full blocks
+        // Fence-height blocks: when player is in the air, always block horizontal movement (cannot jump over, Minecraft behavior).
+        if (
+          effectiveHeightAboveBlockBase >= FENCE_COLLISION_HEIGHT &&
+          !_wasGroundedAtStartOfFrame &&
+          hasZOverlap
+        ) {
+          const fromZ = position.z
+          if (velocity.z > 0) position.z = box.minZ - halfZ
+          else if (velocity.z < 0) position.z = box.maxZ + halfZ
+          else position.z = position.z < bz + 0.5 ? box.minZ - halfZ : box.maxZ + halfZ
+          debug?.snaps.push({
+            axis: 'z',
+            reason: 'wall',
+            from: fromZ,
+            to: position.z,
+          })
+          velocity.z = 0
+          result.hitZ = true
+          resolved = true
+          resolvedThisCell = true
+          return
+        }
+
+        const isFloorBox = box.maxY <= position.y + FLOOR_TOLERANCE
+        const playerFullyAbove = position.y >= box.maxY - FLOOR_TOLERANCE
+        if (isFloorBox && playerFullyAbove) return
+        if (!hasZOverlap) return
+
+        // Step-up: only when allowed, obstacle is low enough, and at most 1 unit tall (no stepping onto fences).
         const canStepUpZ =
-          allowStepUp && box.maxY > position.y && box.maxY <= position.y + STEP_HEIGHT
+          allowStepUp &&
+          effectiveHeightAboveBlockBase <= 1 &&
+          box.maxY > position.y &&
+          box.maxY <= position.y + STEP_UP_MAX_CLIMB
         if (canStepUpZ) {
           const stepY = box.maxY
           fillBlocksInAABB(position.x, stepY, position.z, halfX, halfZ, height, false)

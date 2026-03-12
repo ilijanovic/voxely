@@ -1,10 +1,9 @@
 /**
  * Ore generation constants (Vanilla Minecraft 1.18–1.20 style).
- * Triangular Y distribution, vein size, density thresholds, and biome modifiers.
- * Values scaled to WORLD_HEIGHT = 128 (Y 0..127).
+ * Triangular Y distribution in world Y (-64..319). Vanilla 1.18+ ranges.
  */
 import type { Biome } from '../types'
-import { WORLD_HEIGHT } from '../constants'
+import { WORLD_MAX_Y, WORLD_MIN_Y } from '../constants'
 
 /** Per-biome Y range override (e.g. badlands gold at higher elevations). */
 export interface OreYRange {
@@ -52,11 +51,11 @@ export const MOUNTAIN_OREOUS_BIOMES: Biome[] = [
   'windswept_forest',
 ]
 
-/** Coal: common, wide range. Vanilla 0..320 peak 96; scaled to 0..127 peak 96. More in mountains (1.20). */
+/** Coal: common, wide range. Vanilla 0..320 peak 96. More in mountains (1.20). */
 export const COAL_ORE_CONFIG: OreConfig = {
   block: 'coal_ore',
-  minY: 0,
-  maxY: WORLD_HEIGHT - 1,
+  minY: WORLD_MIN_Y,
+  maxY: WORLD_MAX_Y,
   peakY: 96,
   veinSize: 9,
   densityThreshold: 0.52,
@@ -66,11 +65,11 @@ export const COAL_ORE_CONFIG: OreConfig = {
   ) as Partial<Record<Biome, number>>,
 }
 
-/** Iron: common, full range. Vanilla -64..320 peak 64. More in mountains, often near surface (1.20). */
+/** Iron: common, full range. Vanilla -64..320 peak 64. More in mountains (1.20). */
 export const IRON_ORE_CONFIG: OreConfig = {
   block: 'iron_ore',
-  minY: 0,
-  maxY: WORLD_HEIGHT - 1,
+  minY: WORLD_MIN_Y,
+  maxY: WORLD_MAX_Y,
   peakY: 64,
   veinSize: 9,
   densityThreshold: 0.56,
@@ -80,15 +79,12 @@ export const IRON_ORE_CONFIG: OreConfig = {
   ) as Partial<Record<Biome, number>>,
 }
 
-/**
- * Gold: rarer, lower only. Vanilla -64..32 peak -16; scaled to 0..32 peak 8.
- * In badlands (1.20): generates at higher elevations (we use 32..127, peak 80) and more common.
- */
+/** Gold: rarer, lower only. Vanilla -64..32 peak -16. Badlands (1.20): higher (32..320 peak 80). */
 export const GOLD_ORE_CONFIG: OreConfig = {
   block: 'gold_ore',
-  minY: 0,
+  minY: WORLD_MIN_Y,
   maxY: 32,
-  peakY: 8,
+  peakY: -16,
   veinSize: 9,
   densityThreshold: 0.62,
   noiseScale: 0.04,
@@ -96,18 +92,18 @@ export const GOLD_ORE_CONFIG: OreConfig = {
   biomeYOverride: {
     badlands: {
       minY: 32,
-      maxY: WORLD_HEIGHT - 1,
+      maxY: WORLD_MAX_Y,
       peakY: 80,
     },
   },
 }
 
-/** Diamond: rarest, lower half. Vanilla -64..16; scaled to 0..64 peak 16. */
+/** Diamond: rarest, deep. Vanilla -64..16 peak -59. */
 export const DIAMOND_ORE_CONFIG: OreConfig = {
   block: 'diamond_ore',
-  minY: 0,
-  maxY: 64,
-  peakY: 16,
+  minY: WORLD_MIN_Y,
+  maxY: 16,
+  peakY: -59,
   veinSize: 8,
   densityThreshold: 0.7,
   noiseScale: 0.04,

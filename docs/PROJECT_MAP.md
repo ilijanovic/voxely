@@ -61,20 +61,32 @@ All **pure** terrain logic (no THREE, no DOM) lives under **`src/terrain/`**:
 | **`terrain/features/`**                                    | Feature placement: trees, flowers, ferns, ore, ground cover, etc. (see table below).                                 |
 | **`terrain/structures/`**                                  | Structure origin placement and templates (see table below).                                                          |
 | **`terrain/block-ids.ts`**                                 | Block type ↔ integer ID mapping (`typeToId`, `idToType`, `AIR_ID`, `CARVED_ID`, etc.).                               |
+| **`terrain/surface-resolver.ts`**                         | Single source for surface block: `resolveSurfaceBlock(params)`. Used by worker and `game-terrain.ts` `getSurfaceBlockAt`. |
+| **`terrain/surface-rules.ts`**                            | Height/slope/biome rules (stone at height, frozen_peaks, grass_snow). Called from surface-resolver.                    |
+| **`terrain/surface-constants.ts`**                       | Surface height thresholds, dither/frozen_peaks noise scales, and badlands band constants. Single place to tune surface transitions. |
 | **`terrain/utils.ts`**                                     | Shared helpers (e.g. `makeSeededRandom`, `smoothstep`, `clamp`).                                                     |
 | **`terrain/worker-geometry.ts`**                           | Worker-only: builds geometry layers and visible-block keys from the voxel buffer; used by `chunk-worker-handler.ts`. |
 
 ### Terrain stages
 
-| File                          | Purpose                                                          |
-| ----------------------------- | ---------------------------------------------------------------- |
-| `stages/heightmap-biome.ts`   | Stage 1: heightmap generation and biome assignment.              |
-| `stages/carve-3d.ts`          | Stage 2: 3D noise carving (base caves).                          |
-| `stages/carve-cheese.ts`      | Cheese cave carving (large open caverns).                        |
-| `stages/carve-spaghetti.ts`   | Spaghetti cave carving (narrow winding tunnels).                 |
-| `stages/stratigraphy.ts`      | Stage 3: layer assignment (dirt, sand, stone, etc.).             |
-| `stages/structures.ts`        | Stage 4: legacy structure placement.                             |
-| `stages/stage5-structures.ts` | Stage 5: template-based structure placement (villages, temples). |
+The pipeline is a **12-stage** order (Minecraft-aligned). Each stage is implemented by the files below.
+
+| Pipeline stage            | File(s)                                                                 | Purpose                                      |
+| ------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
+| 1 empty                   | `stages/noop.ts`                                                        | No-op.                                       |
+| 2 structures_starts       | `stages/structures-starts.ts`                                           | Set structure origins for this chunk.        |
+| 3 structures_references  | `stages/noop.ts`                                                        | No-op, reserved.                             |
+| 4 noise                   | `stages/noise.ts`                                                       | Fill heightmap.                               |
+| 5 biomes                  | `stages/biomes.ts`                                                      | Biome per column.                            |
+| 6 carvers                 | `stages/carvers.ts` (+ carve-3d, -cheese, -noodle, -spaghetti, -worm)   | Caves.                                       |
+| 7 surface                 | `stages/surface.ts` → `stages/stratigraphy.ts`                          | Layers and surface block.                    |
+| 8 features                | `stages/features.ts`, `stages/structures.ts`, `stages/paint-structures.ts` | Features and structure templates.         |
+| 9–12                      | `stages/noop.ts`                                                        | initialize_light, light, spawn, full.         |
+
+**Optional / legacy (not used by the 12-stage pipeline):**
+
+- `stages/heightmap-biome.ts` – Single-pass heightmap + biome (`createStage1`); main pipeline uses separate noise + biomes stages.
+- `stages/stage5-structures.ts` – Legacy: combined structures_starts + paint; use the 12-stage pipeline instead.
 
 ### Terrain features
 

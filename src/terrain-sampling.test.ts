@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createTerrainSampling } from './terrain-sampling'
 import type { Biome } from './types'
 import { createChunkGenerator } from './terrain-core'
-import { WORLD_HEIGHT } from './constants'
+import { WATER_LEVEL, WORLD_HEIGHT } from './constants'
 
 const ALL_BIOMES: Biome[] = [
   'plains',
@@ -74,15 +74,15 @@ describe('createTerrainSampling().isShore', () => {
   const s = createTerrainSampling(42)
 
   it('returns true when topY is at water level', () => {
-    expect(s.isShore(64)).toBe(true)
+    expect(s.isShore(WATER_LEVEL)).toBe(true)
   })
 
   it('returns true for topY one above water level', () => {
-    expect(s.isShore(65)).toBe(true)
+    expect(s.isShore(WATER_LEVEL + 1)).toBe(true)
   })
 
   it('returns true for topY one below water level', () => {
-    expect(s.isShore(63)).toBe(true)
+    expect(s.isShore(WATER_LEVEL - 1)).toBe(true)
   })
 
   it('returns false for topY well above water level', () => {
@@ -110,7 +110,7 @@ describe('createTerrainSampling().getBlockTypeAt', () => {
   })
 
   it('returns sand at shore surface', () => {
-    expect(s.getBlockTypeAt('plains', 64, 64)).toBe('sand')
+    expect(s.getBlockTypeAt('plains', WATER_LEVEL, WATER_LEVEL)).toBe('sand')
   })
 
   it('returns sand for underwater surface', () => {

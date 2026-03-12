@@ -3,7 +3,7 @@
  * pumpkin and melon (plains/forest), pink_petals (cherry_grove).
  */
 import type { Biome, BlockType } from '../../types'
-import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, idToType, isAirOrCarved } from '../block-ids'
 import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
@@ -57,11 +57,12 @@ export function createBambooFeature(): FeatureFn {
         if (topY <= WATER_LEVEL) continue
         if (biomeMap[lx][lz] !== 'jungle') continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as BlockType
         if (!SURFACE_GRASS_DIRT.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (!isAirOrCarved(voxelMap[keyAbove])) continue
 
         const wx = worldX + lx
@@ -75,7 +76,7 @@ export function createBambooFeature(): FeatureFn {
             BAMBOO_HEIGHT_MAX - 1,
           )
         for (let h = 1; h <= height; h++) {
-          const lk = localKey(lx, topY + h, lz)
+          const lk = localKey(lx, surfaceLy + h, lz)
           if (isAirOrCarved(voxelMap[lk])) voxelMap[lk] = bambooId
         }
       }
@@ -100,11 +101,12 @@ export function createVineFeature(): FeatureFn {
         if (topY <= WATER_LEVEL) continue
         if (biomeMap[lx][lz] !== 'jungle') continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as BlockType
         if (!SURFACE_GRASS_DIRT.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (!isAirOrCarved(voxelMap[keyAbove])) continue
 
         const wx = worldX + lx
@@ -140,11 +142,12 @@ export function createSweetBerryBushFeature(): FeatureFn {
         if (topY <= WATER_LEVEL) continue
         if (!SWEET_BERRY_BIOMES[biomeMap[lx][lz]]) continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as BlockType
         if (!SURFACE_BLOCKS_FOR_SWEET_BERRY.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (!isAirOrCarved(voxelMap[keyAbove])) continue
 
         const wx = worldX + lx
@@ -181,11 +184,12 @@ export function createPumpkinFeature(): FeatureFn {
         if (topY <= WATER_LEVEL) continue
         if (!PUMPKIN_MELON_BIOMES[biomeMap[lx][lz]]) continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as BlockType
         if (!SURFACE_GRASS_DIRT.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (!isAirOrCarved(voxelMap[keyAbove])) continue
 
         const wx = worldX + lx
@@ -215,11 +219,12 @@ export function createMelonFeature(): FeatureFn {
         if (topY <= WATER_LEVEL) continue
         if (!PUMPKIN_MELON_BIOMES[biomeMap[lx][lz]]) continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as BlockType
         if (!SURFACE_GRASS_DIRT.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (!isAirOrCarved(voxelMap[keyAbove])) continue
 
         const wx = worldX + lx
@@ -249,11 +254,12 @@ export function createPinkPetalsFeature(): FeatureFn {
         if (topY <= WATER_LEVEL) continue
         if (biomeMap[lx][lz] !== 'cherry_grove') continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceType = idToType(voxelMap[surfaceKey]) as BlockType
         if (!SURFACE_GRASS_DIRT.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (!isAirOrCarved(voxelMap[keyAbove])) continue
 
         const wx = worldX + lx

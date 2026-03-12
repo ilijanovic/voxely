@@ -11,6 +11,10 @@ import {
   SPAWN_Z,
   SPAWN_ABOVE_CAVE_DEBUG,
   WORLD_HEIGHT,
+  WORLD_MAX_Y,
+  WORLD_MIN_Y,
+  BLOCK_OUTLINE_COLOR,
+  BLOCK_OUTLINE_SCALE,
   ENTITY_ATTACK_DISTANCE,
   HURT_FLASH_DURATION_SECONDS,
   KNOCKBACK_HORIZONTAL_SPEED,
@@ -80,7 +84,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { syncTerrainFogFromSceneFog } from './terrain-fog'
 import { getKeyBinding, type KeyAction } from './key-settings'
-import { initMultiplayer, updateMultiplayer } from './multiplayer'
+import { initMultiplayer, updateMultiplayer, addSystemMessage } from './multiplayer'
 import { setWorldApi } from './world-api'
 import { spawnEntitiesForChunk } from './entities/spawn'
 import { updateMovement } from './entities/movement'
@@ -696,8 +700,10 @@ function loadGame(): boolean {
     if (snowEffect) snowEffect.setForced?.(data.snowForced)
     else pendingSnowForced = data.snowForced
   }
-  if (data.inventory && data.inventory.length > 0) {
-    const valid = data.inventory.slice(0, TOTAL_PERSISTENT_SLOTS).map((s) =>
+  const savedSlots = data.inventory?.slice(0, TOTAL_PERSISTENT_SLOTS) ?? []
+  const filledCount = savedSlots.filter((s) => s && s.type && s.count > 0).length
+  if (savedSlots.length > 0 && filledCount > 1) {
+    const valid = savedSlots.map((s) =>
       s && s.type && VALID_BLOCK_TYPES.has(s.type)
         ? { type: s.type, count: Math.min(s.count, MAX_STACK_SIZE) }
         : { type: null as BlockType | null, count: 0 },
@@ -755,6 +761,9 @@ let breakTarget: {
 } | null = null
 let breakProgress = 0
 
+/** Block under the crosshair (world coords); updated every frame when pointer lock is active. Used for the block outline. */
+export let aimedBlock: { x: number; y: number; z: number } | null = null
+
 /** DOM element for the block-crack overlay; set from App.vue after mount so it is found regardless of timing. */
 let blockCrackElement: HTMLElement | null = null
 
@@ -791,6 +800,10 @@ function isPlaceDebug(): boolean {
     return false
   }
 }
+
+/** Throttle for "Can't place block here" system message (max once per this many ms). */
+const PLACE_REJECT_MESSAGE_THROTTLE_MS = 2000
+let lastPlaceRejectMessageTime = 0
 
 /** Block tick interval (e.g. crop growth) in seconds. */
 const BLOCK_TICK_INTERVAL = 5
@@ -1434,6 +1447,8 @@ let bloomPass: UnrealBloomPass | null = null
 let torchContainer: THREE.Group
 /** 3D crack overlay on the block face being mined; created in initSceneAndRenderer, shown when breakTarget is set. */
 let blockCrackOverlayMesh: THREE.Mesh | null = null
+/** Wireframe outline around the block under the crosshair; created in initSceneAndRenderer, shown when aimedBlock is set. */
+let blockOutlineMesh: THREE.LineSegments | null = null
 let sunLight: THREE.DirectionalLight
 let sunMesh: THREE.Mesh
 let moonMesh: THREE.Mesh
@@ -1732,12 +1747,17 @@ function initSceneAndRenderer(container?: HTMLElement): void {
   blockCrackOverlayMesh.visible = false
   blockCrackOverlayMesh.renderOrder = 1
   scene.add(blockCrackOverlayMesh)
-  const loader = new THREE.TextureLoader()
-  loader.load('/crack_stages.svg', (tex) => {
-    tex.repeat.set(1, 0.1)
-    crackMat.map = tex
-    crackMat.needsUpdate = true
+
+  const outlineBox = new THREE.BoxGeometry(1, 1, 1)
+  const outlineEdges = new THREE.EdgesGeometry(outlineBox)
+  const outlineMat = new THREE.LineBasicMaterial({
+    color: BLOCK_OUTLINE_COLOR,
+    depthTest: true,
   })
+  blockOutlineMesh = new THREE.LineSegments(outlineEdges, outlineMat)
+  blockOutlineMesh.scale.setScalar(BLOCK_OUTLINE_SCALE)
+  blockOutlineMesh.visible = false
+  scene.add(blockOutlineMesh)
 }
 
 /**
@@ -1901,7 +1921,7 @@ function initPlayerAndWorldApi(resolvedSpawn: { x: number; z: number }): void {
           [x0, y0, z0 - 1],
         ]
         for (const [nx, ny, nz] of neighbors) {
-          if (ny < 0 || ny >= WORLD_HEIGHT) continue
+          if (ny < WORLD_MIN_Y || ny >= WORLD_MIN_Y + WORLD_HEIGHT) continue
           const key = blockKeyNumeric(nx, ny, nz)
           if (visited.has(key)) continue
           const bt = getBlockAt(nx, ny, nz)
@@ -2516,6 +2536,7 @@ function updateMovementAndCollision(dt: number, time: number): void {
     ? { x: player.position.x, y: player.position.y, z: player.position.z }
     : null
   const collisionDebug: CollisionDebug | undefined = DEBUG_COLLISION ? { snaps: [] } : undefined
+  const wasGroundedAtStartOfFrame = playerGrounded
   const collisionResult = resolveVoxelCollisions(
     player.position,
     vel,
@@ -2524,7 +2545,8 @@ function updateMovementAndCollision(dt: number, time: number): void {
     PLAYER_HALF,
     PLAYER_HEIGHT,
     collisionDebug,
-    inWater,
+    inWater || playerGrounded,
+    wasGroundedAtStartOfFrame,
   )
   velocityX = vel.x
   velocityY = vel.y
@@ -2658,7 +2680,7 @@ function updateCameraAndViewMode(time: number, dt: number): void {
             }
             const dropSize = 0.35
             let groundY = pos.y - 0.5
-            for (let by = Math.floor(pos.y - 1); by >= 0; by--) {
+            for (let by = Math.floor(pos.y - 1); by >= WORLD_MIN_Y; by--) {
               const t = getBlockAt(pos.x, by, pos.z)
               if (t !== null && t !== 'air' && isBlockTypeSolid(t as BlockType)) {
                 groundY = by + getBlockHeight(t as BlockType)
@@ -3077,9 +3099,96 @@ function pointInAnyEntityAABB(x: number, y: number, z: number): boolean {
 }
 
 /**
+ * Resolves a raycaster hit to block world coordinates and type. Handles instanced meshes, worker geometry, and snow-layer preference.
+ * @param hit - First hit from raycaster.intersectObjects(getRaycastMeshes()).
+ * @returns Block position and type, or null if not a solid block.
+ */
+function resolveRaycastHitToBlock(
+  hit: THREE.Intersection,
+): { x: number; y: number; z: number; blockType: BlockType; chunkKeyNum: number } | null {
+  if (!hit.face) return null
+  const faceNormal = new THREE.Vector3()
+    .copy(hit.face.normal)
+    .transformDirection(hit.object.matrixWorld)
+
+  /** When aiming at the top of a block that has snow on it, prefer the snow layer. */
+  function preferSnowLayerIfAimingAbove(
+    bx: number,
+    by: number,
+    bz: number,
+    hitPointY: number,
+  ): { x: number; y: number; z: number; blockType: BlockType; chunkKeyNum: number } | null {
+    if (hitPointY < by + 0.5) return null
+    if (by >= WORLD_MAX_Y) return null
+    const above = getBlockAt(bx, by + 1, bz)
+    if (above === null || above === 'air') return null
+    if (!/^snow_layer_[1-8]$/.test(above)) return null
+    return {
+      x: bx,
+      y: by + 1,
+      z: bz,
+      blockType: above as BlockType,
+      chunkKeyNum: chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE)),
+    }
+  }
+
+  if (hit.object instanceof THREE.InstancedMesh && hit.instanceId !== undefined) {
+    const ud = hit.object.userData as { chunkKeyNum: number; blockType: BlockType }
+    let chunkKeyNum = ud.chunkKeyNum
+    let blockType = ud.blockType
+    let pos = getBlockWorldPosition(chunkKeyNum, blockType, hit.instanceId)
+    const snowPrefer = pos
+      ? preferSnowLayerIfAimingAbove(pos.x, pos.y, pos.z, hit.point.y)
+      : null
+    if (snowPrefer) {
+      chunkKeyNum = snowPrefer.chunkKeyNum
+      blockType = snowPrefer.blockType
+      pos = { x: snowPrefer.x, y: snowPrefer.y, z: snowPrefer.z }
+    }
+    if (!pos) return null
+    return { x: pos.x, y: pos.y, z: pos.z, blockType, chunkKeyNum }
+  }
+
+  let bx = Math.floor(hit.point.x - faceNormal.x * 0.01)
+  let by = Math.floor(hit.point.y - faceNormal.y * 0.01)
+  let bz = Math.floor(hit.point.z - faceNormal.z * 0.01)
+  let at = getBlockAt(bx, by, bz)
+  const snowPrefer =
+    at !== null && at !== 'air' ? preferSnowLayerIfAimingAbove(bx, by, bz, hit.point.y) : null
+  if (snowPrefer) {
+    bx = snowPrefer.x
+    by = snowPrefer.y
+    bz = snowPrefer.z
+    at = snowPrefer.blockType
+  }
+  if (at === null || at === 'air') return null
+  const chunkKeyNum = chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE))
+  return { x: bx, y: by, z: bz, blockType: at, chunkKeyNum }
+}
+
+/**
  * Handles block break (hold-to-mine with progress, raycast to block), block/torch place (right-click or F), and block-crack overlay updates.
  */
 function updateBlockBreakAndPlace(dt: number, time: number): void {
+  // Aimed block (for outline): one raycast per frame when pointer lock is active.
+  let currentHit: THREE.Intersection | null = null
+  let currentResolved: ReturnType<typeof resolveRaycastHitToBlock> = null
+  if (document.pointerLockElement === renderer.domElement && camera) {
+    rayOrigin.copy(camera.position)
+    camera.getWorldDirection(rayDirection)
+    raycaster.set(rayOrigin, rayDirection)
+    raycaster.far = BREAK_DISTANCE
+    const blockMeshesAimed = getRaycastMeshes()
+    const hitsAimed = raycaster.intersectObjects(blockMeshesAimed)
+    currentHit = hitsAimed[0]?.face ? hitsAimed[0] : null
+    currentResolved = currentHit ? resolveRaycastHitToBlock(currentHit) : null
+    aimedBlock = currentResolved ? { x: currentResolved.x, y: currentResolved.y, z: currentResolved.z } : null
+  } else {
+    aimedBlock = null
+    currentHit = null
+    currentResolved = null
+  }
+
   // Place (right-click or F): torch or block; F works without pointer lock
   const placeRequested =
     (rightMouseJustPressed && document.pointerLockElement === renderer.domElement) ||
@@ -3308,10 +3417,25 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
 
             if (blockOverlapsPlayer) {
               if (isPlaceDebug()) console.warn('Place (F): block would overlap player.')
+              const now = Date.now()
+              if (now - lastPlaceRejectMessageTime >= PLACE_REJECT_MESSAGE_THROTTLE_MS) {
+                lastPlaceRejectMessageTime = now
+                addSystemMessage("Can't place block here")
+              }
             } else if (blockOverlapsEntity) {
               if (isPlaceDebug()) console.warn('Place (F): block would overlap an entity.')
+              const now = Date.now()
+              if (now - lastPlaceRejectMessageTime >= PLACE_REJECT_MESSAGE_THROTTLE_MS) {
+                lastPlaceRejectMessageTime = now
+                addSystemMessage("Can't place block here")
+              }
             } else if (at !== null && at !== 'air' && !isReplaceableByPlacement(at)) {
               if (isPlaceDebug()) console.warn('Place (F): target cell not empty. Block at', adjX, adjY, adjZ, ':', at)
+              const now = Date.now()
+              if (now - lastPlaceRejectMessageTime >= PLACE_REJECT_MESSAGE_THROTTLE_MS) {
+                lastPlaceRejectMessageTime = now
+                addSystemMessage("Can't place block here")
+              }
             } else {
               const ctx = getChunkSyncCtx()
               removeTorchAt({
@@ -3337,169 +3461,57 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     }
   }
 
-  // Block-Abbau: Halten auf Block (Raycast von Kamera-Mitte, nur bei Pointer Lock). Skip when holding a weapon (left-click triggers slash instead).
+  // Block break: hold on block (uses same raycast as aimed block). Skip when holding a weapon (left-click triggers slash).
   if (document.pointerLockElement === renderer.domElement && isMouseDown && camera) {
     if (getEffectiveWeapon()) {
       breakTarget = null
       breakProgress = 0
       if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
+    } else if (!currentHit || !currentResolved) {
+      breakTarget = null
+      breakProgress = 0
+      if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
     } else {
-    rayOrigin.copy(camera.position)
-    camera.getWorldDirection(rayDirection)
-    raycaster.set(rayOrigin, rayDirection)
-    raycaster.far = BREAK_DISTANCE
-
-    const heldItem = getSelectedBlockType()
-    const blockMeshes = getRaycastMeshes()
-    const hits = raycaster.intersectObjects(blockMeshes)
-    const hit = hits[0]
-    if (hit && hit.face) {
-      _direction.copy(hit.face.normal).transformDirection(hit.object.matrixWorld)
-
-      /** When aiming at the top of a block that has snow on it, prefer breaking the snow layer. */
-      function preferSnowLayerIfAimingAbove(
-        bx: number,
-        by: number,
-        bz: number,
-        hitPointY: number,
-      ): { x: number; y: number; z: number; blockType: BlockType; chunkKeyNum: number } | null {
-        if (hitPointY < by + 0.5) return null
-        if (by + 1 >= WORLD_HEIGHT) return null
-        const above = getBlockAt(bx, by + 1, bz)
-        if (above === null || above === 'air') return null
-        if (!/^snow_layer_[1-8]$/.test(above)) return null
-        return {
-          x: bx,
-          y: by + 1,
-          z: bz,
-          blockType: above as BlockType,
-          chunkKeyNum: chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE)),
-        }
-      }
-
-      // Instanced path: resolve exact instance block position.
-      if (hit.object instanceof THREE.InstancedMesh && hit.instanceId !== undefined) {
-        const ud = hit.object.userData as {
-          chunkKeyNum: number
-          blockType: BlockType
-        }
-        let chunkKeyNum = ud.chunkKeyNum
-        let blockType = ud.blockType
-        let pos = getBlockWorldPosition(chunkKeyNum, blockType, hit.instanceId)
-        const snowPrefer = pos
-          ? preferSnowLayerIfAimingAbove(pos.x, pos.y, pos.z, hit.point.y)
-          : null
-        if (snowPrefer) {
-          chunkKeyNum = snowPrefer.chunkKeyNum
-          blockType = snowPrefer.blockType
-          pos = { x: snowPrefer.x, y: snowPrefer.y, z: snowPrefer.z }
-        }
-        if (!pos) {
+      _direction.copy(currentHit.face!.normal).transformDirection(currentHit.object.matrixWorld)
+      const { x, y, z, blockType, chunkKeyNum } = currentResolved
+      const heldItem = getSelectedBlockType()
+      if (isUnbreakableBlock(blockType)) {
+        breakTarget = null
+        breakProgress = 0
+      } else if (
+        breakTarget &&
+        breakTarget.chunkKeyNum === chunkKeyNum &&
+        breakTarget.blockType === blockType &&
+        breakTarget.x === x &&
+        breakTarget.y === y &&
+        breakTarget.z === z
+      ) {
+        const required = getBlockBreakTimeWithTool(blockType, heldItem)
+        breakProgress += dt
+        if (breakProgress >= required) {
+          breakBlock(chunkKeyNum, blockType, x, y, z, time)
           breakTarget = null
           breakProgress = 0
           if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
-        } else if (
-          breakTarget &&
-          breakTarget.chunkKeyNum === chunkKeyNum &&
-          breakTarget.blockType === blockType &&
-          breakTarget.x === pos.x &&
-          breakTarget.y === pos.y &&
-          breakTarget.z === pos.z
-        ) {
-          const required = getBlockBreakTimeWithTool(blockType, heldItem)
-          breakProgress += dt
-          if (breakProgress >= required) {
-            breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
-            breakTarget = null
-            breakProgress = 0
-            if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
-          }
-        } else {
-          if (!isUnbreakableBlock(blockType)) {
-            breakTarget = {
-              chunkKeyNum,
-              blockType,
-              x: pos.x,
-              y: pos.y,
-              z: pos.z,
-              faceNormal: _direction.clone(),
-            }
-            breakProgress = dt
-            const required = getBlockBreakTimeWithTool(blockType, heldItem)
-            if (required <= 0 || breakProgress >= required) {
-              breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
-              breakTarget = null
-              breakProgress = 0
-              if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
-            }
-          } else {
-            breakTarget = null
-            breakProgress = 0
-          }
         }
       } else {
-        // Mesh path (worker geometry): derive the hit block coordinate from point and face normal.
-        let bx = Math.floor(hit.point.x - _direction.x * 0.01)
-        let by = Math.floor(hit.point.y - _direction.y * 0.01)
-        let bz = Math.floor(hit.point.z - _direction.z * 0.01)
-        let at = getBlockAt(bx, by, bz)
-        const snowPrefer =
-          at !== null && at !== 'air' ? preferSnowLayerIfAimingAbove(bx, by, bz, hit.point.y) : null
-        if (snowPrefer) {
-          bx = snowPrefer.x
-          by = snowPrefer.y
-          bz = snowPrefer.z
-          at = snowPrefer.blockType
+        breakTarget = {
+          chunkKeyNum,
+          blockType,
+          x,
+          y,
+          z,
+          faceNormal: _direction.clone(),
         }
-        if (at === null || at === 'air') {
+        breakProgress = dt
+        const required = getBlockBreakTimeWithTool(blockType, heldItem)
+        if (required <= 0 || breakProgress >= required) {
+          breakBlock(chunkKeyNum, blockType, x, y, z, time)
           breakTarget = null
           breakProgress = 0
-        } else if (isUnbreakableBlock(at)) {
-          breakTarget = null
-          breakProgress = 0
-        } else {
-          const chunkKeyNum = chunkKeyNumeric(
-            Math.floor(bx / CHUNK_SIZE),
-            Math.floor(bz / CHUNK_SIZE),
-          )
-          if (
-            breakTarget &&
-            breakTarget.chunkKeyNum === chunkKeyNum &&
-            breakTarget.blockType === at &&
-            breakTarget.x === bx &&
-            breakTarget.y === by &&
-            breakTarget.z === bz
-          ) {
-            const required = getBlockBreakTimeWithTool(at, heldItem)
-            breakProgress += dt
-            if (breakProgress >= required) {
-              breakBlock(chunkKeyNum, at, bx, by, bz, time)
-              breakTarget = null
-              breakProgress = 0
-            }
-          } else {
-            breakTarget = {
-              chunkKeyNum,
-              blockType: at,
-              x: bx,
-              y: by,
-              z: bz,
-              faceNormal: _direction.clone(),
-            }
-            breakProgress = dt
-            const required = getBlockBreakTimeWithTool(at, heldItem)
-            if (required <= 0 || breakProgress >= required) {
-              breakBlock(chunkKeyNum, at, bx, by, bz, time)
-              breakTarget = null
-              breakProgress = 0
-            }
-          }
+          if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
         }
       }
-    } else {
-      breakTarget = null
-      breakProgress = 0
-    }
     }
   } else if (!isMouseDown) {
     breakTarget = null
@@ -3545,6 +3557,17 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
         mat.map.offset.set(0, 0.9 - stage * 0.1)
         mat.map.repeat.set(1, 0.1)
       }
+    }
+  }
+
+  if (blockOutlineMesh) {
+    blockOutlineMesh.visible = aimedBlock !== null
+    if (aimedBlock) {
+      blockOutlineMesh.position.set(
+        aimedBlock.x + 0.5,
+        aimedBlock.y + 0.5,
+        aimedBlock.z + 0.5,
+      )
     }
   }
 }

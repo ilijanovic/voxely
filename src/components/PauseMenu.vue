@@ -160,9 +160,9 @@ function resetKeys() {
 }
 
 const shadowMapSizeOptions = [
-  { value: 512, label: '512 (schnell)' },
+  { value: 512, label: '512 (fast)' },
   { value: 1024, label: '1024' },
-  { value: 2048, label: '2048 (qualität)' },
+  { value: 2048, label: '2048 (quality)' },
 ]
 
 // Resource pack: list loaded async, selection persisted; change triggers reload
@@ -197,7 +197,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="pause-overlay" @click.self="emit('close')">
+  <div class="pause-overlay" @click.self="emit('close')" @wheel.stop>
     <div class="pause-card">
       <!-- Main menu -->
       <template v-if="view === 'main'">
@@ -225,7 +225,7 @@ onUnmounted(() => {
             :class="{ active: optionsTab === 'graphics' }"
             @click="optionsTab = 'graphics'"
           >
-            Grafik
+            Graphics
           </button>
           <button
             type="button"
@@ -233,7 +233,7 @@ onUnmounted(() => {
             :class="{ active: optionsTab === 'controls' }"
             @click="optionsTab = 'controls'"
           >
-            Steuerung
+            Controls
           </button>
         </div>
 
@@ -280,7 +280,7 @@ onUnmounted(() => {
             </select>
           </label>
           <label class="option-row">
-            <span class="option-label">Sichtweite (Chunks)</span>
+            <span class="option-label">Render distance (chunks)</span>
             <div class="option-control">
               <input
                 v-model.number="renderDistance"
@@ -322,7 +322,7 @@ onUnmounted(() => {
             </div>
           </label>
           <label class="option-row">
-            <span class="option-label">Maus-Sensitivität</span>
+            <span class="option-label">Mouse sensitivity</span>
             <div class="option-control">
               <input
                 v-model.number="pointerSpeed"
@@ -336,7 +336,7 @@ onUnmounted(() => {
             </div>
           </label>
           <label class="option-row">
-            <span class="option-label">Maus (Sprint)</span>
+            <span class="option-label">Mouse (sprint)</span>
             <div class="option-control">
               <input
                 v-model.number="pointerSpeedSprint"
@@ -350,7 +350,7 @@ onUnmounted(() => {
             </div>
           </label>
           <label class="option-row option-row-toggle">
-            <span class="option-label">Schatten</span>
+            <span class="option-label">Shadows</span>
             <input v-model="shadowsEnabled" type="checkbox" class="option-checkbox" />
           </label>
           <label class="option-row option-row-toggle">
@@ -361,7 +361,7 @@ onUnmounted(() => {
             Torch shadows may impact performance with many torches.
           </p>
           <label class="option-row">
-            <span class="option-label">Schatten-Qualität</span>
+            <span class="option-label">Shadow quality</span>
             <select v-model.number="shadowMapSize" class="option-select">
               <option v-for="opt in shadowMapSizeOptions" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
@@ -423,12 +423,12 @@ onUnmounted(() => {
             <span class="option-label">Antialiasing</span>
             <input v-model="antialias" type="checkbox" class="option-checkbox" />
           </label>
-          <p class="option-hint">Antialiasing wirkt erst nach Neustart.</p>
+          <p class="option-hint">Antialiasing takes effect after restart.</p>
         </div>
 
         <!-- Controls (key bindings) -->
         <div v-show="optionsTab === 'controls'" class="options-list controls-list">
-          <p class="option-hint">Klicke auf eine Taste und drücke die neue Belegung.</p>
+          <p class="option-hint">Click a key and press the new binding.</p>
           <div
             v-for="action in keyActions"
             :key="action"
@@ -439,13 +439,13 @@ onUnmounted(() => {
             <button type="button" class="key-btn" @click="startRebind(action)">
               {{
                 rebindingAction === action
-                  ? '… drücke Taste …'
+                  ? '… press key …'
                   : codeToDisplayName(keyBindings[action])
               }}
             </button>
           </div>
           <button type="button" class="pause-btn pause-btn-reset" @click="resetKeys">
-            Tasten auf Standard zurücksetzen
+            Reset keys to default
           </button>
         </div>
       </template>
@@ -598,6 +598,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .option-row {
@@ -665,11 +667,6 @@ onUnmounted(() => {
 .option-select:focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 2px;
-}
-
-.controls-list {
-  max-height: 60vh;
-  overflow-y: auto;
 }
 
 .key-row {

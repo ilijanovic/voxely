@@ -4,6 +4,8 @@
 import { describe, it, expect } from 'vitest'
 import type { Biome } from '../types'
 import { createChunkGenerator } from './index'
+import { runPipeline, createChunkContext } from './pipeline'
+import type { ChunkContext, PipelineStage } from './pipeline-types'
 import { getBiomeByClimate, BIOME_REGISTRY } from './biomes'
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../constants'
 import { localKey, idToType, CARVED_ID, VOXEL_BUFFER_LENGTH } from './block-ids'
@@ -114,6 +116,91 @@ describe('createChunkGenerator', () => {
         }
       }
     }
+  })
+})
+
+describe('runPipeline override hooks', () => {
+  it('calls override before and after each stage with phase, index, and stageName', () => {
+    const ctx = createChunkContext(0, 0, [])
+    const calls: Array<{
+      phase: 'before' | 'after'
+      stageIndex: number
+      stageName?: string
+    }> = []
+    const override = (
+      _c: ChunkContext,
+      phase: 'before' | 'after',
+      stageIndex: number,
+      stageName?: string,
+    ) => {
+      calls.push({ phase, stageIndex, stageName })
+    }
+    const noop: PipelineStage = () => {}
+    const stages: PipelineStage[] = [noop, noop]
+    const stageNames = ['first', 'second']
+
+    runPipeline(ctx, stages, { override, stageNames })
+
+    expect(calls).toEqual([
+      { phase: 'before', stageIndex: 0, stageName: 'first' },
+      { phase: 'after', stageIndex: 0, stageName: 'first' },
+      { phase: 'before', stageIndex: 1, stageName: 'second' },
+      { phase: 'after', stageIndex: 1, stageName: 'second' },
+    ])
+  })
+
+  it('applies override mutations to context for subsequent stages', () => {
+    const ctx = createChunkContext(0, 0, [])
+    const marker = 42
+    const override = (
+      c: ChunkContext,
+      phase: 'before' | 'after',
+      stageIndex: number,
+    ) => {
+      if (stageIndex === 0 && phase === 'after') {
+        c.voxelMap[0] = marker
+      }
+    }
+    const stages: PipelineStage[] = [() => {}, () => {}]
+
+    runPipeline(ctx, stages, { override })
+
+    expect(ctx.voxelMap[0]).toBe(marker)
+  })
+
+  it('does not call override when options.override is omitted', () => {
+    const ctx = createChunkContext(0, 0, [])
+    let callCount = 0
+    const override = () => {
+      callCount++
+    }
+    const stages: PipelineStage[] = [() => {}]
+
+    runPipeline(ctx, stages, {})
+    expect(override).toBeDefined()
+    expect(callCount).toBe(0)
+  })
+})
+
+describe('createChunkGenerator with override option', () => {
+  it('invokes custom override with correct call count per chunk', () => {
+    const calls: Array<{ phase: string; stageIndex: number; stageName?: string }> =
+      []
+    const gen = createChunkGenerator(1, {
+      override: (_, phase, stageIndex, stageName) => {
+        calls.push({ phase, stageIndex, stageName })
+      },
+    })
+    gen.generateChunkData(0, 0, [])
+    const stagesCount = 12
+    expect(calls.length).toBe(stagesCount * 2)
+    expect(calls.filter((c) => c.phase === 'before').length).toBe(stagesCount)
+    expect(calls.filter((c) => c.phase === 'after').length).toBe(stagesCount)
+    expect(calls[0]).toEqual({
+      phase: 'before',
+      stageIndex: 0,
+      stageName: 'empty',
+    })
   })
 })
 

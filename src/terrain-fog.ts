@@ -9,12 +9,28 @@ export const terrainFogState = {
   end: 280,
 }
 
+/** Fragment shader snippet: our terrain fog uniforms (to inject if standard include replace misses). */
+const TERRAIN_FOG_UNIFORMS_SNIPPET = `
+uniform vec3 uTerrainFogColor;
+uniform float uTerrainFogStart;
+uniform float uTerrainFogEnd;
+`
+
+/** Fragment shader snippet: our terrain fog application (replaces default fog or appends as fallback). */
+const TERRAIN_FOG_APPLY_SNIPPET = `
+  #ifdef USE_FOG
+  float terrainFogFactor = smoothstep(uTerrainFogStart, uTerrainFogEnd, vFogDepth);
+  terrainFogFactor = pow(terrainFogFactor, ${FOG_CURVE_EXPONENT});
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, uTerrainFogColor, terrainFogFactor);
+  #endif
+`
+
 function patchOneMaterial(mat: THREE.Material): void {
   const m = mat as THREE.Material & { __terrainFogPatched?: boolean }
   if (m.__terrainFogPatched) return
   m.__terrainFogPatched = true
 
-  // Ensure Three.js includes fog code-path.
+  // Ensure Three.js includes fog code-path (enables USE_FOG and vFogDepth).
   ;(m as THREE.Material & { fog?: boolean }).fog = true
 
   const prev = (m as THREE.ShaderMaterial & { onBeforeCompile?: THREE.Material['onBeforeCompile'] })
@@ -26,22 +42,19 @@ function patchOneMaterial(mat: THREE.Material): void {
     shader.uniforms.uTerrainFogStart = { value: terrainFogState.start }
     shader.uniforms.uTerrainFogEnd = { value: terrainFogState.end }
 
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <fog_pars_fragment>',
-        `#include <fog_pars_fragment>
-uniform vec3 uTerrainFogColor;
-uniform float uTerrainFogStart;
-uniform float uTerrainFogEnd;`,
-      )
-      .replace(
-        '#include <fog_fragment>',
-        `#ifdef USE_FOG
-  float terrainFogFactor = smoothstep(uTerrainFogStart, uTerrainFogEnd, vFogDepth);
-  terrainFogFactor = pow(terrainFogFactor, ${FOG_CURVE_EXPONENT});
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, uTerrainFogColor, terrainFogFactor);
-#endif`,
-      )
+    let frag = shader.fragmentShader
+    frag = frag.replace(
+      '#include <fog_pars_fragment>',
+      `#include <fog_pars_fragment>${TERRAIN_FOG_UNIFORMS_SNIPPET}`,
+    )
+    frag = frag.replace('#include <fog_fragment>', TERRAIN_FOG_APPLY_SNIPPET)
+
+    // If the standard fog includes were missing (e.g. different shader path), inject uniforms so
+    // at least our uniform refs exist; fog application still requires the fog_fragment replace.
+    if (!frag.includes('uTerrainFogColor')) {
+      frag = `uniform vec3 uTerrainFogColor;\nuniform float uTerrainFogStart;\nuniform float uTerrainFogEnd;\n${frag}`
+    }
+    shader.fragmentShader = frag
   }
 }
 
