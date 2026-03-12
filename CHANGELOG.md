@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.0.8
+
+[compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.7...v0.0.8)
+
+### 🚀 Enhancements
+
+- Add quests, loot tables, world areas, and player systems ([4ed879b7](https://github.com/ilijanovic/voxely/commit/4ed879b7))
+- **terrain:** Add pipeline stages, vegetation features, creature zones and quest updates ([d205d202](https://github.com/ilijanovic/voxely/commit/d205d202))
+- **game:** Add minecraft-like doors ([b8d112dc](https://github.com/ilijanovic/voxely/commit/b8d112dc))
+- **crafting:** Minecraft-like crafting and inventory ([38b13348](https://github.com/ilijanovic/voxely/commit/38b13348))
+- **quests:** Add talk/reach objectives and new WoW-style quests ([d8233297](https://github.com/ilijanovic/voxely/commit/d8233297))
+
+### 🩹 Fixes
+
+- **torches:** Lean wall torch 45° from vertical instead of 90° ([be7e3858](https://github.com/ilijanovic/voxely/commit/be7e3858))
+
+### ❤️ Contributors
+
+- Ilijanovic <ilija.marijanovic@gmx.at>
+
 ## v0.0.7
 
 [compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.6...v0.0.7)
