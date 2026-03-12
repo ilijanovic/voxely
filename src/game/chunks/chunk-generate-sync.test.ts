@@ -67,6 +67,7 @@ function makeCtx(): ChunkSyncContext {
     grassColormapData: null,
     foliageColormapData: null,
     tallGrassMaterial: null,
+    getLightAt: () => 15,
     raycastMeshCache: new RaycastMeshCache(),
     frustumDirty: false,
     scene: new THREE.Scene(),

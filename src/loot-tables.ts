@@ -28,6 +28,8 @@ export const DROP_TABLES: Record<AnimalKind, DropEntry[]> = {
   ],
   villager: [],
   zombie: [],
+  skeleton: [{ item: 'coal', chance: 0.4, minCount: 0, maxCount: 1 }],
+  creeper: [{ item: 'coal', chance: 0.3, minCount: 0, maxCount: 1 }],
 }
 
 /**

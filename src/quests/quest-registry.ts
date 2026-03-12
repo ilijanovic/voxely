@@ -4,6 +4,7 @@
 import type { PlayerClass } from '../player/faction'
 import type { Quest, QuestReward } from './types'
 import { getSheepRingDirection, SHEEP_ZONE_RADIUS } from '../creature-zones'
+import { FIRST_SPAWN_VILLAGE_ID } from '../world-pois'
 
 export const QUESTS: Quest[] = [
   {
@@ -131,6 +132,124 @@ export const QUESTS: Quest[] = [
       { gold: 25, xp: 30, items: [{ type: 'stone_pickaxe', count: 1 }] },
       { gold: 25, xp: 30, items: [{ type: 'stone_axe', count: 1 }] },
     ],
+  },
+  {
+    id: 'speak_to_elder',
+    title: 'Speak to the Village Elder',
+    description:
+      'The elder at the village centre wishes to speak with those who have proven helpful. Return with your first wool delivery and talk to them to receive their thanks and further guidance.',
+    locationHint: 'Village centre · talk to the elder',
+    objectives: [{ type: 'talk', targetId: 'elder_npc', label: 'Talk to the Elder' }],
+    prerequisiteQuestIds: ['first_spawn_wool'],
+    reward: { xp: 10, gold: 5 },
+  },
+  {
+    id: 'discover_village',
+    title: 'Discover the Village',
+    description:
+      'You have arrived near a small village. Walk into the village to get your bearings; the villagers may have work for you.',
+    locationHint: () => `Village · ${FIRST_SPAWN_VILLAGE_ID}`,
+    objectives: [{ type: 'reach', areaId: FIRST_SPAWN_VILLAGE_ID, label: 'Enter the village' }],
+    reward: { xp: 5 },
+  },
+  {
+    id: 'thin_the_undead',
+    title: 'Thin the Undead',
+    description:
+      'Zombies rise at night and threaten travellers. Thin their numbers by slaying five zombies. Return when the deed is done.',
+    locationHint: 'Zombies · at night',
+    objectives: [{ type: 'kill', targetKind: 'zombie', count: 5, label: 'Zombies' }],
+    prerequisiteQuestIds: ['first_spawn_wool'],
+    reward: { xp: 30, gold: 15 },
+  },
+  {
+    id: 'skeleton_bones',
+    title: 'Skeleton Bones',
+    description:
+      'Skeletons stalk the darkness and shoot from afar. Hunt four of them and bring word back. They sometimes carry coal.',
+    locationHint: 'Skeletons · at night',
+    objectives: [{ type: 'kill', targetKind: 'skeleton', count: 4, label: 'Skeletons' }],
+    prerequisiteQuestIds: ['first_spawn_wool'],
+    reward: { xp: 35, gold: 10 },
+  },
+  {
+    id: 'creeper_control',
+    title: 'Creeper Control',
+    description:
+      'Creepers have been seen near the village at night. They explode when close—take them down from a distance. Slay three and report back.',
+    locationHint: 'Creepers · at night',
+    objectives: [{ type: 'kill', targetKind: 'creeper', count: 3, label: 'Creepers' }],
+    prerequisiteQuestIds: ['first_spawn_wool'],
+    reward: { xp: 40, gold: 20 },
+  },
+  {
+    id: 'coal_from_the_dead',
+    title: 'Coal from the Dead',
+    description:
+      'Skeletons and creepers sometimes drop coal when slain. Gather three pieces of coal and bring them to the village—we need it for smelting and light.',
+    locationHint: 'Skeletons and Creepers · at night',
+    objectives: [{ type: 'collect', item: 'coal', count: 3, label: 'Coal' }],
+    prerequisiteQuestIds: ['first_spawn_wool'],
+    reward: { xp: 25, gold: 12 },
+  },
+  {
+    id: 'meat_and_wool',
+    title: 'Meat and Wool',
+    description:
+      'The village needs both wool and meat. Gather three pieces of white wool from sheep and four raw porkchops from pigs, then return here.',
+    locationHint: 'Sheep and Pigs · plains and forests',
+    objectives: [
+      { type: 'collect', item: 'white_wool', count: 3, label: 'Wool' },
+      { type: 'collect', item: 'raw_porkchop', count: 4, label: 'Raw porkchop' },
+    ],
+    prerequisiteQuestIds: ['first_spawn_wool'],
+    reward: { xp: 30, gold: 18 },
+  },
+  {
+    id: 'hunters_trial',
+    title: "Hunter's Trial",
+    description:
+      'Prove your skill: hunt two wolves and two pigs. Bring back word when both tasks are done.',
+    locationHint: 'Wolves and Pigs · forest and plains',
+    objectives: [
+      { type: 'kill', targetKind: 'wolf', count: 2, label: 'Wolves' },
+      { type: 'kill', targetKind: 'pig', count: 2, label: 'Pigs' },
+    ],
+    prerequisiteQuestIds: ['first_spawn_wool'],
+    reward: { xp: 45, gold: 22 },
+  },
+  {
+    id: 'ore_for_the_smith',
+    title: 'Ore for the Smith',
+    description:
+      'The smith needs coal for the forge. Mine it underground or collect it from skeletons and creepers at night. Bring five coal.',
+    locationHint: 'Coal · mine or from Skeletons/Creepers at night',
+    objectives: [{ type: 'collect', item: 'coal', count: 5, label: 'Coal' }],
+    prerequisiteQuestIds: ['second_npc_planks'],
+    reward: { gold: 25, xp: 28 },
+  },
+  {
+    id: 'lumber_for_village',
+    title: 'Lumber for the Village',
+    description:
+      'We need more wood for building. Bring eight oak planks—craft them from wood at a crafting table or find them in village buildings.',
+    locationHint: 'Oak planks · craft from wood or find in villages',
+    objectives: [{ type: 'collect', item: 'oak_planks', count: 8, label: 'Oak planks' }],
+    prerequisiteQuestIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
+    reward: { gold: 22, xp: 24 },
+  },
+  {
+    id: 'stone_and_sticks',
+    title: 'Stone and Sticks',
+    description:
+      'For tool-making we need stone and sticks. Bring five stone and ten sticks. You can mine stone with a pickaxe and craft sticks from oak planks.',
+    locationHint: 'Stone · mine; Sticks · craft from oak planks',
+    objectives: [
+      { type: 'collect', item: 'stone', count: 5, label: 'Stone' },
+      { type: 'collect', item: 'stick', count: 10, label: 'Sticks' },
+    ],
+    prerequisiteQuestIds: ['first_spawn_wool'],
+    reward: { xp: 28, gold: 14 },
   },
 ]
 

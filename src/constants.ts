@@ -47,6 +47,8 @@ export const WORLD_HEIGHT = 128
 export const FOG_NEAR_CHUNK_FACTOR = 0.95
 /** Multiplier for fog far distance in chunks (slightly beyond render distance for smooth fade). */
 export const FOG_FAR_CHUNK_FACTOR = 1.15
+/** Minimum terrain brightness in caves (0–1). Light level 0 still shows this much so caves aren't pitch black. */
+export const TERRAIN_LIGHT_MIN = 0.18
 
 /** Global water level (block Y). Same as classic Minecraft (~sea level). */
 export const WATER_LEVEL = 64
@@ -203,6 +205,39 @@ export const LEVEL_UP_DISPLAY_MS = 2500
 export const PLAYER_MAX_HEALTH = 20
 /** Maximum player hunger/food level (Minecraft-style). */
 export const PLAYER_MAX_HUNGER = 20
+
+/** Survival: fall damage applies when falling at least this many blocks (Minecraft: 3). */
+export const FALL_DAMAGE_MIN_BLOCKS = 3
+/** Survival: damage per block fallen beyond FALL_DAMAGE_MIN_BLOCKS (capped at max health). */
+export const FALL_DAMAGE_PER_BLOCK = 1
+/** Survival: seconds of breath underwater before drowning damage starts (Minecraft: 10). */
+export const DROWNING_BREATH_SEC = 10
+/** Survival: drowning damage applied every this many seconds once breath is exhausted. */
+export const DROWNING_DAMAGE_INTERVAL_SEC = 0.5
+/** Survival: drowning damage per interval when out of breath. */
+export const DROWNING_DAMAGE_PER_INTERVAL = 2
+/** Survival: hunger drained every this many seconds (walking/idle). */
+export const HUNGER_DRAIN_INTERVAL_SEC = 4
+/** Survival: hunger points drained per interval when walking (Minecraft-style). */
+export const HUNGER_DRAIN_WALKING = 0.5
+/** Survival: extra hunger drain per interval when sprinting. */
+export const HUNGER_DRAIN_SPRINTING_EXTRA = 0.5
+/** Survival: regeneration requires hunger at or above this (Minecraft: 18+ for regen). */
+export const REGEN_HUNGER_THRESHOLD = 18
+/** Survival: one health point restored every this many seconds when regen conditions met. */
+export const REGEN_INTERVAL_SEC = 4
+/** Survival: hunger points consumed per regen tick (saturation). */
+export const REGEN_HUNGER_COST = 0.5
+/** Survival: health set on respawn (Minecraft: half hearts = 10). */
+export const RESPAWN_HEALTH = 10
+/** Survival: hunger set on respawn (Minecraft: full). */
+export const RESPAWN_HUNGER = 20
+/** Survival: seconds of invincibility after respawn (no damage from mobs/fall/drown). */
+export const RESPAWN_INVINCIBILITY_SEC = 3
+/** Damage dealt to player per hostile mob attack (e.g. zombie). */
+export const MOB_ATTACK_DAMAGE = 3
+/** Minimum seconds between attacks from the same mob. */
+export const MOB_ATTACK_INTERVAL_SEC = 1.2
 
 /** Quest NPC icon: yellow exclamation (quest available). */
 export const QUEST_ICON_COLOR_AVAILABLE = '#ffcc00'

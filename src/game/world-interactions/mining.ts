@@ -36,6 +36,8 @@ export function breakBlock(params: {
   skipRefresh?: boolean
   /** Override drop item type (e.g. door_open and door_closed both drop door_closed). */
   dropType?: BlockType
+  /** When true, do not spawn a drop (e.g. correct-tool rule: stone without pickaxe drops nothing). */
+  skipDrop?: boolean
 }): void {
   if (params.isUnbreakableBlock(params.blockType)) return
   const data = params.chunks.get(params.chunkKeyNum)
@@ -105,7 +107,9 @@ export function breakBlock(params: {
     }
   }
   const restY = groundY + dropSize * 0.5
-  const dropItemType = params.dropType ?? params.blockType
-  params.spawnDrop(cx, cz, startY, restY, dropItemType, params.time)
+  if (!params.skipDrop) {
+    const dropItemType = params.dropType ?? params.blockType
+    params.spawnDrop(cx, cz, startY, restY, dropItemType, params.time)
+  }
   if (!params.skipRefresh) params.refreshChunkVisibleMeshes(data, affectedBlockTypes)
 }

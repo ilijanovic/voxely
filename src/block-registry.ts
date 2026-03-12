@@ -1043,6 +1043,20 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Crafting Table',
     textures: { type: 'single', texture: 'crafting_table_top' },
   }),
+  D({
+    id: 'furnace',
+    displayName: 'Furnace',
+    textures: { type: 'six', textures: ['furnace_side', 'furnace_side', 'furnace_front', 'furnace_side', 'furnace_top', 'furnace_top'] },
+    breakTimeSeconds: 3.5,
+    harvestCategory: 'stone',
+  }),
+  D({
+    id: 'bed',
+    displayName: 'Bed',
+    textures: { type: 'six', textures: ['bed_feet_top', 'bed_feet_top', 'bed_side', 'bed_side', 'bed_side', 'bed_feet_end'] },
+    breakTimeSeconds: 1,
+    harvestCategory: 'wood',
+  }),
   // --- Stairs (items + placed variants) ---
   ...(
     [
@@ -1450,6 +1464,21 @@ const TOOL_CATEGORY_MATCH: Record<string, string> = {
   pickaxe: 'stone',
   axe: 'wood',
   shovel: 'dirt',
+}
+
+/**
+ * Returns false when the block has harvestCategory and the held item is not the correct tool (or empty).
+ * Used for correct-tool drops: stone/ore/wood/dirt drop nothing without the right tool.
+ */
+export function shouldDropWithTool(blockId: string, heldItemId?: string): boolean {
+  const blockDef = REGISTRY.get(blockId)
+  const category = blockDef?.harvestCategory
+  if (!category) return true
+  if (!heldItemId) return false
+  const toolDef = REGISTRY.get(heldItemId)
+  const toolType = toolDef?.toolType
+  if (!toolType) return false
+  return TOOL_CATEGORY_MATCH[toolType] === category
 }
 
 /**

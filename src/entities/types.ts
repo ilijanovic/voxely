@@ -2,8 +2,8 @@
 import type { Biome } from '../types'
 export type { Biome }
 
-/** Animal kinds: sheep, pig, wolf, villager (villager spawns only in villages), zombie (hostile, night-only). */
-export type AnimalKind = 'sheep' | 'pig' | 'wolf' | 'villager' | 'zombie'
+/** Animal kinds: sheep, pig, wolf, villager (villager spawns only in villages), zombie/skeleton/creeper (hostile, night-only). */
+export type AnimalKind = 'sheep' | 'pig' | 'wolf' | 'villager' | 'zombie' | 'skeleton' | 'creeper'
 
 /** AABB for collision: half extents in XZ and full height in Y. */
 export interface EntityAABB {
@@ -41,7 +41,12 @@ export interface Entity {
   /** Mob level (from area); used for XP scaling and display. */
   level?: number
   /** When set, this entity is a quest giver offering these quest ids (e.g. first spawn village NPC). */
-  questGiver?: { offeredQuestIds: string[]; prerequisiteQuestIds?: string[] }
+  questGiver?: {
+    offeredQuestIds: string[]
+    prerequisiteQuestIds?: string[]
+    /** Id used for talk objectives (e.g. "elder_npc"); when player interacts, notifyTalk(talkTargetId) is called. */
+    talkTargetId?: string
+  }
   /** Spawn point for leashed mobs (e.g. from creature zones). Used with wanderRadius. */
   spawnHome?: { x: number; z: number }
   /** Max horizontal distance (blocks) from spawnHome the entity can move. WoW-style leash. */

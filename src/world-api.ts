@@ -13,6 +13,8 @@ export type GetBiomeFn = (x: number, z: number) => Biome
 /** Block light level 0–15 at (bx, by, bz). Used for hostile mob spawn (spawn only in dark). */
 export type GetBlockLightAtFn = (bx: number, by: number, bz: number) => number
 
+export type GetSkyLightAtFn = (bx: number, by: number, bz: number) => number
+
 export interface WorldApi {
   getBlockAt: GetBlockAtFn
   getSurfaceY: GetSurfaceYFn
@@ -20,6 +22,7 @@ export interface WorldApi {
   getBiome: GetBiomeFn
   /** Optional: block light at position (0–15). When set, hostile spawn uses it (spawn only when light <= threshold). */
   getBlockLightAt?: GetBlockLightAtFn
+  getSkyLightAt?: GetSkyLightAtFn
 }
 
 let worldApi: WorldApi | null = null

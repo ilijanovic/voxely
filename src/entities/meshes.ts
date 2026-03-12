@@ -444,6 +444,92 @@ function createZombieMesh(): THREE.Group {
   return group
 }
 
+const _refSkeletonBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refSkeletonHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refSkeletonLeg = { current: null as THREE.MeshStandardMaterial | null }
+const SKELETON_BONE = 0xc2b896
+const SKELETON_DARK = 0xa09070
+
+/** Skeleton: bone-colored humanoid (hostile). */
+function createSkeletonMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refSkeletonBody, SKELETON_BONE)
+  const matHead = getMat(_refSkeletonHead, SKELETON_DARK)
+  const matLeg = getMat(_refSkeletonLeg, SKELETON_DARK)
+  const boxBody = new THREE.BoxGeometry(0.4 * BLOCK, 0.7 * BLOCK, 0.25 * BLOCK)
+  const boxHead = new THREE.BoxGeometry(0.4 * BLOCK, 0.4 * BLOCK, 0.4 * BLOCK)
+  const boxLeg = new THREE.BoxGeometry(0.18 * BLOCK, 0.55 * BLOCK, 0.14 * BLOCK)
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 1.15, 0)
+  head.castShadow = true
+  head.receiveShadow = true
+  const torso = new THREE.Mesh(boxBody, matBody)
+  torso.position.set(0, 0.6, 0)
+  torso.castShadow = true
+  torso.receiveShadow = true
+  const legL = new THREE.Mesh(boxLeg, matLeg)
+  legL.position.set(-0.1, 0.22, 0)
+  legL.castShadow = true
+  legL.receiveShadow = true
+  const legR = new THREE.Mesh(boxLeg, matLeg)
+  legR.position.set(0.1, 0.22, 0)
+  legR.castShadow = true
+  legR.receiveShadow = true
+  group.add(head)
+  group.add(torso)
+  group.add(legL)
+  group.add(legR)
+  return group
+}
+
+const _refCreeperBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refCreeperHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refCreeperLeg = { current: null as THREE.MeshStandardMaterial | null }
+const CREEPER_GREEN = 0x3d7c3d
+const CREEPER_DARK = 0x2d5c2d
+
+/** Creeper: blocky green body, small head, four legs (hostile). */
+function createCreeperMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refCreeperBody, CREEPER_GREEN)
+  const matHead = getMat(_refCreeperHead, CREEPER_DARK)
+  const matLeg = getMat(_refCreeperLeg, CREEPER_DARK)
+  const boxBody = new THREE.BoxGeometry(0.5 * BLOCK, 0.7 * BLOCK, 0.3 * BLOCK)
+  const boxHead = new THREE.BoxGeometry(0.35 * BLOCK, 0.35 * BLOCK, 0.35 * BLOCK)
+  const boxLeg = new THREE.BoxGeometry(0.15 * BLOCK, 0.4 * BLOCK, 0.15 * BLOCK)
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 1.0, 0)
+  head.castShadow = true
+  head.receiveShadow = true
+  const torso = new THREE.Mesh(boxBody, matBody)
+  torso.position.set(0, 0.55, 0)
+  torso.castShadow = true
+  torso.receiveShadow = true
+  const legFL = new THREE.Mesh(boxLeg, matLeg)
+  legFL.position.set(-0.15, 0.2, 0.12)
+  legFL.castShadow = true
+  legFL.receiveShadow = true
+  const legFR = new THREE.Mesh(boxLeg, matLeg)
+  legFR.position.set(0.15, 0.2, 0.12)
+  legFR.castShadow = true
+  legFR.receiveShadow = true
+  const legBL = new THREE.Mesh(boxLeg, matLeg)
+  legBL.position.set(-0.15, 0.2, -0.12)
+  legBL.castShadow = true
+  legBL.receiveShadow = true
+  const legBR = new THREE.Mesh(boxLeg, matLeg)
+  legBR.position.set(0.15, 0.2, -0.12)
+  legBR.castShadow = true
+  legBR.receiveShadow = true
+  group.add(head)
+  group.add(torso)
+  group.add(legFL)
+  group.add(legFR)
+  group.add(legBL)
+  group.add(legBR)
+  return group
+}
+
 /** Registry of mesh factories per animal kind. Add a new entry when adding a new AnimalKind. */
 export const ANIMAL_MESH_FACTORY: Record<AnimalKind, () => THREE.Group> = {
   sheep: createSheepMesh,
@@ -451,6 +537,8 @@ export const ANIMAL_MESH_FACTORY: Record<AnimalKind, () => THREE.Group> = {
   wolf: createWolfMesh,
   villager: createVillagerMesh,
   zombie: createZombieMesh,
+  skeleton: createSkeletonMesh,
+  creeper: createCreeperMesh,
 }
 
 /**

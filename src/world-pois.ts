@@ -104,6 +104,8 @@ export interface PlacedNpc {
   questOfferIds?: string[]
   /** When set, this NPC only offers quests when all of these quest ids are completed. */
   prerequisiteQuestIds?: string[]
+  /** Id for talk objectives; when player interacts with this NPC, notifyTalk(talkTargetId) is called. */
+  talkTargetId?: string
 }
 
 /** Mob spawn area: kinds spawn within radius (deterministic per chunk). */
@@ -186,7 +188,14 @@ export function createPoiRegistryForSpawn(center: { x: number; z: number }): Wor
       z: center.z,
       radius: 16,
       count: 7,
-      questOfferIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
+      questOfferIds: [
+        'first_spawn_wool',
+        'first_spawn_pork',
+        'first_spawn_wolves',
+        'discover_village',
+        'speak_to_elder',
+      ],
+      talkTargetId: 'elder_npc',
     },
     {
       type: 'npc',
@@ -202,6 +211,15 @@ export function createPoiRegistryForSpawn(center: { x: number; z: number }): Wor
         'wool_gatherer',
         'hunt_pigs',
         'wolf_pelts',
+        'thin_the_undead',
+        'skeleton_bones',
+        'creeper_control',
+        'coal_from_the_dead',
+        'meat_and_wool',
+        'hunters_trial',
+        'stone_and_sticks',
+        'ore_for_the_smith',
+        'lumber_for_village',
       ],
       prerequisiteQuestIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
     },
@@ -357,6 +375,8 @@ export interface FixedSpawn {
   questOfferIds?: string[]
   /** When set, this quest giver only offers quests when all of these quest ids are completed. */
   prerequisiteQuestIds?: string[]
+  /** Id for talk objectives; when player interacts with this NPC, notifyTalk(talkTargetId) is called. */
+  talkTargetId?: string
 }
 
 /** Deterministic RNG from string seed. */
@@ -429,12 +449,14 @@ export function getFixedSpawnsInChunk(
               questOfferIds != null && poi.prerequisiteQuestIds != null && poi.prerequisiteQuestIds.length > 0
                 ? poi.prerequisiteQuestIds
                 : undefined
+            const talkTargetId = i === 0 ? poi.talkTargetId : undefined
             out.push({
               kind: 'villager',
               x,
               z,
               ...(questOfferIds != null ? { questOfferIds } : {}),
               ...(prerequisiteQuestIds != null ? { prerequisiteQuestIds } : {}),
+              ...(talkTargetId != null ? { talkTargetId } : {}),
             })
           }
         }
@@ -448,12 +470,14 @@ export function getFixedSpawnsInChunk(
             poi.prerequisiteQuestIds != null && poi.prerequisiteQuestIds.length > 0
               ? poi.prerequisiteQuestIds
               : undefined
+          const talkTargetId = poi.talkTargetId
           out.push({
             kind: 'villager',
             x,
             z,
             ...(questOfferIds != null ? { questOfferIds } : {}),
             ...(prerequisiteQuestIds != null ? { prerequisiteQuestIds } : {}),
+            ...(talkTargetId != null ? { talkTargetId } : {}),
           })
         }
       }

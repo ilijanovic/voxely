@@ -28,6 +28,7 @@ export type KeyAction =
   | 'hotbar9'
   | 'skill1'
   | 'skill2'
+  | 'use'
 
 const defaultBindings: Record<KeyAction, string> = {
   forward: 'KeyW',
@@ -51,6 +52,7 @@ const defaultBindings: Record<KeyAction, string> = {
   hotbar9: 'Digit9',
   skill1: 'KeyR',
   skill2: 'KeyF',
+  use: 'KeyE',
 }
 
 const bindings: Record<KeyAction, string> = { ...defaultBindings }
@@ -123,6 +125,7 @@ export const keyActionLabels: Record<KeyAction, string> = {
   hotbar9: 'Hotbar 9',
   skill1: 'Skill 1',
   skill2: 'Skill 2',
+  use: 'Use / Eat',
 }
 
 /** Override display names for modifier and special keys. Other codes use Key*/
@@ -167,4 +170,5 @@ export const keyActions: KeyAction[] = [
   'hotbar9',
   'skill1',
   'skill2',
+  'use',
 ]

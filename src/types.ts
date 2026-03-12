@@ -45,6 +45,8 @@ export interface ChunkData {
   heightmapBuffer?: Float32Array
   /** Biome index per column (row-major), index into terrain ALL_BIOMES. Used for map coloring. */
   biomeMapBuffer?: Uint8Array
+  /** Sky light 0–15 per block (same layout as voxel localKey). Used for spawn and lighting. */
+  skyLightBuffer?: Uint8Array
 }
 
 /** Tree noise caches per chunk (key: "wx,wz"). */

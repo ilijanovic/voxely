@@ -16,6 +16,7 @@ import {
   getSkillCooldownRemaining,
   claimQuestReward,
   refreshQuestCollectObjectives,
+  isPlayerDead,
 } from './game.ts'
 import { getFactionDisplayName, getClassDisplayName } from './player/faction'
 import { getFirstSkillForClass } from './player/skills'
@@ -33,12 +34,13 @@ import {
   getCompletedQuestIds,
   acceptQuest,
   abortQuest,
+  notifyTalk,
 } from './quests/quest-state'
 import { getQuestById } from './quests/quest-registry'
 import { getLevelProgress } from './experience'
 import { getGold, setOnGoldChange } from './gold'
 import { MAX_LEVEL, LEVEL_UP_DISPLAY_MS } from './constants'
-import { getKeyBinding } from './key-settings'
+import { getKeyBinding, codeToDisplayName } from './key-settings'
 import { subscribeConnection } from './multiplayer'
 import type { ConnectionStatus } from './multiplayer/types'
 import type { BlockType } from './types'
@@ -67,6 +69,7 @@ const FALLBACK_ICON =
   )
 import Inventory from './components/Inventory.vue'
 import CraftingTable from './components/CraftingTable.vue'
+import Furnace from './components/Furnace.vue'
 import Chat from './components/Chat.vue'
 import Menu from './components/Menu.vue'
 import PauseMenu from './components/PauseMenu.vue'
@@ -78,6 +81,7 @@ const gameMode = ref<null | 'singleplayer' | 'multiplayer'>(null)
 const canvasContainer = ref<HTMLElement | null>(null)
 const inventoryOpen = ref(false)
 const craftingTableOpen = ref(false)
+const furnaceOpen = ref(false)
 const chatOpen = ref(false)
 const pauseMenuOpen = ref(false)
 const questLogOpen = ref(false)
@@ -119,6 +123,15 @@ function openCraftingTableMenu() {
 function closeCraftingTable() {
   returnCraftingTableToInventory()
   craftingTableOpen.value = false
+}
+
+function openFurnace() {
+  document.exitPointerLock()
+  furnaceOpen.value = true
+}
+
+function closeFurnace() {
+  furnaceOpen.value = false
 }
 
 const HOTBAR_END = 8
@@ -242,6 +255,12 @@ function onKeyDown(e: KeyboardEvent) {
       closeCraftingTable()
       return
     }
+    if (furnaceOpen.value) {
+      e.preventDefault()
+      e.stopPropagation()
+      closeFurnace()
+      return
+    }
     if (inventoryOpen.value) {
       e.preventDefault()
       e.stopPropagation()
@@ -302,6 +321,8 @@ const playerFactionRef = ref('')
 const playerClassRef = ref('')
 /** First skill cooldown for HUD (polled). */
 const skillCooldownRef = ref(0)
+/** Player is dead (health <= 0); show death overlay and allow respawn. */
+const playerDeadRef = ref(false)
 const skillNameRef = ref('')
 /** Player look yaw in radians (0 = North). For compass needle rotation. */
 const playerYawRef = ref(0)
@@ -366,7 +387,9 @@ watch(gameMode, async (mode) => {
   function openQuestLogFromNpc(questGiver: {
     offeredQuestIds: string[]
     prerequisiteQuestIds?: string[]
+    talkTargetId?: string
   }) {
+    if (questGiver.talkTargetId) notifyTalk(questGiver.talkTargetId)
     refreshQuestList()
     questLogOfferedIds.value = [...questGiver.offeredQuestIds]
     const active = getActiveQuests()
@@ -400,6 +423,7 @@ watch(gameMode, async (mode) => {
     multiplayer: mode === 'multiplayer',
     onHotbarChange,
     onCraftingTableUse: openCraftingTableMenu,
+    onFurnaceUse: openFurnace,
     onQuestNpcInteract: openQuestLogFromNpc,
   }
   if (canvasContainer.value) {
@@ -460,6 +484,7 @@ watch(gameMode, async (mode) => {
     skillNameRef.value = firstSkill?.name ?? ''
     skillCooldownRef.value = firstSkill ? getSkillCooldownRemaining(firstSkill.id) : 0
     playerYawRef.value = getPlayerYaw()
+    playerDeadRef.value = isPlayerDead()
   }, 400)
   unsubscribeConnection = subscribeConnection((status) => {
     connectionStatus.value = status
@@ -596,6 +621,22 @@ onUnmounted(() => {
           class="level-up-banner fixed left-1/2 top-1/3 z-20 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
         >
           <span class="level-up-text">Level {{ levelUpDisplayRef }}!</span>
+        </div>
+      </Transition>
+
+      <!-- Death overlay: full-screen, press Use key to respawn -->
+      <Transition name="modal">
+        <div
+          v-if="playerDeadRef"
+          class="fixed inset-0 z-30 flex flex-col items-center justify-center bg-black/70"
+          role="alertdialog"
+          aria-labelledby="death-title"
+          aria-describedby="death-hint"
+        >
+          <h2 id="death-title" class="text-3xl font-bold text-red-400 mb-4">You died</h2>
+          <p id="death-hint" class="text-lg text-white/90">
+            Press {{ codeToDisplayName(getKeyBinding('use')) }} to respawn
+          </p>
         </div>
       </Transition>
 
@@ -755,6 +796,7 @@ onUnmounted(() => {
           :on-craft-one="craftOne3x3"
           @close="closeCraftingTable"
         />
+        <Furnace v-if="furnaceOpen" @close="closeFurnace" />
       </Transition>
 
       <!-- Pause menu (ESC): Resume, Options · Graphics -->

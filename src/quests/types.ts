@@ -5,8 +5,8 @@ import type { BlockType } from '../types'
 import type { AnimalKind } from '../entities/types'
 import type { PlayerClass } from '../player/faction'
 
-/** Objective type: kill mobs, collect items, or talk to NPC. */
-export type QuestObjectiveType = 'kill' | 'collect' | 'talk'
+/** Objective type: kill mobs, collect items, talk to NPC, or reach area. */
+export type QuestObjectiveType = 'kill' | 'collect' | 'talk' | 'reach'
 
 export interface QuestObjectiveKill {
   type: 'kill'
@@ -35,10 +35,19 @@ export interface QuestObjectiveTalk {
   label: string
 }
 
+export interface QuestObjectiveReach {
+  type: 'reach'
+  /** Area id (e.g. POI id or "old_mill"); progress set when player enters the area. */
+  areaId: string
+  /** Short label for UI (e.g. "Discover the Old Mill"). */
+  label: string
+}
+
 export type QuestObjective =
   | QuestObjectiveKill
   | QuestObjectiveCollect
   | QuestObjectiveTalk
+  | QuestObjectiveReach
 
 export interface QuestReward {
   /** XP granted on turn-in. */

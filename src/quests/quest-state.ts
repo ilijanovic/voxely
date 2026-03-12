@@ -159,6 +159,38 @@ export function notifyKill(kind: AnimalKind): void {
 }
 
 /**
+ * Notifies that the player talked to an NPC (or reached a talk target).
+ * Advances talk objectives whose targetId matches. Call when opening dialogue with a quest giver.
+ */
+export function notifyTalk(targetId: string): void {
+  for (const a of activeQuests) {
+    const quest = getQuestById(a.questId)
+    if (!quest) continue
+    quest.objectives.forEach((obj, i) => {
+      if (obj.type === 'talk' && obj.targetId === targetId) {
+        a.progress[i] = 1
+      }
+    })
+  }
+}
+
+/**
+ * Notifies that the player reached an area (e.g. discovered a POI).
+ * Advances reach objectives whose areaId matches. Call when player position is inside the area.
+ */
+export function notifyReach(areaId: string): void {
+  for (const a of activeQuests) {
+    const quest = getQuestById(a.questId)
+    if (!quest) continue
+    quest.objectives.forEach((obj, i) => {
+      if (obj.type === 'reach' && obj.areaId === areaId) {
+        a.progress[i] = 1
+      }
+    })
+  }
+}
+
+/**
  * Refreshes collect objectives from current inventory counts.
  * Pass a function that returns total count for a given item (e.g. from inventory).
  */

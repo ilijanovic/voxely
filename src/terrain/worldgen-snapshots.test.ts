@@ -54,7 +54,7 @@ function summarizePayload(payload: ChunkDataPayload): {
 
   if (payload.biomeMapBuffer) {
     for (let i = 0; i < payload.biomeMapBuffer.length; i++) {
-      const idx = payload.biomeMapBuffer[i]
+      const idx: number = payload.biomeMapBuffer[i]
       const name = ALL_BIOMES[idx] ?? `unknown_${idx}`
       biomeCounts[name] = (biomeCounts[name] ?? 0) + 1
     }

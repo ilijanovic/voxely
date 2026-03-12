@@ -59,6 +59,7 @@ import {
 } from '../world-interactions/torches'
 import { breakBlock as breakBlockSystem } from '../world-interactions/mining'
 import { RaycastMeshCache } from './raycast-cache'
+import { setInstanceLightLevels } from '../../terrain-light'
 
 // Scratch buffers (reused every frame to avoid allocations)
 const _matrix = new THREE.Matrix4()
@@ -91,6 +92,8 @@ export interface ChunkSyncContext {
   grassColormapData: ImageData | null
   foliageColormapData: ImageData | null
   tallGrassMaterial: THREE.MeshStandardMaterial | null
+  /** Returns combined block+sky light 0–15 at (bx, by, bz). Used for terrain light rendering. */
+  getLightAt: (bx: number, by: number, bz: number) => number
   raycastMeshCache: RaycastMeshCache
   frustumDirty: boolean
   scene: THREE.Scene
@@ -457,8 +460,11 @@ export function rebuildChunkLayer(
   if (blockType === 'tall_grass') {
     if (ctx.tallGrassMaterial) {
       const mesh = addTallGrassLayer(data.group, positions, ctx.tallGrassMaterial)
-      if (mesh && ctx.grassColormapData) {
-        setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
+      if (mesh) {
+        setInstanceLightLevels(mesh, positions, ctx.getLightAt)
+        if (ctx.grassColormapData) {
+          setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
+        }
       }
     }
     return
@@ -470,8 +476,11 @@ export function rebuildChunkLayer(
       chunkKeyNum: keyNum,
       blockType,
     })
-    if (mesh && ctx.grassColormapData) {
-      setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
+    if (mesh) {
+      setInstanceLightLevels(mesh, positions, ctx.getLightAt)
+      if (ctx.grassColormapData) {
+        setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
+      }
     }
     return
   }
@@ -483,10 +492,14 @@ export function rebuildChunkLayer(
   // Water blocks (source + flowing 1..7): horizontal plane per block at block Y + water height
   if (blockType === 'water_source' || blockType.startsWith('water_flowing_')) {
     const waterHeight = getBlockHeight(blockType)
-    addWaterBlockLayer(data.group, positions, getMaterialForBlockType(blockType), waterHeight, {
-      chunkKeyNum: keyNum,
-      blockType,
-    })
+    const waterMesh = addWaterBlockLayer(
+      data.group,
+      positions,
+      getMaterialForBlockType(blockType),
+      waterHeight,
+      { chunkKeyNum: keyNum, blockType },
+    )
+    if (waterMesh) setInstanceLightLevels(waterMesh, positions, ctx.getLightAt)
     return
   }
 
@@ -500,11 +513,14 @@ export function rebuildChunkLayer(
     },
     geometry,
   )
-  if (mesh && (blockType === 'grass' || blockType === 'grass_savanna') && ctx.grassColormapData) {
-    setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
-  }
-  if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && ctx.foliageColormapData) {
-    setFoliageInstanceColors(mesh, positions, getResolvedBiome, ctx.foliageColormapData)
+  if (mesh) {
+    setInstanceLightLevels(mesh, positions, ctx.getLightAt)
+    if ((blockType === 'grass' || blockType === 'grass_savanna') && ctx.grassColormapData) {
+      setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
+    }
+    if (FOLIAGE_BLOCK_TYPES.includes(blockType) && ctx.foliageColormapData) {
+      setFoliageInstanceColors(mesh, positions, getResolvedBiome, ctx.foliageColormapData)
+    }
   }
 }
 
@@ -559,7 +575,7 @@ export function breakBlock(
   worldX: number,
   worldY: number,
   worldZ: number,
-  options?: { skipRefresh?: boolean; time?: number; dropType?: BlockType },
+  options?: { skipRefresh?: boolean; time?: number; dropType?: BlockType; skipDrop?: boolean },
 ): void {
   const time = options?.time ?? 0
   breakBlockSystem({
@@ -585,6 +601,7 @@ export function breakBlock(
     spawnDrop: (wx, wz, startY, restY, bt, t) => spawnDrop(ctx, wx, wz, startY, restY, bt, t),
     skipRefresh: options?.skipRefresh,
     dropType: options?.dropType,
+    skipDrop: options?.skipDrop,
   })
 }
 
@@ -733,8 +750,11 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
         chunkKeyNum: keyNum,
         blockType,
       })
-      if (mesh && ctx.grassColormapData) {
-        setGrassInstanceColors(mesh, visible, getResolvedBiome, ctx.grassColormapData)
+      if (mesh) {
+        setInstanceLightLevels(mesh, visible, ctx.getLightAt)
+        if (ctx.grassColormapData) {
+          setGrassInstanceColors(mesh, visible, getResolvedBiome, ctx.grassColormapData)
+        }
       }
       continue
     }
@@ -742,11 +762,14 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
       chunkKeyNum: keyNum,
       blockType,
     })
-    if (mesh && (blockType === 'grass' || blockType === 'grass_savanna') && ctx.grassColormapData) {
-      setGrassInstanceColors(mesh, visible, getResolvedBiome, ctx.grassColormapData)
-    }
-    if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && ctx.foliageColormapData) {
-      setFoliageInstanceColors(mesh, visible, getResolvedBiome, ctx.foliageColormapData)
+    if (mesh) {
+      setInstanceLightLevels(mesh, visible, ctx.getLightAt)
+      if ((blockType === 'grass' || blockType === 'grass_savanna') && ctx.grassColormapData) {
+        setGrassInstanceColors(mesh, visible, getResolvedBiome, ctx.grassColormapData)
+      }
+      if (FOLIAGE_BLOCK_TYPES.includes(blockType) && ctx.foliageColormapData) {
+        setFoliageInstanceColors(mesh, visible, getResolvedBiome, ctx.foliageColormapData)
+      }
     }
   }
 
@@ -759,13 +782,16 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
   )
   if (ctx.tallGrassMaterial && tallGrassPositions.length > 0) {
     const tallGrassMesh = addTallGrassLayer(group, tallGrassPositions, ctx.tallGrassMaterial)
-    if (tallGrassMesh && ctx.grassColormapData) {
-      setGrassInstanceColors(
-        tallGrassMesh,
-        tallGrassPositions,
-        getResolvedBiome,
-        ctx.grassColormapData,
-      )
+    if (tallGrassMesh) {
+      setInstanceLightLevels(tallGrassMesh, tallGrassPositions, ctx.getLightAt)
+      if (ctx.grassColormapData) {
+        setGrassInstanceColors(
+          tallGrassMesh,
+          tallGrassPositions,
+          getResolvedBiome,
+          ctx.grassColormapData,
+        )
+      }
     }
   }
 

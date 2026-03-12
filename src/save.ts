@@ -63,6 +63,8 @@ export interface SaveData {
   completedQuestIds?: string[]
   /** Chunk keys (chunkKeyNumeric) the player has visited; used for map discovery. Omitted in older saves. */
   discoveredChunkKeys?: number[]
+  /** Bed respawn point (set when player uses a bed). Omitted in older saves. */
+  bedRespawn?: { x: number; y: number; z: number }
 }
 
 /**

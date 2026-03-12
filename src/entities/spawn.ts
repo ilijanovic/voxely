@@ -131,6 +131,34 @@ export const ANIMAL_DEFS: AnimalDef[] = [
     spawnGroupMin: 1,
     spawnGroupMax: 2,
   },
+  {
+    kind: 'skeleton',
+    aabb: { halfX: 0.3, halfZ: 0.3, height: 1.99 },
+    walkSpeed: 1.0,
+    runSpeed: 2.4,
+    spawnBiomes: ['plains', 'forest', 'savanna', 'desert'],
+    maxPerChunk: 1,
+    behaviour: 'chase',
+    defaultDisposition: 'aggro',
+    maxHealth: 20,
+    spawnWeight: 2,
+    spawnGroupMin: 1,
+    spawnGroupMax: 2,
+  },
+  {
+    kind: 'creeper',
+    aabb: { halfX: 0.3, halfZ: 0.3, height: 1.7 },
+    walkSpeed: 0.8,
+    runSpeed: 1.8,
+    spawnBiomes: ['plains', 'forest', 'savanna', 'jungle'],
+    maxPerChunk: 1,
+    behaviour: 'chase',
+    defaultDisposition: 'aggro',
+    maxHealth: 20,
+    spawnWeight: 2,
+    spawnGroupMin: 1,
+    spawnGroupMax: 1,
+  },
 ]
 
 function getDef(kind: AnimalKind): AnimalDef {
@@ -437,6 +465,7 @@ export function spawnEntitiesForChunk(
               ...(spawn.prerequisiteQuestIds != null && spawn.prerequisiteQuestIds.length > 0
                 ? { prerequisiteQuestIds: spawn.prerequisiteQuestIds }
                 : {}),
+              ...(spawn.talkTargetId != null ? { talkTargetId: spawn.talkTargetId } : {}),
             },
           }
         : {}),

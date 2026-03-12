@@ -80,6 +80,23 @@ export function getBlockAt(bx: number, by: number, bz: number): BlockType | 'air
   return type ?? 'air'
 }
 
+/**
+ * Sky light level 0–15 at (bx, by, bz). Returns 0 if chunk unloaded or no sky light data.
+ */
+export function getSkyLightAt(bx: number, by: number, bz: number): number {
+  const ix = Math.floor(bx)
+  const iy = Math.floor(by)
+  const iz = Math.floor(bz)
+  if (iy < 0 || iy >= WORLD_HEIGHT) return 0
+  const cx = Math.floor(ix / CHUNK_SIZE)
+  const cz = Math.floor(iz / CHUNK_SIZE)
+  const data = chunks.get(chunkKeyNumeric(cx, cz))
+  if (!data?.skyLightBuffer) return 0
+  const lx = ix - data.cx * CHUNK_SIZE
+  const lz = iz - data.cz * CHUNK_SIZE
+  return data.skyLightBuffer[localKey(lx, iy, lz)] ?? 0
+}
+
 /** Block height in world units at (bx, by, bz). 0 for air/unloaded; 1 for full block; 1/8..8/8 for snow layers. */
 export function getBlockHeightAt(bx: number, by: number, bz: number): number {
   const type = getBlockAt(bx, by, bz)

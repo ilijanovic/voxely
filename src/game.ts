@@ -27,7 +27,24 @@ import {
   TOTAL_PERSISTENT_SLOTS,
   MAX_STACK_SIZE,
   AUTOSAVE_INTERVAL_MS,
+  FALL_DAMAGE_MIN_BLOCKS,
+  FALL_DAMAGE_PER_BLOCK,
+  DROWNING_BREATH_SEC,
+  DROWNING_DAMAGE_INTERVAL_SEC,
+  DROWNING_DAMAGE_PER_INTERVAL,
+  HUNGER_DRAIN_INTERVAL_SEC,
+  HUNGER_DRAIN_WALKING,
+  HUNGER_DRAIN_SPRINTING_EXTRA,
+  REGEN_HUNGER_THRESHOLD,
+  REGEN_INTERVAL_SEC,
+  REGEN_HUNGER_COST,
+  RESPAWN_HEALTH,
+  RESPAWN_HUNGER,
+  RESPAWN_INVINCIBILITY_SEC,
+  MOB_ATTACK_DAMAGE,
+  MOB_ATTACK_INTERVAL_SEC,
 } from './constants'
+import { getFoodRestore, isFood } from './food'
 import {
   getSelectedBlockType,
   setHotbarIndex,
@@ -81,7 +98,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { syncTerrainFogFromSceneFog } from './terrain-fog'
 import { getKeyBinding, type KeyAction } from './key-settings'
 import { initMultiplayer, updateMultiplayer } from './multiplayer'
-import { setWorldApi } from './world-api'
+import { setWorldApi, getWorldApi } from './world-api'
 import { spawnEntitiesForChunk } from './entities/spawn'
 import { updateMovement } from './entities/movement'
 import { updateAI, FLEE_DURATION_AFTER_HIT } from './entities/ai'
@@ -101,6 +118,7 @@ import {
   isUnbreakableBlock,
   getBlockBreakTimeWithTool,
   getBlockDefinition,
+  shouldDropWithTool,
   getBlockTextureNames,
   getBlockHeight,
   getItemTextureName,
@@ -156,9 +174,11 @@ import {
   getQuestStateForSave,
   setQuestStateFromSave,
   notifyKill as notifyQuestKill,
+  notifyReach as notifyQuestReach,
   turnInQuest,
   refreshCollectObjectives,
 } from './quests/quest-state'
+import { QUEST_AREAS } from './quests/quest-areas'
 import { initMaterialsAndColormaps as initMaterialsAndColormapsSystem } from './game/init/materials'
 import { initSceneAndRenderer as initSceneAndRendererSystem } from './game/init/scene'
 import { initLightsAndSky as initLightsAndSkySystem } from './game/init/lights-sky'
@@ -174,10 +194,13 @@ import {
   setDayTime,
   getSunDirection,
   updateAtmosphere,
+  isNight,
   SUN_DISTANCE,
   type AtmosphereContext,
 } from './atmosphere'
 import { createSnowEffect, type SnowEffect } from './snow-effect'
+import { createRainEffect, type RainEffect } from './rain-effect'
+import { updateWeather, setWeather } from './weather'
 import { registerCommand } from './debug-commands'
 import {
   chunks,
@@ -192,6 +215,7 @@ import {
   invalidateColumnHeight,
   getBlockAt,
   getBlockModsForChunk,
+  getSkyLightAt,
 } from './chunk-runtime'
 import { isWaterBlock, getWaterLevel, computeWaterSpread } from './game/fluid/water-flow'
 import { isOccludingBlock as isBlockTypeOccluding } from './block-registry'
@@ -476,6 +500,32 @@ let playerFaction: Faction = DEFAULT_FACTION
 /** Player class (e.g. warrior). Persisted in save. */
 let playerClass: PlayerClass = DEFAULT_CLASS
 
+/** World spawn (x, z) for respawn; set once at init from resolveInitialSpawnXZ. */
+let worldRespawnSpawnX = 0
+let worldRespawnSpawnZ = 0
+/** Bed respawn point (set when player uses a bed). When set, respawn here instead of world spawn. */
+let bedRespawnX: number | null = null
+let bedRespawnY: number | null = null
+let bedRespawnZ: number | null = null
+/** Fall tracking: Y position when player left ground (for fall damage on landing). */
+let fallStartY = 0
+/** Previous frame grounded state (for fall damage and landing detection). */
+let wasGrounded = false
+/** Seconds underwater; reset when surfacing. Used for drowning. */
+let underwaterTime = 0
+/** Last time we applied hunger drain (walking/sprinting). */
+let lastHungerDrainTime = 0
+/** Last time we applied regeneration. */
+let lastRegenTime = 0
+/** Last time we applied drowning damage (when out of breath). */
+let lastDrowningDamageTime = 0
+/** When true, player is dead; movement is frozen and only respawn key works. */
+let playerDead = false
+/** Game time until which player is invincible after respawn. */
+let invincibilityUntilTime = 0
+/** Last time each hostile entity dealt damage to the player (for attack cooldown). */
+const mobLastAttackTimeByEntityId = new Map<string, number>()
+
 /**
  * Builds the player slice of SaveData from current position, look angles, and level/XP.
  * Used by saveGame and by multiplayer state sync.
@@ -542,6 +592,10 @@ function saveGame(): void {
     activeQuests: questState.activeQuests,
     completedQuestIds: questState.completedQuestIds,
     discoveredChunkKeys: Array.from(discoveredChunkKeys),
+    bedRespawn:
+      bedRespawnX != null && bedRespawnY != null && bedRespawnZ != null
+        ? { x: bedRespawnX, y: bedRespawnY, z: bedRespawnZ }
+        : undefined,
   }
   saveToStorage(state)
 }
@@ -683,6 +737,17 @@ function loadGame(): boolean {
     0,
     Math.min(PLAYER_MAX_HUNGER, data.player.hunger ?? PLAYER_MAX_HUNGER),
   )
+  wasGrounded = true
+  playerDead = playerHealth <= 0
+  if (data.bedRespawn) {
+    bedRespawnX = data.bedRespawn.x
+    bedRespawnY = data.bedRespawn.y
+    bedRespawnZ = data.bedRespawn.z
+  } else {
+    bedRespawnX = null
+    bedRespawnY = null
+    bedRespawnZ = null
+  }
   playerBaseStats = normaliseCharacterStats(data.player.stats)
   playerFaction = data.player.faction === 'legion' ? 'legion' : DEFAULT_FACTION
   playerClass = data.player.class === 'warrior' ? 'warrior' : DEFAULT_CLASS
@@ -825,6 +890,13 @@ function getChunkSyncCtx(): ChunkSyncContext {
     grassColormapData,
     foliageColormapData,
     tallGrassMaterial,
+    getLightAt: (bx, by, bz) => {
+      try {
+        return getWorldApi().getBlockLightAt?.(bx, by, bz) ?? 15
+      } catch {
+        return 15
+      }
+    },
     raycastMeshCache,
     frustumDirty: _frustumDirty,
     scene,
@@ -993,10 +1065,13 @@ function breakBlock(
   const useWorker = !!chunkWorker
   const doorDrop =
     blockType === 'door_closed' || blockType === 'door_open' ? 'door_closed' : undefined
+  const heldItem = getSelectedBlockType()
+  const skipDrop = !shouldDropWithTool(blockType, heldItem ?? undefined)
   breakBlockSync(ctx, chunkKeyNum, blockType, worldX, worldY, worldZ, {
     skipRefresh: useWorker,
     time,
     dropType: doorDrop,
+    skipDrop,
   })
   // Only fill with water when this column is under ocean/lake (surface below water level), not when digging on land.
   const surfaceUnderwater = getHeight(worldX, worldZ) < WATER_LEVEL
@@ -1412,6 +1487,7 @@ let sky: THREE.Mesh
 let clouds: THREE.Group
 let cloudMaterial: THREE.MeshBasicMaterial
 let snowEffect: SnowEffect
+let rainEffect: RainEffect
 /** Applied to snowEffect when it is created (set by loadGame when run before initLightsAndSky). */
 let pendingSnowForced: boolean | null | undefined
 let player: THREE.Group
@@ -1576,11 +1652,14 @@ let multiplayerEnabled = false
 
 /** Callback when the player uses (right-clicks) a crafting table block; used to open the crafting UI. */
 let onCraftingTableUse: (() => void) | null = null
+/** Callback when the player uses (right-clicks) a furnace block; used to open the furnace UI. */
+let onFurnaceUse: (() => void) | null = null
 
-/** Callback when the player right-clicks or uses (F) a quest NPC; receives the quest giver data (offered ids and optional prerequisites). */
+/** Callback when the player right-clicks or uses (F) a quest NPC; receives the quest giver data (offered ids, optional prerequisites, optional talk target id for talk objectives). */
 let onQuestNpcInteract: ((questGiver: {
   offeredQuestIds: string[]
   prerequisiteQuestIds?: string[]
+  talkTargetId?: string
 }) => void) | null = null
 
 /**
@@ -1594,15 +1673,18 @@ export async function initGame(
     multiplayer?: boolean
     onHotbarChange?: (blocks: BlockType[], counts: number[]) => void
     onCraftingTableUse?: () => void
+    onFurnaceUse?: () => void
     onQuestNpcInteract?: (questGiver: {
       offeredQuestIds: string[]
       prerequisiteQuestIds?: string[]
+      talkTargetId?: string
     }) => void
   },
 ): Promise<void> {
   multiplayerEnabled = options?.multiplayer === true
   setOnHotbarChange(options?.onHotbarChange ?? null)
   onCraftingTableUse = options?.onCraftingTableUse ?? null
+  onFurnaceUse = options?.onFurnaceUse ?? null
   onQuestNpcInteract = options?.onQuestNpcInteract ?? null
   await init(container)
 }
@@ -1646,8 +1728,16 @@ function registerDebugCommands(): void {
   })
 
   registerCommand('rain', (args) => {
-    void args
-    return 'Rain is not implemented (snow only).'
+    const sub = (args[0] ?? '').toLowerCase()
+    if (sub === 'on' || sub === 'start') {
+      setWeather('rain')
+      return 'Rain: on'
+    }
+    if (sub === 'off' || sub === 'stop' || sub === 'clear') {
+      setWeather('clear')
+      return 'Rain: off'
+    }
+    return 'Usage: /rain on | off'
   })
 
   registerCommand('time', (args) => {
@@ -1720,6 +1810,7 @@ function initLightsAndSky(): void {
   ambientLight = result.ambientLight
   hemiLight = result.hemiLight
   snowEffect = createSnowEffect(scene)
+  rainEffect = createRainEffect(scene)
   if (pendingSnowForced !== undefined) {
     snowEffect.setForced?.(pendingSnowForced)
     pendingSnowForced = undefined
@@ -1765,6 +1856,13 @@ function initChunkWorker(): void {
           foliageColormapData,
           tallGrassMaterial,
           getResolvedBiome,
+          getLightAt: (bx, by, bz) => {
+            try {
+              return getWorldApi().getBlockLightAt?.(bx, by, bz) ?? 15
+            } catch {
+              return 15
+            }
+          },
           torchContainer,
           placedTorches,
           onChunkAdded: (data) => {
@@ -1799,6 +1897,8 @@ function initChunkWorker(): void {
  * Creates player mesh and spawn logic, registers world API (getBlock, getBiome, getSurfaceY, etc.), creates POV hands and shadow body.
  */
 function initPlayerAndWorldApi(resolvedSpawn: { x: number; z: number }): void {
+  worldRespawnSpawnX = resolvedSpawn.x
+  worldRespawnSpawnZ = resolvedSpawn.z
   const created = createPlayer(scene, resolvedSpawn)
   player = created.player
   head = created.head
@@ -1813,21 +1913,24 @@ function initPlayerAndWorldApi(resolvedSpawn: { x: number; z: number }): void {
     getSurfaceY,
     getColumnSurfaceY,
     getBiome: getResolvedBiome,
+    getSkyLightAt: (x, y, z) => getSkyLightAt(Math.floor(x), Math.floor(y), Math.floor(z)),
     getBlockLightAt: (x, y, z) => {
       const bx = Math.floor(x)
       const by = Math.floor(y)
       const bz = Math.floor(z)
+      const skyLight = getSkyLightAt(bx, by, bz)
       const cacheKey = blockKeyNumeric(bx, by, bz)
       const cached = blockLightCache.get(cacheKey)
-      if (cached && cached.version === blockLightCacheVersion) return cached.value
+      if (cached && cached.version === blockLightCacheVersion)
+        return Math.max(skyLight, cached.value)
       // Vanilla-like block light spread with basic occlusion:
       // - Torches emit 14
       // - Light falls off by 1 per step (6-neighborhood)
       // - Occluding blocks stop propagation (no "through walls")
       const startBlock = getBlockAt(bx, by, bz)
-      if (startBlock === null) return 0
+      if (startBlock === null) return Math.max(skyLight, 0)
       if (startBlock !== 'air' && startBlock !== 'torch' && isBlockTypeOccluding(startBlock as BlockType))
-        return 0
+        return Math.max(skyLight, 0)
 
       const MAX_LIGHT = 14
       const visited = new Set<number>()
@@ -1849,7 +1952,7 @@ function initPlayerAndWorldApi(resolvedSpawn: { x: number; z: number }): void {
         if (t === 'torch' || (t !== null && t !== 'air' && isTorchLikeBlockType(t as BlockType))) {
           // Light at the torch's own block is 14; at the start cell it is 14 - distance.
           blockLightCache.set(cacheKey, { version: blockLightCacheVersion, value: levelHere })
-          return levelHere
+          return Math.max(skyLight, levelHere)
         }
 
         // Do not propagate through occluding blocks (but allow propagation from within air/non-occluding).
@@ -1882,7 +1985,7 @@ function initPlayerAndWorldApi(resolvedSpawn: { x: number; z: number }): void {
       }
 
       blockLightCache.set(cacheKey, { version: blockLightCacheVersion, value: 0 })
-      return 0
+      return Math.max(skyLight, 0)
     },
   })
 
@@ -2107,6 +2210,12 @@ document.addEventListener('keydown', (e) => {
     return
   }
 
+  if (code === getKeyBinding('use') && !e.repeat) {
+    if (playerDead) requestRespawn()
+    else tryEatHeldItem()
+    return
+  }
+
   // Skill 1 (e.g. Warrior Strike): next slash deals bonus damage; cooldown applied
   if (code === getKeyBinding('skill1') && !e.repeat) {
     const skill = getFirstSkillForClass(playerClass)
@@ -2232,6 +2341,7 @@ function updateFPSAndSpawn(time: number): void {
  * Updates snow effect, atmosphere (sun/moon/sky/fog), terrain fog sync, and optional snow accumulation; tunes scene fog to render distance.
  */
 function updateDayCycleAndAtmosphere(dt: number): void {
+  updateWeather(dt)
   const eyeY = player.position.y + (viewMode === 'first' ? eyeHeight : cameraHeight)
   const snowCtx = {
     playerPosition: player.position,
@@ -2240,6 +2350,7 @@ function updateDayCycleAndAtmosphere(dt: number): void {
     biome: getResolvedBiome(player.position.x, player.position.z),
   }
   snowEffect.update(dt, snowCtx)
+  rainEffect.update(dt, snowCtx)
   const isSnowing = snowEffect.isSnowing(snowCtx)
 
   const ctx: AtmosphereContext = {
@@ -2523,6 +2634,144 @@ function updateMovementAndCollision(dt: number, time: number): void {
   updateAnimation(time)
   updateHurtFlash(time)
   updateAllQuestNpcIcons(getAllEntities)
+}
+
+/**
+ * Applies survival mechanics: fall damage, drowning, hunger drain, regeneration, death.
+ * Uses wasGrounded (previous frame) and playerGrounded (current); updates wasGrounded at end.
+ */
+function updateSurvival(dt: number, time: number): void {
+  const inWater = isPlayerInWater()
+  const invincible = time < invincibilityUntilTime
+
+  if (playerGrounded && !wasGrounded && !inWater) {
+    const fallBlocks = fallStartY - player.position.y
+    if (fallBlocks >= FALL_DAMAGE_MIN_BLOCKS && !invincible) {
+      const damage = Math.min(
+        PLAYER_MAX_HEALTH,
+        Math.floor((fallBlocks - FALL_DAMAGE_MIN_BLOCKS) * FALL_DAMAGE_PER_BLOCK),
+      )
+      if (damage > 0) setPlayerHealth(playerHealth - damage)
+    }
+  }
+  if (!playerGrounded && wasGrounded && !inWater) fallStartY = player.position.y
+  wasGrounded = playerGrounded
+
+  if (inWater) {
+    underwaterTime += dt
+    if (underwaterTime > DROWNING_BREATH_SEC && !invincible) {
+      if (time - lastDrowningDamageTime >= DROWNING_DAMAGE_INTERVAL_SEC) {
+        lastDrowningDamageTime = time
+        setPlayerHealth(playerHealth - DROWNING_DAMAGE_PER_INTERVAL)
+      }
+    }
+  } else {
+    underwaterTime = 0
+  }
+
+  if (time - lastHungerDrainTime >= HUNGER_DRAIN_INTERVAL_SEC) {
+    lastHungerDrainTime = time
+    let drain = HUNGER_DRAIN_WALKING
+    if (isSprinting && moveState.forward) drain += HUNGER_DRAIN_SPRINTING_EXTRA
+    if (playerHunger > 0) setPlayerHunger(playerHunger - drain)
+  }
+
+  if (
+    playerHunger >= REGEN_HUNGER_THRESHOLD &&
+    playerHealth < PLAYER_MAX_HEALTH &&
+    time - lastRegenTime >= REGEN_INTERVAL_SEC
+  ) {
+    lastRegenTime = time
+    setPlayerHealth(playerHealth + 1)
+    setPlayerHunger(playerHunger - REGEN_HUNGER_COST)
+  }
+
+  if (playerHealth <= 0) playerDead = true
+}
+
+/** Squared distance within which a hostile mob can hit the player. */
+const MOB_ATTACK_RANGE_SQ = 2.5 * 2.5
+
+/**
+ * Applies damage from hostile mobs (aggro, chase state) when in range. Respects invincibility and death.
+ */
+function applyMobDamageToPlayer(time: number): void {
+  if (playerDead || time < invincibilityUntilTime) return
+  const px = player.position.x
+  const py = player.position.y
+  const pz = player.position.z
+  for (const e of getAllEntities()) {
+    if (e.state === 'dead' || e.disposition !== 'aggro' || e.state !== 'chase') continue
+    const dx = px - e.position.x
+    const dy = py - e.position.y
+    const dz = pz - e.position.z
+    const distSq = dx * dx + dy * dy + dz * dz
+    if (distSq > MOB_ATTACK_RANGE_SQ) continue
+    const last = mobLastAttackTimeByEntityId.get(e.id) ?? 0
+    if (time - last < MOB_ATTACK_INTERVAL_SEC) continue
+    mobLastAttackTimeByEntityId.set(e.id, time)
+    setPlayerHealth(playerHealth - MOB_ATTACK_DAMAGE)
+  }
+}
+
+/**
+ * Moves player to world spawn and restores health/hunger; clears death state and grants brief invincibility.
+ */
+function performRespawn(time: number): void {
+  const useBed =
+    bedRespawnX != null && bedRespawnY != null && bedRespawnZ != null
+  const x = useBed ? bedRespawnX! : worldRespawnSpawnX
+  const z = useBed ? bedRespawnZ! : worldRespawnSpawnZ
+  const y = useBed ? bedRespawnY! : getSurfaceY(worldRespawnSpawnX, worldRespawnSpawnZ)
+  player.position.set(x, y, z)
+  velocityX = 0
+  velocityY = 0
+  velocityZ = 0
+  playerGrounded = true
+  setPlayerHealth(RESPAWN_HEALTH)
+  setPlayerHunger(RESPAWN_HUNGER)
+  playerDead = false
+  invincibilityUntilTime = time + RESPAWN_INVINCIBILITY_SEC
+  wasGrounded = true
+}
+
+/**
+ * Returns true when the player is dead (health <= 0); used by UI for death overlay.
+ */
+export function isPlayerDead(): boolean {
+  return playerDead
+}
+
+/**
+ * Respawns the player at world spawn. No-op if not dead. Call from UI when player presses respawn key.
+ */
+export function requestRespawn(): void {
+  if (!playerDead) return
+  performRespawn(clock.getElapsedTime())
+}
+
+/**
+ * Returns true if the currently held item is food and can be consumed (and we're not dead).
+ */
+export function canEatHeldItem(): boolean {
+  if (playerDead) return false
+  const held = getSelectedBlockType()
+  return isFood(held)
+}
+
+/**
+ * Consumes one of the held food item and restores hunger/health. Call when player presses use key with food in hand.
+ * @returns true if an item was consumed
+ */
+export function tryEatHeldItem(): boolean {
+  if (playerDead) return false
+  const held = getSelectedBlockType()
+  const restore = getFoodRestore(held)
+  if (!restore || getSelectedSlotCount() <= 0) return false
+  consumeOneFromSelectedSlot()
+  setPlayerHunger(Math.min(PLAYER_MAX_HUNGER, playerHunger + restore.hunger))
+  if (restore.health != null) setPlayerHealth(Math.min(PLAYER_MAX_HEALTH, playerHealth + restore.health))
+  return true
 }
 
 /**
@@ -3082,6 +3331,13 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
           }
         } else if (useBlock === 'crafting_table') {
           onCraftingTableUse?.()
+        } else if (useBlock === 'furnace') {
+          onFurnaceUse?.()
+        } else if (useBlock === 'bed') {
+          bedRespawnX = useBx + 0.5
+          bedRespawnY = useBy + 1
+          bedRespawnZ = useBz + 0.5
+          if (isNight()) setDayTime(0.25)
         } else {
           const sel = getSelectedBlockType()
           const count = getSelectedSlotCount()
@@ -3516,6 +3772,21 @@ function updateShadowAndRender(dt: number): void {
 }
 
 /**
+ * Updates quest "reach" objectives when the player is inside a quest area.
+ */
+function updateQuestReachAreas(): void {
+  const px = player.position.x
+  const pz = player.position.z
+  for (const area of QUEST_AREAS) {
+    const dx = px - area.x
+    const dz = pz - area.z
+    if (dx * dx + dz * dz <= area.radius * area.radius) {
+      notifyQuestReach(area.areaId)
+    }
+  }
+}
+
+/**
  * Main game loop: runs per-frame updates (FPS/spawn, day/atmosphere, chunks, movement/collision, camera, drops, block break/place, multiplayer, shadow/render) and schedules next frame.
  */
 function animate(): void {
@@ -3525,7 +3796,12 @@ function animate(): void {
   updateFPSAndSpawn(time)
   updateDayCycleAndAtmosphere(dt)
   updateChunkVisibility()
-  updateMovementAndCollision(dt, time)
+  if (!playerDead) {
+    updateMovementAndCollision(dt, time)
+    updateSurvival(dt, time)
+    applyMobDamageToPlayer(time)
+  }
+  updateQuestReachAreas()
   updateCameraAndViewMode(time, dt)
   updateDropsAndPickup(time, dt)
   runBlockTick(time)

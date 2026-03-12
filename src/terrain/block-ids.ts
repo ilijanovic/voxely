@@ -105,6 +105,8 @@ const TERRAIN_BLOCK_TYPES: (BlockType | 'air')[] = [
   'acacia_planks',
   'dark_oak_planks',
   'crafting_table',
+  'furnace',
+  'bed',
   'torch',
   // Structure blocks (village walls, etc.)
   'bricks',

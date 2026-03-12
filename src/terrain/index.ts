@@ -103,6 +103,7 @@ import {
   createPinkPetalsFeature,
 } from './features/extra-vegetation'
 import { localKey, typeToId, idToType, AIR_ID, isAirOrCarved } from './block-ids'
+import { computeSkyLightBuffer } from './sky-light'
 import {
   FOREST_DENSITY_SCALE,
   FOREST_DENSITY_THRESHOLD,
@@ -178,6 +179,10 @@ export interface ChunkDataPayload {
    * Keys are `localKey(lx, ly, lz)` using terrain's localKey convention.
    */
   visibleBlockKeysByType?: Array<{ blockTypeId: number; keys: Uint32Array }>
+  /**
+   * Optional sky light per block (0–15), same layout as buffer. Used for hostile spawn and lighting.
+   */
+  skyLightBuffer?: Uint8Array
   /**
    * Optional request identifier used by the main thread to discard stale worker responses.
    * When present, this must be propagated unchanged from the worker request.
@@ -1325,6 +1330,8 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
         }
       }
 
+      const skyLightBuffer = computeSkyLightBuffer(ctx.voxelMap)
+
       return {
         chunkX: ctx.chunkX,
         chunkZ: ctx.chunkZ,
@@ -1332,6 +1339,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
         heightmapBuffer,
         biomeMapBuffer,
         buffer: ctx.voxelMap,
+        skyLightBuffer,
       }
     } finally {
       currentChunkContext = null

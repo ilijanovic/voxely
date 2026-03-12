@@ -76,6 +76,26 @@ const RECIPES_2X2: Recipe2x2[] = [
 
 /** All 3×3 recipes (crafting table block UI). Order matters: more specific (larger) patterns first. Matching uses trim + sliding (Vanilla-style). */
 const RECIPES_3X3: ShapedRecipe3x3[] = [
+  // Furnace: 8 cobblestone around empty center
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      COBBLESTONE, COBBLESTONE, COBBLESTONE,
+      COBBLESTONE, null, COBBLESTONE,
+      COBBLESTONE, COBBLESTONE, COBBLESTONE,
+    ],
+    result: { type: 'furnace', count: 1 },
+  },
+  // Bed: 3 wool + 3 planks (top row wool, middle row planks)
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'white_wool', 'white_wool', 'white_wool',
+      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
+      null, null, null,
+    ],
+    result: { type: 'bed', count: 1 },
+  },
   // --- Stairs and larger patterns first (so they match before stick subset) ---
   // Oak stairs
   {

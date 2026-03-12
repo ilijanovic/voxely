@@ -26,6 +26,7 @@ import { filterVisibleBlocks } from './visible-blocks'
 import { sharedWaterPlaneGeometry } from '../../block-materials'
 import { getBlockAt } from '../../chunk-runtime'
 import { placeTorch, removeTorchesInChunk, isWallTorchBlockType } from '../world-interactions/torches'
+import { setInstanceLightLevels } from '../../terrain-light'
 
 export type ChunkApplyDeps = {
   chunks: Map<number, ChunkData>
@@ -34,6 +35,8 @@ export type ChunkApplyDeps = {
   foliageColormapData: ImageData | null
   tallGrassMaterial: THREE.MeshStandardMaterial | null
   getResolvedBiome: (x: number, z: number) => Biome
+  /** Returns combined block+sky light 0–15 at (bx, by, bz). Used for terrain light rendering. */
+  getLightAt: (bx: number, by: number, bz: number) => number
   torchContainer: THREE.Group | undefined
   placedTorches: import('../world-interactions/torches').PlacedTorch[]
   onChunkAdded?: (data: ChunkData) => void
@@ -516,34 +519,40 @@ export function applyChunkPayload(
           chunkKeyNum: keyNum,
           blockType,
         })
-        if (mesh && deps.grassColormapData) {
-          setGrassInstanceColors(mesh, visible, deps.getResolvedBiome, deps.grassColormapData)
+        if (mesh) {
+          setInstanceLightLevels(mesh, visible, deps.getLightAt)
+          if (deps.grassColormapData) {
+            setGrassInstanceColors(mesh, visible, deps.getResolvedBiome, deps.grassColormapData)
+          }
         }
         continue
       }
       if (isPlacedStairsBlockType(blockType)) {
-        addStairsInstancedLayer(
+        const mesh = addStairsInstancedLayer(
           group,
           visible,
           getStairsFacingFromBlockType(blockType),
           getMaterialForBlockType(blockType),
           { chunkKeyNum: keyNum, blockType },
         )
+        if (mesh) setInstanceLightLevels(mesh, visible, deps.getLightAt)
         continue
       }
       const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
         chunkKeyNum: keyNum,
         blockType,
       })
-      if (
-        mesh &&
-        (blockType === 'grass' || blockType === 'grass_savanna') &&
-        deps.grassColormapData
-      ) {
-        setGrassInstanceColors(mesh, visible, deps.getResolvedBiome, deps.grassColormapData)
-      }
-      if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && deps.foliageColormapData) {
-        setFoliageInstanceColors(mesh, visible, deps.getResolvedBiome, deps.foliageColormapData)
+      if (mesh) {
+        setInstanceLightLevels(mesh, visible, deps.getLightAt)
+        if (
+          (blockType === 'grass' || blockType === 'grass_savanna') &&
+          deps.grassColormapData
+        ) {
+          setGrassInstanceColors(mesh, visible, deps.getResolvedBiome, deps.grassColormapData)
+        }
+        if (FOLIAGE_BLOCK_TYPES.includes(blockType) && deps.foliageColormapData) {
+          setFoliageInstanceColors(mesh, visible, deps.getResolvedBiome, deps.foliageColormapData)
+        }
       }
     }
   }
@@ -558,13 +567,16 @@ export function applyChunkPayload(
   )
   if (deps.tallGrassMaterial && tallGrassPositions.length > 0) {
     const tallGrassMesh = addTallGrassLayer(group, tallGrassPositions, deps.tallGrassMaterial)
-    if (tallGrassMesh && deps.grassColormapData) {
-      setGrassInstanceColors(
-        tallGrassMesh,
-        tallGrassPositions,
-        deps.getResolvedBiome,
-        deps.grassColormapData,
-      )
+    if (tallGrassMesh) {
+      setInstanceLightLevels(tallGrassMesh, tallGrassPositions, deps.getLightAt)
+      if (deps.grassColormapData) {
+        setGrassInstanceColors(
+          tallGrassMesh,
+          tallGrassPositions,
+          deps.getResolvedBiome,
+          deps.grassColormapData,
+        )
+      }
     }
   }
 
@@ -599,6 +611,7 @@ export function applyChunkPayload(
     mesh.castShadow = false
     mesh.receiveShadow = true
     mesh.userData = { chunkKeyNum: keyNum, blockType: waterType }
+    setInstanceLightLevels(mesh, positions, deps.getLightAt)
     group.add(mesh)
   }
 
@@ -635,6 +648,7 @@ export function applyChunkPayload(
     blockPositionsByType,
     heightmapBuffer,
     biomeMapBuffer: payload.biomeMapBuffer,
+    skyLightBuffer: payload.skyLightBuffer,
   }
   deps.chunks.set(keyNum, data)
   scene.add(group)

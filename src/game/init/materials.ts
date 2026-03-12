@@ -11,6 +11,7 @@ import {
   setPixelFilter,
 } from '../../block-materials'
 import { patchMaterialWithTerrainFog } from '../../terrain-fog'
+import { patchMaterialWithTerrainLight } from '../../terrain-light'
 
 export type MaterialsInitResult = {
   grassColormapData: ImageData | null
@@ -59,6 +60,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
             polygonOffsetFactor: 1,
           })
           patchMaterialWithTerrainFog(waterMaterial)
+          patchMaterialWithTerrainLight(waterMaterial)
         }
         blockMaterialCache.set(blockId, waterMaterial)
         return
@@ -103,6 +105,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
         }
         if (def.crossGeometry === true) mat.side = THREE.DoubleSide
         patchMaterialWithTerrainFog(mat)
+        patchMaterialWithTerrainLight(mat)
         blockMaterialCache.set(blockId, mat)
         if (DEBUG_GRASS_TINT && def.skipSpecularMap === true && !_debugGrassMaterialLogged) {
           console.log('[grass tint] single material maps', {
@@ -128,6 +131,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
           ),
         )) as THREE.MeshStandardMaterial[]
         patchMaterialWithTerrainFog(mats)
+        patchMaterialWithTerrainLight(mats)
         blockMaterialCache.set(blockId, mats)
         if (DEBUG_GRASS_TINT && def.skipSpecularMap === true && !_debugGrassMaterialLogged) {
           console.log(
@@ -160,6 +164,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
       vertexColors: true,
     })
     patchMaterialWithTerrainFog(tallGrassMaterial)
+    patchMaterialWithTerrainLight(tallGrassMaterial)
   }
 
   return { grassColormapData, foliageColormapData, tallGrassMaterial }
