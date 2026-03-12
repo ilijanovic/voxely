@@ -37,6 +37,7 @@ import {
   isOccludingBlock as isBlockTypeOccluding,
   isUnbreakableBlock,
   getBlockHeight,
+  isFenceBlock,
 } from '../../block-registry'
 import {
   setGrassInstanceColors,
@@ -48,6 +49,7 @@ import {
   getMaterialForBlockType,
   getSnowLayerGeometry,
   isSharedBlockOrSnowLayerGeometry,
+  getFenceGeometry,
 } from '../../block-materials'
 import { despawnEntitiesInChunk } from '../../entities/spawn'
 import { spawnDrop as spawnDropItem, type Drop } from '../world-interactions/drops'
@@ -329,6 +331,75 @@ function addCrossGeometryLayer(
   return mesh
 }
 
+/**
+ * Returns a block lookup that prefers the current chunk's voxelMap for positions inside the chunk.
+ */
+function makeGetBlockForChunk(
+  worldX: number,
+  worldZ: number,
+  voxelMap: Map<number, BlockType>,
+  getBlockAt: (bx: number, by: number, bz: number) => BlockType | null,
+): (bx: number, by: number, bz: number) => BlockType {
+  return (bx: number, by: number, bz: number) => {
+    const lx = bx - worldX
+    const lz = bz - worldZ
+    if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
+      const key = localKey(lx, by, lz)
+      return voxelMap.get(key) ?? 'air'
+    }
+    return getBlockAt(bx, by, bz) ?? 'air'
+  }
+}
+
+/** Fence connection mask: North=1, South=2, East=4, West=8. */
+function getFenceConnectionMask(
+  bx: number,
+  by: number,
+  bz: number,
+  getBlock: (bx: number, by: number, bz: number) => BlockType,
+): number {
+  const connects = (nx: number, ny: number, nz: number) => {
+    const t = getBlock(nx, ny, nz)
+    return isFenceBlock(t) || isBlockTypeSolid(t)
+  }
+  let mask = 0
+  if (connects(bx, by, bz - 1)) mask |= 1
+  if (connects(bx, by, bz + 1)) mask |= 2
+  if (connects(bx + 1, by, bz)) mask |= 4
+  if (connects(bx - 1, by, bz)) mask |= 8
+  return mask
+}
+
+function addFenceInstancedLayer(
+  group: THREE.Group,
+  positions: BlockPos[],
+  mask: number,
+  material: THREE.Material | THREE.Material[],
+  userData?: { chunkKeyNum: number; blockType: BlockType },
+): THREE.InstancedMesh | null {
+  const count = positions.length
+  if (count === 0) return null
+  const mesh = new THREE.InstancedMesh(
+    getFenceGeometry(mask),
+    material as THREE.Material,
+    count,
+  )
+  mesh.count = count
+  for (let i = 0; i < count; i++) {
+    const p = positions[i]
+    _position.set(p.x, p.y, p.z)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, count)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  if (userData) mesh.userData = userData
+  group.add(mesh)
+  return mesh
+}
+
 export function addTallGrassLayer(
   group: THREE.Group,
   positions: BlockPos[],
@@ -487,6 +558,32 @@ export function rebuildChunkLayer(
       chunkKeyNum: keyNum,
       blockType,
     })
+    return
+  }
+
+  // Fences: connection-dependent geometry per position.
+  if (isFenceBlock(blockType)) {
+    const worldX = data.cx * CHUNK_SIZE
+    const worldZ = data.cz * CHUNK_SIZE
+    const getBlock = makeGetBlockForChunk(worldX, worldZ, data.voxelMap, (bx, by, bz) =>
+      getBlockAt(bx, by, bz),
+    )
+    const byMask = new Map<number, BlockPos[]>()
+    for (const p of positions) {
+      const mask = getFenceConnectionMask(p.x, p.y, p.z, getBlock)
+      const arr = byMask.get(mask) ?? []
+      arr.push(p)
+      byMask.set(mask, arr)
+    }
+    for (const [mask, fencePositions] of byMask) {
+      addFenceInstancedLayer(
+        data.group,
+        fencePositions,
+        mask,
+        getMaterialForBlockType(blockType),
+        { chunkKeyNum: keyNum, blockType },
+      )
+    }
     return
   }
 
@@ -706,6 +803,7 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
 
   // Torches are stored in voxel data but rendered as custom meshes + lights (not instanced cubes).
   removeTorchesInChunk({ chunkKeyNum: keyNum, torchContainer: ctx.torchContainer, placedTorches: ctx.placedTorches })
+  const getBlock = makeGetBlockForChunk(worldX, worldZ, voxelMap, (bx, by, bz) => getBlockAt(bx, by, bz))
   for (const [blockType, positions] of positionsByType) {
     const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions)
     blockPositionsByType.set(blockType, visible)
@@ -735,6 +833,25 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
       })
       if (mesh && ctx.grassColormapData) {
         setGrassInstanceColors(mesh, visible, getResolvedBiome, ctx.grassColormapData)
+      }
+      continue
+    }
+    if (isFenceBlock(blockType)) {
+      const byMask = new Map<number, BlockPos[]>()
+      for (const p of visible) {
+        const mask = getFenceConnectionMask(p.x, p.y, p.z, getBlock)
+        const arr = byMask.get(mask) ?? []
+        arr.push(p)
+        byMask.set(mask, arr)
+      }
+      for (const [mask, fencePositions] of byMask) {
+        addFenceInstancedLayer(
+          group,
+          fencePositions,
+          mask,
+          getMaterialForBlockType(blockType),
+          { chunkKeyNum: keyNum, blockType },
+        )
       }
       continue
     }

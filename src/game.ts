@@ -97,6 +97,7 @@ import {
   isStairsBlock,
   getPlacedStairsId,
   type StairFacing,
+  type StairsHalf,
   getBlockCollisionBoxesLocal,
   isUnbreakableBlock,
   getBlockBreakTimeWithTool,
@@ -106,6 +107,7 @@ import {
   getItemTextureName,
   isWeapon,
   getWeaponType,
+  isFenceBlock,
 } from './block-registry'
 import { loadTextureSafe, loadItemTextureSafe, setPixelFilter } from './block-materials'
 import {
@@ -156,6 +158,7 @@ import {
   getQuestStateForSave,
   setQuestStateFromSave,
   notifyKill as notifyQuestKill,
+  notifyTalk as notifyQuestTalk,
   turnInQuest,
   refreshCollectObjectives,
 } from './quests/quest-state'
@@ -541,6 +544,7 @@ function saveGame(): void {
     inventory: getPersistentSlots(),
     activeQuests: questState.activeQuests,
     completedQuestIds: questState.completedQuestIds,
+    trackedQuestIds: questState.trackedQuestIds,
     discoveredChunkKeys: Array.from(discoveredChunkKeys),
   }
   saveToStorage(state)
@@ -706,6 +710,7 @@ function loadGame(): boolean {
   setQuestStateFromSave({
     activeQuests: data.activeQuests,
     completedQuestIds: data.completedQuestIds,
+    trackedQuestIds: data.trackedQuestIds,
   })
   // If we deferred with pendingLoad, apply as soon as all chunks are present (e.g. already loaded).
   if (pendingLoad) applyPendingLoadIfReady()
@@ -888,6 +893,31 @@ function applyBlockChangeToLoadedChunk(params: {
 
     const ctx = getChunkSyncCtx()
     refreshChunkVisibleMeshes(ctx, data, affected.size > 0 ? affected : undefined)
+    // When a fence or its neighbor changes at a chunk boundary, refresh the adjacent chunk so fence connections update.
+    const fenceOrNeighborFence =
+      isFenceBlock(next as BlockType) ||
+      (getBlockAt(bx, by, bz - 1) !== null && isFenceBlock(getBlockAt(bx, by, bz - 1)!)) ||
+      (getBlockAt(bx, by, bz + 1) !== null && isFenceBlock(getBlockAt(bx, by, bz + 1)!)) ||
+      (getBlockAt(bx + 1, by, bz) !== null && isFenceBlock(getBlockAt(bx + 1, by, bz)!)) ||
+      (getBlockAt(bx - 1, by, bz) !== null && isFenceBlock(getBlockAt(bx - 1, by, bz)!))
+    if (fenceOrNeighborFence) {
+      const atBoundaryX = lx === 0 || lx === CHUNK_SIZE - 1
+      const atBoundaryZ = lz === 0 || lz === CHUNK_SIZE - 1
+      if (atBoundaryX || atBoundaryZ) {
+        const neighborChunks: Array<{ cx: number; cz: number }> = []
+        if (lx === 0) neighborChunks.push({ cx: cx - 1, cz })
+        if (lx === CHUNK_SIZE - 1) neighborChunks.push({ cx: cx + 1, cz })
+        if (lz === 0) neighborChunks.push({ cx, cz: cz - 1 })
+        if (lz === CHUNK_SIZE - 1) neighborChunks.push({ cx, cz: cz + 1 })
+        for (const { cx: ncx, cz: ncz } of neighborChunks) {
+          const neighborKey = chunkKeyNumeric(ncx, ncz)
+          const neighborData = chunks.get(neighborKey)
+          if (neighborData) {
+            refreshChunkVisibleMeshes(ctx, neighborData, undefined)
+          }
+        }
+      }
+    }
     syncFrustumDirty(ctx)
   } else {
     raycastMeshCache.markDirty()
@@ -1488,6 +1518,7 @@ let povHandAnimX = 0
 let povHandAnimY = 0
 let povHandAnimZ = 0
 const POV_HAND_LERP = 0.22 // wie schnell Richtung Ziel (0 = neutral, 1 = sofort)
+const POV_ARM_LERP = 0.22 // how fast arm rotation follows target (smooth return from mining/slash)
 
 // Camera head bobbing (first-person): phase + smoothed offsets to avoid jitter.
 let cameraBobPhase = 0
@@ -1500,6 +1531,10 @@ let miningSwingPhase = 0
 const POV_ARM_BASE_ROTATION_X = THREE.MathUtils.degToRad(-25)
 const POV_ARM_BASE_ROTATION_Y = THREE.MathUtils.degToRad(-15)
 const POV_ARM_BASE_ROTATION_Z = THREE.MathUtils.degToRad(-10)
+/** Current POV arm rotation (lerped toward target for smooth return from mining/slash). */
+let povArmRotX = POV_ARM_BASE_ROTATION_X
+let povArmRotY = POV_ARM_BASE_ROTATION_Y
+let povArmRotZ = POV_ARM_BASE_ROTATION_Z
 
 /** Sword slash: idle -> slashing (direction chosen at random per slash) -> cooldown -> idle. */
 type AttackState = 'idle' | 'slashing' | 'cooldown'
@@ -2673,35 +2708,65 @@ function updateCameraAndViewMode(time: number, dt: number): void {
       povHands.rotation.y = arc * SLASH_HAND_ROTATION_Y * v.y
       povHands.rotation.x = arc * SLASH_HAND_ROTATION_X * v.x
       povHands.rotation.z = arc * SLASH_HAND_ROTATION_X * v.z
-      povHands.position.set(0, 0, 0)
-      povArm.rotation.x = POV_ARM_BASE_ROTATION_X
-      povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
-      povArm.rotation.z = POV_ARM_BASE_ROTATION_Z
+      const targetPosX = 0
+      const targetPosY = 0
+      const targetPosZ = 0
+      const targetArmX = POV_ARM_BASE_ROTATION_X
+      const targetArmY = POV_ARM_BASE_ROTATION_Y
+      const targetArmZ = POV_ARM_BASE_ROTATION_Z
+      povHandAnimX += (targetPosX - povHandAnimX) * POV_HAND_LERP
+      povHandAnimY += (targetPosY - povHandAnimY) * POV_HAND_LERP
+      povHandAnimZ += (targetPosZ - povHandAnimZ) * POV_HAND_LERP
+      povArmRotX += (targetArmX - povArmRotX) * POV_ARM_LERP
+      povArmRotY += (targetArmY - povArmRotY) * POV_ARM_LERP
+      povArmRotZ += (targetArmZ - povArmRotZ) * POV_ARM_LERP
+      povHands.position.set(povHandAnimX, povHandAnimY, povHandAnimZ)
+      povArm.rotation.x = povArmRotX
+      povArm.rotation.y = povArmRotY
+      povArm.rotation.z = povArmRotZ
     } else if (isMining) {
       miningSwingPhase += dt
       const swing = Math.sin(miningSwingPhase * 14) * 0.52
-      povArm.rotation.x = POV_ARM_BASE_ROTATION_X + swing
-      povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
-      povArm.rotation.z = POV_ARM_BASE_ROTATION_Z
       const pullZ = 0.02 + Math.max(0, Math.sin(miningSwingPhase * 14)) * 0.04
-      povHands.position.set(0, 0, pullZ)
+      const targetPosX = 0
+      const targetPosY = 0
+      const targetPosZ = pullZ
+      const targetArmX = POV_ARM_BASE_ROTATION_X + swing
+      const targetArmY = POV_ARM_BASE_ROTATION_Y
+      const targetArmZ = POV_ARM_BASE_ROTATION_Z
+      povHandAnimX += (targetPosX - povHandAnimX) * POV_HAND_LERP
+      povHandAnimY += (targetPosY - povHandAnimY) * POV_HAND_LERP
+      povHandAnimZ += (targetPosZ - povHandAnimZ) * POV_HAND_LERP
+      povArmRotX += (targetArmX - povArmRotX) * POV_ARM_LERP
+      povArmRotY += (targetArmY - povArmRotY) * POV_ARM_LERP
+      povArmRotZ += (targetArmZ - povArmRotZ) * POV_ARM_LERP
+      povHands.position.set(povHandAnimX, povHandAnimY, povHandAnimZ)
+      povArm.rotation.x = povArmRotX
+      povArm.rotation.y = povArmRotY
+      povArm.rotation.z = povArmRotZ
       povHands.rotation.y = 0
       povHands.rotation.z = 0
     } else {
       miningSwingPhase = 0
-      povArm.rotation.x = POV_ARM_BASE_ROTATION_X
-      povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
-      povArm.rotation.z = POV_ARM_BASE_ROTATION_Z
       const isMoving = moveState.forward || moveState.back || moveState.left || moveState.right
       const wiggleSpeed = 14
       const wiggleAmount = 0.028
-      const targetX = 0
-      const targetY = isMoving ? Math.sin(time * wiggleSpeed * 0.5) * -0.008 : 0
-      const targetZ = isMoving ? Math.sin(time * wiggleSpeed) * wiggleAmount : 0
-      povHandAnimX += (targetX - povHandAnimX) * POV_HAND_LERP
-      povHandAnimY += (targetY - povHandAnimY) * POV_HAND_LERP
-      povHandAnimZ += (targetZ - povHandAnimZ) * POV_HAND_LERP
+      const targetPosX = 0
+      const targetPosY = isMoving ? Math.sin(time * wiggleSpeed * 0.5) * -0.008 : 0
+      const targetPosZ = isMoving ? Math.sin(time * wiggleSpeed) * wiggleAmount : 0
+      const targetArmX = POV_ARM_BASE_ROTATION_X
+      const targetArmY = POV_ARM_BASE_ROTATION_Y
+      const targetArmZ = POV_ARM_BASE_ROTATION_Z
+      povHandAnimX += (targetPosX - povHandAnimX) * POV_HAND_LERP
+      povHandAnimY += (targetPosY - povHandAnimY) * POV_HAND_LERP
+      povHandAnimZ += (targetPosZ - povHandAnimZ) * POV_HAND_LERP
+      povArmRotX += (targetArmX - povArmRotX) * POV_ARM_LERP
+      povArmRotY += (targetArmY - povArmRotY) * POV_ARM_LERP
+      povArmRotZ += (targetArmZ - povArmRotZ) * POV_ARM_LERP
       povHands.position.set(povHandAnimX, povHandAnimY, povHandAnimZ)
+      povArm.rotation.x = povArmRotX
+      povArm.rotation.y = povArmRotY
+      povArm.rotation.z = povArmRotZ
       povHands.rotation.y = 0
       povHands.rotation.z = 0
     }
@@ -3026,6 +3091,8 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     if (entityHit?.entity.questGiver && onQuestNpcInteract) {
       rightMouseJustPressed = false
       fKeyJustPressed = false
+      const talkTargetId = entityHit.entity.questGiver.talkTargetId ?? entityHit.entity.id
+      notifyQuestTalk(talkTargetId)
       onQuestNpcInteract(entityHit.entity.questGiver)
       return
     }
@@ -3145,7 +3212,8 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
               if (sel === 'water') return 'water_source' as BlockType
               if (isStairsBlock(sel)) {
                 const facing = quantizeFacingFromDirectionXZ(rayDirection.x, rayDirection.z)
-                return getPlacedStairsId(sel, facing) as BlockType
+                const half: StairsHalf = _direction.y < -0.5 ? 'top' : 'bottom'
+                return getPlacedStairsId(sel, facing, half) as BlockType
               }
               return sel
             })()

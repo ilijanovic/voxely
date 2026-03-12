@@ -267,6 +267,8 @@ Key test files:
 - **`docs/BLOCK_SYSTEM.md`** – LLM-first block representation, queries, rendering (CURRENT vs TARGET).
 - **`docs/TERRAIN_SPEC.md`** – LLM-first terrain/biome spec: design intent, Minecraft-adapted mechanics, change safety checklists.
 - **`docs/BIOME_TRANSITIONS.md`** – Minecraft-style biome boundaries and transitions (climate space, density, surface rules, blending).
+- **`docs/WORLD_TERRAIN_BIOME_VS_MINECRAFT.md`** – Comparison of Voxely world/terrain/biome logic with Minecraft (1.18+); pipeline, climate, shape, surface, carvers, gaps.
+- **`docs/WORLD_SAMPLING_AND_NOISE.md`** – World sampling and noise: configuration (constants, scales), seed offsets, worker/main-thread parity, height formula, carvers, feature placement.
 - **`docs/DESERT_BIOME_TECHNICAL.md`** – Technical breakdown of desert biome (selection, surface, features, structures).
  - **`docs/PLAINS_BIOME.md`** – Technical breakdown of plains biome (climate selection, shape, surface, features, structures, spawns); canonical example for biome design.
 - **`docs/GAMEPLAY_LLM.md`** – Gameplay reference for LLMs (mechanics, controls, world rules).

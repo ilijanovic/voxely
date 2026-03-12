@@ -29,17 +29,11 @@ import {
   getTreeShapeConfigForBiome,
   type TreeShapeConfig,
 } from './terrain/tree-constants'
+import { CAVE_THRESHOLD } from './terrain/constants'
+import { makeSeededRandom } from './terrain/utils'
 
 export type { Biome }
 export { MOUNTAIN_STONE_SURFACE_HEIGHT, SURFACE_STONE_HEIGHT }
-
-/** Returns a deterministic RNG in [0,1); same seed yields same sequence (used for world and tree noise). */
-function makeSeededRandom(seed: number) {
-  return function () {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff
-    return seed / 0x7fffffff
-  }
-}
 
 const WORLD_SEED_KEY = 'voxel-world-seed'
 
@@ -68,8 +62,6 @@ const detailNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 456))
 
 /** 3D cave noise (same seed as terrain pipeline). Used only for debug spawn above cave. */
 const caveNoise3D = createNoise3D(makeSeededRandom(WORLD_SEED + 400))
-/** Carve threshold for cave detection; must match terrain/index.ts stage2Carve3D. */
-const CAVE_THRESHOLD = 0.56
 
 /** Biomes that can be chosen for spawn; each has equal probability (deterministic per WORLD_SEED). */
 export const SPAWNABLE_BIOMES: Biome[] = [

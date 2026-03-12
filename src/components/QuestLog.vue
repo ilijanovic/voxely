@@ -4,8 +4,13 @@
  */
 import { ref, computed, watch } from 'vue'
 import type { PlayerClass } from '../player/faction'
-import type { Quest, QuestObjective, ActiveQuest } from '../quests/types'
-import { getQuestById, getQuestRewardForClass } from '../quests/quest-registry'
+import type { Quest, QuestObjective, ActiveQuest, QuestCategory } from '../quests/types'
+import {
+  getQuestById,
+  getQuestRewardForClass,
+  getQuestDifficultyColorClass,
+  getZoneDisplayName,
+} from '../quests/quest-registry'
 import { getBlockLabel, getBlockIcon, getItemStats } from '../hotbar-icons'
 
 const emit = defineEmits<{ close: [] }>()
@@ -19,12 +24,18 @@ const props = defineProps<{
   onTurnIn: (questId: string, rewardChoiceIndex?: number) => boolean
   /** Abandon active quest; progress is lost and quest becomes available again at the giver. */
   onAbort?: (questId: string) => boolean
+  /** Quest ids currently tracked on the HUD. */
+  trackedQuestIds?: string[]
+  /** Toggle whether this quest is tracked on the HUD (only for active quests). */
+  onToggleTrack?: (questId: string) => void
   /** When set, preselect this quest when the log opens (e.g. from quest NPC interaction). */
   initialSelectedQuestId?: string | null
   /** True when the log was opened by interacting with a quest giver; only then can the player turn in. */
   atQuestGiver?: boolean
   /** Player class for class-specific reward display (and turn-in uses same in game). */
   playerClass?: PlayerClass | null
+  /** Player level for quest difficulty color (gray/green/yellow/orange/red). */
+  playerLevel?: number
 }>()
 
 /** Selected quest id for detail (active or available). */
@@ -110,6 +121,61 @@ function getLocationHint(quest: Quest | undefined): string | undefined {
   return typeof h === 'function' ? h() : h
 }
 
+/** Whether the given quest id is currently tracked on the HUD. */
+function isTracked(questId: string): boolean {
+  return (props.trackedQuestIds ?? []).includes(questId)
+}
+
+/** Difficulty color class for a quest title based on player level. */
+function questTitleColorClass(quest: Quest | undefined): string {
+  if (!quest) return 'text-amber-200'
+  return getQuestDifficultyColorClass(quest.level, props.playerLevel ?? 1)
+}
+
+/** Short label for quest category (Main, Side, Daily, Repeatable). */
+function categoryLabel(category: QuestCategory | undefined): string {
+  if (!category) return ''
+  return category.charAt(0).toUpperCase() + category.slice(1)
+}
+
+/** Groups active quests by zone for the quest list. */
+const activeQuestsByZone = computed(() => {
+  const zones = new Map<string, { zoneId: string; zoneName: string; quests: typeof props.activeQuests }>()
+  const otherKey = '__other'
+  for (const a of props.activeQuests) {
+    const quest = getQuestById(a.questId)
+    const zid = quest?.zoneId ?? otherKey
+    if (!zones.has(zid)) {
+      zones.set(zid, {
+        zoneId: zid,
+        zoneName: zid === otherKey ? 'Other' : getZoneDisplayName(zid),
+        quests: [],
+      })
+    }
+    zones.get(zid)!.quests.push(a)
+  }
+  return Array.from(zones.values()).sort((x, y) => x.zoneName.localeCompare(y.zoneName))
+})
+
+/** Groups available quest ids by zone for the quest list. */
+const availableQuestIdsByZone = computed(() => {
+  const zones = new Map<string, { zoneId: string; zoneName: string; questIds: string[] }>()
+  const otherKey = '__other'
+  for (const id of props.availableQuestIds) {
+    const quest = getQuestById(id)
+    const zid = quest?.zoneId ?? otherKey
+    if (!zones.has(zid)) {
+      zones.set(zid, {
+        zoneId: zid,
+        zoneName: zid === otherKey ? 'Other' : getZoneDisplayName(zid),
+        questIds: [],
+      })
+    }
+    zones.get(zid)!.questIds.push(id)
+  }
+  return Array.from(zones.values()).sort((x, y) => x.zoneName.localeCompare(y.zoneName))
+})
+
 /** Tooltip lines for a reward item: name + count, then stat lines (e.g. Damage: 2). */
 function getRewardItemTooltipLines(type: string, count: number): string[] {
   const label = getBlockLabel(type)
@@ -144,51 +210,73 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
         <div class="w-48 shrink-0 overflow-y-auto border-r border-stone-600 p-2">
           <div v-if="activeQuests.length > 0" class="mb-2">
             <div class="text-xs font-semibold uppercase text-amber-400">Active</div>
-            <button
-              v-for="a in activeQuests"
-              :key="a.questId"
-              type="button"
-              class="mt-1 flex w-full items-start gap-1.5 rounded px-2 py-1.5 text-left hover:bg-stone-700"
-              :class="{ 'bg-stone-700': selectedId === a.questId }"
-              @click="selectedId = a.questId"
-            >
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm">{{ getQuestById(a.questId)?.title ?? a.questId }}</span>
-                <span
-                  v-if="getLocationHint(getQuestById(a.questId))"
-                  class="block truncate text-[11px] text-stone-500"
-                >
-                  {{ getLocationHint(getQuestById(a.questId)) }}
-                </span>
-              </span>
-              <span
-                v-if="isQuestReadyToTurnIn(a.questId)"
-                class="shrink-0 text-base leading-none text-yellow-400"
-                title="Ready to return to quest giver"
-                aria-label="Ready to return to quest giver"
+            <template v-for="zone in activeQuestsByZone" :key="zone.zoneId">
+              <div class="mt-1.5 text-[11px] font-medium uppercase text-stone-500">
+                {{ zone.zoneName }}
+              </div>
+              <button
+                v-for="a in zone.quests"
+                :key="a.questId"
+                type="button"
+                class="mt-1 flex w-full items-start gap-1.5 rounded px-2 py-1.5 text-left hover:bg-stone-700"
+                :class="{ 'bg-stone-700': selectedId === a.questId }"
+                @click="selectedId = a.questId"
               >
-                ?
-              </span>
-            </button>
+                <span class="min-w-0 flex-1">
+                  <span
+                    class="block truncate text-sm"
+                    :class="questTitleColorClass(getQuestById(a.questId))"
+                  >
+                    {{ getQuestById(a.questId)?.title ?? a.questId }}
+                    <template v-if="getQuestById(a.questId)?.level != null"> ({{ getQuestById(a.questId)!.level }})</template>
+                  </span>
+                  <span
+                    v-if="getLocationHint(getQuestById(a.questId))"
+                    class="block truncate text-[11px] text-stone-500"
+                  >
+                    {{ getLocationHint(getQuestById(a.questId)) }}
+                  </span>
+                </span>
+                <span
+                  v-if="isQuestReadyToTurnIn(a.questId)"
+                  class="shrink-0 text-base leading-none text-yellow-400"
+                  title="Ready to return to quest giver"
+                  aria-label="Ready to return to quest giver"
+                >
+                  ?
+                </span>
+              </button>
+            </template>
           </div>
           <div v-if="availableQuestIds.length > 0">
             <div class="text-xs font-semibold uppercase text-amber-400">Available</div>
-            <button
-              v-for="id in availableQuestIds"
-              :key="id"
-              type="button"
-              class="mt-1 block w-full rounded px-2 py-1.5 text-left hover:bg-stone-700"
-              :class="{ 'bg-stone-700': selectedId === id }"
-              @click="selectedId = id"
-            >
-              <span class="block truncate text-sm">{{ getQuestById(id)?.title ?? id }}</span>
-              <span
-                v-if="getLocationHint(getQuestById(id))"
-                class="block truncate text-[11px] text-stone-500"
+            <template v-for="zone in availableQuestIdsByZone" :key="zone.zoneId">
+              <div class="mt-1.5 text-[11px] font-medium uppercase text-stone-500">
+                {{ zone.zoneName }}
+              </div>
+              <button
+                v-for="id in zone.questIds"
+                :key="id"
+                type="button"
+                class="mt-1 block w-full rounded px-2 py-1.5 text-left hover:bg-stone-700"
+                :class="{ 'bg-stone-700': selectedId === id }"
+                @click="selectedId = id"
               >
-                {{ getLocationHint(getQuestById(id)) }}
-              </span>
-            </button>
+                <span
+                  class="block truncate text-sm"
+                  :class="questTitleColorClass(getQuestById(id))"
+                >
+                  {{ getQuestById(id)?.title ?? id }}
+                  <template v-if="getQuestById(id)?.level != null"> ({{ getQuestById(id)!.level }})</template>
+                </span>
+                <span
+                  v-if="getLocationHint(getQuestById(id))"
+                  class="block truncate text-[11px] text-stone-500"
+                >
+                  {{ getLocationHint(getQuestById(id)) }}
+                </span>
+              </button>
+            </template>
           </div>
           <div v-if="completedQuestIds.length > 0" class="mt-2">
             <div class="text-xs font-semibold uppercase text-stone-500">Completed</div>
@@ -204,7 +292,13 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
         <!-- Detail -->
         <div class="flex-1 overflow-y-auto p-4">
           <template v-if="selectedQuest">
-            <h3 class="text-base font-bold text-amber-200">{{ selectedQuest.title }}</h3>
+            <h3 class="text-base font-bold" :class="questTitleColorClass(selectedQuest)">
+              {{ selectedQuest.title }}
+              <template v-if="selectedQuest.level != null"> — Level {{ selectedQuest.level }}</template>
+            </h3>
+            <p v-if="selectedQuest.category" class="mt-0.5 text-xs uppercase tracking-wide text-stone-500">
+              {{ categoryLabel(selectedQuest.category) }} Quest
+            </p>
             <p class="mt-2 text-sm text-stone-300">{{ selectedQuest.description }}</p>
             <div class="mt-3">
               <div class="text-xs font-semibold uppercase text-stone-500">Objectives</div>
@@ -261,6 +355,16 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
                 <p v-else class="text-sm text-amber-200/90">
                   Return to the quest giver to turn in.
                 </p>
+              </template>
+              <template v-if="selectedQuest && activeQuests.some((a) => a.questId === selectedQuest?.id) && onToggleTrack">
+                <button
+                  type="button"
+                  class="rounded border border-stone-500 bg-stone-700 px-3 py-1.5 text-sm text-stone-300 hover:bg-stone-600"
+                  :title="isTracked(selectedQuest.id) ? 'Remove from tracker' : 'Show on HUD tracker'"
+                  @click="selectedQuest ? onToggleTrack(selectedQuest.id) : undefined"
+                >
+                  {{ isTracked(selectedQuest.id) ? 'Untrack' : 'Track' }}
+                </button>
               </template>
               <template v-if="selectedQuest && activeQuests.some((a) => a.questId === selectedQuest?.id) && onAbort">
                 <button

@@ -14,14 +14,23 @@ import {
   sharedBlockGeometry,
   sharedTallGrassGeometry,
   getStairsGeometry,
+  getFenceGeometry,
   type StairFacing,
+  type StairsHalf,
   FOLIAGE_BLOCK_TYPES,
   getMaterialForBlockType,
   setFoliageInstanceColors,
   setGrassInstanceColors,
   isSharedBlockOrSnowLayerGeometry,
 } from '../../block-materials'
-import { isOccludingBlock as isBlockTypeOccluding, getBlockHeight } from '../../block-registry'
+import {
+  isOccludingBlock as isBlockTypeOccluding,
+  getBlockHeight,
+  isFenceBlock,
+  isPlacedStairsVariant,
+  getStairsFacingAndHalfFromId,
+  isSolidBlock as isBlockTypeSolid,
+} from '../../block-registry'
 import { filterVisibleBlocks } from './visible-blocks'
 import { sharedWaterPlaneGeometry } from '../../block-materials'
 import { getBlockAt } from '../../chunk-runtime'
@@ -95,12 +104,13 @@ function addStairsInstancedLayer(
   group: THREE.Group,
   positions: BlockPos[],
   facing: StairFacing,
+  half: StairsHalf,
   material: THREE.Material | THREE.Material[],
   userData?: { chunkKeyNum: number; blockType: BlockType },
 ): THREE.InstancedMesh | null {
   const count = positions.length
   if (count === 0) return null
-  const mesh = new THREE.InstancedMesh(getStairsGeometry(facing), material as THREE.Material, count)
+  const mesh = new THREE.InstancedMesh(getStairsGeometry(facing, half), material as THREE.Material, count)
   mesh.count = count
   for (let i = 0; i < count; i++) {
     const p = positions[i]
@@ -223,14 +233,77 @@ const CROSS_GEOMETRY_BLOCK_TYPES: BlockType[] = [
 ]
 
 function isPlacedStairsBlockType(blockType: BlockType): boolean {
-  return /_stairs_(north|east|south|west)$/.test(blockType)
+  return isPlacedStairsVariant(blockType)
 }
 
-function getStairsFacingFromBlockType(blockType: BlockType): StairFacing {
-  if (blockType.endsWith('_north')) return 'north'
-  if (blockType.endsWith('_east')) return 'east'
-  if (blockType.endsWith('_south')) return 'south'
-  return 'west'
+/**
+ * Returns a block lookup that prefers the current chunk's voxelMap for positions inside the chunk,
+ * and falls back to getBlockAt for neighbors in other chunks (so fence connection is correct on first apply).
+ */
+function makeGetBlockForChunk(
+  worldX: number,
+  worldZ: number,
+  voxelMap: Map<number, BlockType>,
+  getBlockAt: (bx: number, by: number, bz: number) => BlockType | null,
+): (bx: number, by: number, bz: number) => BlockType {
+  return (bx: number, by: number, bz: number) => {
+    const lx = bx - worldX
+    const lz = bz - worldZ
+    if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
+      const key = localKey(lx, by, lz)
+      return voxelMap.get(key) ?? 'air'
+    }
+    return getBlockAt(bx, by, bz) ?? 'air'
+  }
+}
+
+/** Connection mask: North=1, South=2, East=4, West=8. Connects to fences and solid blocks. */
+function getFenceConnectionMask(
+  bx: number,
+  by: number,
+  bz: number,
+  getBlock: (bx: number, by: number, bz: number) => BlockType,
+): number {
+  const connects = (nx: number, ny: number, nz: number) => {
+    const t = getBlock(nx, ny, nz)
+    return isFenceBlock(t) || isBlockTypeSolid(t)
+  }
+  let mask = 0
+  if (connects(bx, by, bz - 1)) mask |= 1
+  if (connects(bx, by, bz + 1)) mask |= 2
+  if (connects(bx + 1, by, bz)) mask |= 4
+  if (connects(bx - 1, by, bz)) mask |= 8
+  return mask
+}
+
+function addFenceInstancedLayer(
+  group: THREE.Group,
+  positions: BlockPos[],
+  mask: number,
+  material: THREE.Material | THREE.Material[],
+  userData?: { chunkKeyNum: number; blockType: BlockType },
+): THREE.InstancedMesh | null {
+  const count = positions.length
+  if (count === 0) return null
+  const mesh = new THREE.InstancedMesh(
+    getFenceGeometry(mask),
+    material as THREE.Material,
+    count,
+  )
+  mesh.count = count
+  for (let i = 0; i < count; i++) {
+    const p = positions[i]
+    _position.set(p.x, p.y, p.z)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, count)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  if (userData) mesh.userData = userData
+  group.add(mesh)
+  return mesh
 }
 
 function pseudoRandomFromBlockPos(seed: number, x: number, y: number, z: number): number {
@@ -433,6 +506,8 @@ export function applyChunkPayload(
       if (CROSS_GEOMETRY_BLOCK_TYPES.includes(blockType) || blockType === 'tall_grass') continue
       // Stairs are rendered via instancing with custom geometry below.
       if (isPlacedStairsBlockType(blockType)) continue
+      // Fences are rendered via instancing with connection-dependent geometry below.
+      if (isFenceBlock(blockType)) continue
       addGeometryLayerMesh(group, layer, getMaterialForBlockType(blockType), {
         chunkKeyNum: keyNum,
         blockType,
@@ -467,6 +542,10 @@ export function applyChunkPayload(
             return positionsByType
           })()
 
+    const getBlock = makeGetBlockForChunk(worldX, worldZ, voxelMap, (bx, by, bz) =>
+      getBlockAt(bx, by, bz),
+    )
+
     for (const [blockType, positions] of positionsSource) {
       let visible = positions
       if (!payload.visibleBlockKeysByType) {
@@ -499,14 +578,16 @@ export function applyChunkPayload(
         continue
       }
       if (payload.geometryLayers && payload.geometryLayers.length > 0) {
-        // Only run instancing for tinted blocks and cross-geometry blocks (flowers, fern, tall_grass).
-        const isTintedOrCross =
+        // Only run instancing for tinted blocks, cross-geometry blocks, fences, and stairs.
+        const isTintedOrCrossOrSpecial =
           blockType === 'grass' ||
           blockType === 'grass_savanna' ||
           FOLIAGE_BLOCK_TYPES.includes(blockType) ||
           CROSS_GEOMETRY_BLOCK_TYPES.includes(blockType) ||
-          blockType === 'tall_grass'
-        if (!isTintedOrCross) continue
+          blockType === 'tall_grass' ||
+          isFenceBlock(blockType) ||
+          isPlacedStairsBlockType(blockType)
+        if (!isTintedOrCrossOrSpecial) continue
       }
       // tall_grass is rendered via getTallGrassPositions + addTallGrassLayer below.
       if (blockType === 'tall_grass') continue
@@ -521,14 +602,37 @@ export function applyChunkPayload(
         }
         continue
       }
+      if (isFenceBlock(blockType)) {
+        const byMask = new Map<number, BlockPos[]>()
+        for (const p of visible) {
+          const mask = getFenceConnectionMask(p.x, p.y, p.z, getBlock)
+          const arr = byMask.get(mask) ?? []
+          arr.push(p)
+          byMask.set(mask, arr)
+        }
+        for (const [mask, fencePositions] of byMask) {
+          addFenceInstancedLayer(
+            group,
+            fencePositions,
+            mask,
+            getMaterialForBlockType(blockType),
+            { chunkKeyNum: keyNum, blockType },
+          )
+        }
+        continue
+      }
       if (isPlacedStairsBlockType(blockType)) {
-        addStairsInstancedLayer(
-          group,
-          visible,
-          getStairsFacingFromBlockType(blockType),
-          getMaterialForBlockType(blockType),
-          { chunkKeyNum: keyNum, blockType },
-        )
+        const state = getStairsFacingAndHalfFromId(blockType)
+        if (state) {
+          addStairsInstancedLayer(
+            group,
+            visible,
+            state.facing,
+            state.half,
+            getMaterialForBlockType(blockType),
+            { chunkKeyNum: keyNum, blockType },
+          )
+        }
         continue
       }
       const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {

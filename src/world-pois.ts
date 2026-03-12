@@ -104,6 +104,8 @@ export interface PlacedNpc {
   questOfferIds?: string[]
   /** When set, this NPC only offers quests when all of these quest ids are completed. */
   prerequisiteQuestIds?: string[]
+  /** Id for "talk" objectives; when player interacts with this NPC, quest talk objectives with this targetId advance. */
+  talkTargetId?: string
 }
 
 /** Mob spawn area: kinds spawn within radius (deterministic per chunk). */
@@ -357,6 +359,8 @@ export interface FixedSpawn {
   questOfferIds?: string[]
   /** When set, this quest giver only offers quests when all of these quest ids are completed. */
   prerequisiteQuestIds?: string[]
+  /** Id for "talk" objectives; when player interacts with this NPC, quest talk objectives with this targetId advance. */
+  talkTargetId?: string
 }
 
 /** Deterministic RNG from string seed. */
@@ -429,12 +433,14 @@ export function getFixedSpawnsInChunk(
               questOfferIds != null && poi.prerequisiteQuestIds != null && poi.prerequisiteQuestIds.length > 0
                 ? poi.prerequisiteQuestIds
                 : undefined
+            const talkTargetId = questOfferIds != null && poi.talkTargetId != null ? poi.talkTargetId : undefined
             out.push({
               kind: 'villager',
               x,
               z,
               ...(questOfferIds != null ? { questOfferIds } : {}),
               ...(prerequisiteQuestIds != null ? { prerequisiteQuestIds } : {}),
+              ...(talkTargetId != null ? { talkTargetId } : {}),
             })
           }
         }
@@ -448,12 +454,14 @@ export function getFixedSpawnsInChunk(
             poi.prerequisiteQuestIds != null && poi.prerequisiteQuestIds.length > 0
               ? poi.prerequisiteQuestIds
               : undefined
+          const talkTargetId = questOfferIds != null && poi.talkTargetId != null ? poi.talkTargetId : undefined
           out.push({
             kind: 'villager',
             x,
             z,
             ...(questOfferIds != null ? { questOfferIds } : {}),
             ...(prerequisiteQuestIds != null ? { prerequisiteQuestIds } : {}),
+            ...(talkTargetId != null ? { talkTargetId } : {}),
           })
         }
       }

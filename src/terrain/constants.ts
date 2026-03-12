@@ -100,6 +100,24 @@ export const HEIGHT_DETAIL_FBM_NORMALIZE =
 export const FEATURE_PLACEMENT_NOISE_SCALE = 0.05
 
 /**
+ * Cave carving (Minecraft-aligned). Single source of truth for worker and main thread.
+ * Vanilla reference: docs/VANILLA_BIOME_REFERENCE.md §6 and vanilla_terrain_cave_reference.json.
+ */
+/** 3D noise caves: carve where caveNoise3D(x,y,z) > threshold. Higher = less carving. */
+export const CAVE_THRESHOLD = 0.56
+/** Cheese caves: horizontal noise scale (x, z). Vanilla cave_cheese xz_scale 1.0; we use 0.03. */
+export const CHEESE_SCALE_XZ = 0.03
+/** Cheese caves: vertical noise scale (y). Vanilla y_scale 2/3 of xz; smaller = taller blobs. */
+export const CHEESE_SCALE_Y = CHEESE_SCALE_XZ * (2 / 3)
+/** Cheese caves: carve where cheeseNoise3D(x*scaleXZ, y*scaleY, z*scaleXZ) > threshold. Vanilla uses 0.27. */
+export const CHEESE_THRESHOLD = 0.27
+
+/** Noodle caves: noise sampling scale (higher = thinner tunnels). */
+export const NOODLE_SCALE = 0.04
+/** Noodle caves: carve where both ridged values (1 - |noise|) exceed this threshold. */
+export const NOODLE_THRESHOLD = 0.5
+
+/**
  * Numerical stability (Far Lands): at very large |x|/|z|, floating point can degrade.
  * Use integer-based hashing for discrete decisions (feature placement); for noise sampling,
  * optionally wrap coordinates so noise inputs stay in a bounded range (e.g. ±NOISE_COORD_WRAP).

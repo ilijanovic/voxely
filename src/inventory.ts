@@ -484,10 +484,10 @@ export function initDefaultInventory(): void {
     { type: 'grass', count: 1 },
     { type: 'dirt', count: 1 },
     { type: 'stone', count: 1 },
+    { type: 'oak_stairs', count: 8 },
+    { type: 'oak_fence', count: 8 },
     { type: 'sand', count: 1 },
-    { type: 'snow', count: 1 },
     { type: 'wood', count: 1 },
-    { type: 'leaves', count: 1 },
     { type: 'torch', count: 5 },
   ]
   for (let i = 0; i < HOTBAR_SLOTS; i++) {

@@ -33,6 +33,8 @@ export interface BlockDefinition {
   textures: BlockTextures
   /** Optional hint: block is a stairs family item or a placed stairs variant (used for placement/collision/rendering). */
   stairs?: boolean
+  /** Optional hint: block is a fence (connects to neighbors, custom collision/rendering). */
+  fence?: boolean
   /** Collision and raycast: block occupies space. Default true. */
   solid?: boolean
   /** Rendering: alpha cutout / translucent. Default false. */
@@ -89,6 +91,7 @@ const D = (
         | 'skipSpecularMap'
         | 'fluidHeight'
         | 'harvestCategory'
+        | 'fence'
       >
     >,
 ): BlockDefinition => {
@@ -815,6 +818,55 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Dark Oak Planks',
     textures: { type: 'single', texture: 'planks_big_oak' },
   }),
+  // Fences (Minecraft-style: connect to neighbors, 1.5 block collision)
+  D({
+    id: 'oak_fence',
+    displayName: 'Oak Fence',
+    textures: { type: 'single', texture: 'planks_oak' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'spruce_fence',
+    displayName: 'Spruce Fence',
+    textures: { type: 'single', texture: 'planks_spruce' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'birch_fence',
+    displayName: 'Birch Fence',
+    textures: { type: 'single', texture: 'planks_birch' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'jungle_fence',
+    displayName: 'Jungle Fence',
+    textures: { type: 'single', texture: 'planks_jungle' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'acacia_fence',
+    displayName: 'Acacia Fence',
+    textures: { type: 'single', texture: 'planks_acacia' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'dark_oak_fence',
+    displayName: 'Dark Oak Fence',
+    textures: { type: 'single', texture: 'planks_big_oak' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
   // Logs (side + top)
   D({
     id: 'spruce_log',
@@ -1093,17 +1145,24 @@ const CURATED_BLOCKS: BlockDefinition[] = [
       },
     ] as const
   ).flatMap(({ baseId, stairsItemId, display, harvestCategory }) => {
+    const texture = baseId === 'bricks' ? 'brick' : baseId === 'stone_bricks' ? 'stonebrick' : baseId
     const placed = [
       `${stairsItemId}_north`,
       `${stairsItemId}_east`,
       `${stairsItemId}_south`,
       `${stairsItemId}_west`,
     ] as const
+    const placedTop = [
+      `${stairsItemId}_north_top`,
+      `${stairsItemId}_east_top`,
+      `${stairsItemId}_south_top`,
+      `${stairsItemId}_west_top`,
+    ] as const
     return [
       D({
         id: stairsItemId,
         displayName: display,
-        textures: { type: 'single', texture: baseId === 'bricks' ? 'brick' : baseId === 'stone_bricks' ? 'stonebrick' : baseId },
+        textures: { type: 'single', texture },
         stairs: true,
         harvestCategory,
       }),
@@ -1111,7 +1170,16 @@ const CURATED_BLOCKS: BlockDefinition[] = [
         D({
           id,
           displayName: display,
-          textures: { type: 'single', texture: baseId === 'bricks' ? 'brick' : baseId === 'stone_bricks' ? 'stonebrick' : baseId },
+          textures: { type: 'single', texture },
+          stairs: true,
+          harvestCategory,
+        }),
+      ),
+      ...placedTop.map((id) =>
+        D({
+          id,
+          displayName: display,
+          textures: { type: 'single', texture },
           stairs: true,
           harvestCategory,
         }),
@@ -1248,6 +1316,9 @@ export function getBlockDefinition(id: string): BlockDefinition | undefined {
 
 export type StairFacing = 'north' | 'east' | 'south' | 'west'
 
+/** Vanilla-style stairs half: bottom = normal (step up), top = upside-down (e.g. placed on ceiling). */
+export type StairsHalf = 'bottom' | 'top'
+
 /**
  * Returns true when the id is a stairs family item (e.g. oak_stairs) or a placed stairs variant (e.g. oak_stairs_north).
  */
@@ -1256,10 +1327,27 @@ export function isStairsBlock(id: string): boolean {
 }
 
 /**
- * Returns true when the id is a placed stairs variant (e.g. oak_stairs_north).
+ * Returns true when the id is a placed stairs variant (e.g. oak_stairs_north or oak_stairs_north_top).
  */
 export function isPlacedStairsVariant(id: string): boolean {
-  return /_stairs_(north|east|south|west)$/.test(id)
+  return /_stairs_(north|east|south|west)(_top)?$/.test(id)
+}
+
+/**
+ * Parses facing and half from a placed stairs block id. Returns null for non-stairs ids.
+ */
+export function getStairsFacingAndHalfFromId(id: string): { facing: StairFacing; half: StairsHalf } | null {
+  const m = /_stairs_(north|east|south|west)(_top)?$/.exec(id)
+  if (!m) return null
+  return {
+    facing: m[1] as StairFacing,
+    half: m[2] === '_top' ? 'top' : 'bottom',
+  }
+}
+
+/** Returns true when the block type is a fence (connects to neighbors, custom collision/rendering). */
+export function isFenceBlock(id: string): boolean {
+  return REGISTRY.get(id)?.fence === true
 }
 
 /**
@@ -1267,17 +1355,18 @@ export function isPlacedStairsVariant(id: string): boolean {
  */
 export function getStairsItemId(id: string): string {
   if (!isStairsBlock(id)) return id
-  return id.replace(/_(north|east|south|west)$/, '')
+  return id.replace(/_(north|east|south|west)(_top)?$/, '')
 }
 
 /**
- * Builds the placed stairs variant id for the given stairs item id and facing.
- * If stairItemId is not a stairs id, it returns stairItemId unchanged.
+ * Builds the placed stairs variant id for the given stairs item id, facing, and optional half.
+ * If stairItemId is not a stairs id, returns stairItemId unchanged.
+ * @param half When 'top', places upside-down stairs (e.g. on ceiling). Default 'bottom'.
  */
-export function getPlacedStairsId(stairItemId: string, facing: StairFacing): string {
+export function getPlacedStairsId(stairItemId: string, facing: StairFacing, half: StairsHalf = 'bottom'): string {
   if (!isStairsBlock(stairItemId)) return stairItemId
   const base = getStairsItemId(stairItemId)
-  return `${base}_${facing}`
+  return half === 'top' ? `${base}_${facing}_top` : `${base}_${facing}`
 }
 
 /** Returns all registered block type ids (for save validation, hotbar icons, etc.). */
@@ -1406,17 +1495,13 @@ export function getBlockCollisionBoxesLocal(blockType: string): CollisionBoxLoca
     return [{ ...FULL_BLOCK_BOX, maxY: h }]
   }
 
-  if (isPlacedStairsVariant(blockType)) {
-    const facing: StairFacing = blockType.endsWith('_north')
-      ? 'north'
-      : blockType.endsWith('_east')
-        ? 'east'
-        : blockType.endsWith('_south')
-          ? 'south'
-          : 'west'
-    // Bottom slab + top step (Minecraft-like).
-    const bottom: CollisionBoxLocal = { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 }
-    const top: CollisionBoxLocal =
+  const stairsState = getStairsFacingAndHalfFromId(blockType)
+  if (stairsState) {
+    const { facing, half } = stairsState
+    // Bottom slab (full XZ, half height) + step (half block in facing direction).
+    const slabBottom: CollisionBoxLocal = { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 }
+    const slabTop: CollisionBoxLocal = { minX: 0, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 }
+    const stepBottom: CollisionBoxLocal =
       facing === 'north'
         ? { minX: 0, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 0.5 }
         : facing === 'south'
@@ -1424,7 +1509,32 @@ export function getBlockCollisionBoxesLocal(blockType: string): CollisionBoxLoca
           : facing === 'east'
             ? { minX: 0.5, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 }
             : { minX: 0, minY: 0.5, minZ: 0, maxX: 0.5, maxY: 1, maxZ: 1 }
-    return [bottom, top]
+    const stepTop: CollisionBoxLocal =
+      facing === 'north'
+        ? { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 0.5 }
+        : facing === 'south'
+          ? { minX: 0, minY: 0, minZ: 0.5, maxX: 1, maxY: 0.5, maxZ: 1 }
+          : facing === 'east'
+            ? { minX: 0.5, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 }
+            : { minX: 0, minY: 0, minZ: 0, maxX: 0.5, maxY: 0.5, maxZ: 1 }
+    if (half === 'top') {
+      return [stepTop, slabTop]
+    }
+    return [slabBottom, stepBottom]
+  }
+
+  // Fences: 1.5 blocks tall, narrow in XZ (Minecraft-style; cannot jump over).
+  if (def.fence === true) {
+    return [
+      {
+        minX: 0.375,
+        minY: 0,
+        minZ: 0.375,
+        maxX: 0.625,
+        maxY: 1.5,
+        maxZ: 0.625,
+      },
+    ]
   }
 
   // Default: full block, but respect height-based blocks (e.g. flowing water already handled above).

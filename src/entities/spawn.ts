@@ -437,6 +437,7 @@ export function spawnEntitiesForChunk(
               ...(spawn.prerequisiteQuestIds != null && spawn.prerequisiteQuestIds.length > 0
                 ? { prerequisiteQuestIds: spawn.prerequisiteQuestIds }
                 : {}),
+              ...(spawn.talkTargetId != null ? { talkTargetId: spawn.talkTargetId } : {}),
             },
           }
         : {}),

@@ -14,6 +14,11 @@ import {
   isPlaceableBlock,
   isOccludingBlock,
   isFluidBlock,
+  getPlacedStairsId,
+  getStairsItemId,
+  getStairsFacingAndHalfFromId,
+  isPlacedStairsVariant,
+  getBlockCollisionBoxesLocal,
 } from './block-registry'
 import { VALID_BLOCK_TYPES } from './save'
 
@@ -168,5 +173,56 @@ describe('Block registry invariants', () => {
     expect(isFluidBlock('water_source')).toBe(true)
     expect(isFluidBlock('water_flowing_1')).toBe(true)
     expect(isFluidBlock('stone')).toBe(false)
+  })
+})
+
+describe('Stairs placement and collision', () => {
+  it('getPlacedStairsId returns _facing for half bottom (default)', () => {
+    expect(getPlacedStairsId('oak_stairs', 'north')).toBe('oak_stairs_north')
+    expect(getPlacedStairsId('oak_stairs', 'south')).toBe('oak_stairs_south')
+    expect(getPlacedStairsId('cobblestone_stairs', 'east')).toBe('cobblestone_stairs_east')
+  })
+
+  it('getPlacedStairsId returns _facing_top for half top', () => {
+    expect(getPlacedStairsId('oak_stairs', 'north', 'top')).toBe('oak_stairs_north_top')
+    expect(getPlacedStairsId('oak_stairs', 'south', 'top')).toBe('oak_stairs_south_top')
+    expect(getPlacedStairsId('cobblestone_stairs', 'west', 'top')).toBe('cobblestone_stairs_west_top')
+  })
+
+  it('getStairsItemId strips facing and optional _top', () => {
+    expect(getStairsItemId('oak_stairs_north')).toBe('oak_stairs')
+    expect(getStairsItemId('oak_stairs_north_top')).toBe('oak_stairs')
+    expect(getStairsItemId('oak_stairs')).toBe('oak_stairs')
+  })
+
+  it('isPlacedStairsVariant recognizes bottom and top variants', () => {
+    expect(isPlacedStairsVariant('oak_stairs_north')).toBe(true)
+    expect(isPlacedStairsVariant('oak_stairs_north_top')).toBe(true)
+    expect(isPlacedStairsVariant('oak_stairs')).toBe(false)
+    expect(isPlacedStairsVariant('stone')).toBe(false)
+  })
+
+  it('getStairsFacingAndHalfFromId parses bottom and top variants', () => {
+    expect(getStairsFacingAndHalfFromId('oak_stairs_north')).toEqual({ facing: 'north', half: 'bottom' })
+    expect(getStairsFacingAndHalfFromId('oak_stairs_south_top')).toEqual({ facing: 'south', half: 'top' })
+    expect(getStairsFacingAndHalfFromId('oak_stairs')).toBe(null)
+  })
+
+  it('getBlockCollisionBoxesLocal returns two boxes for bottom-half stairs', () => {
+    const boxes = getBlockCollisionBoxesLocal('oak_stairs_north')
+    expect(boxes).toHaveLength(2)
+    expect(boxes[0].minY).toBe(0)
+    expect(boxes[0].maxY).toBe(0.5)
+    expect(boxes[1].minY).toBe(0.5)
+    expect(boxes[1].maxY).toBe(1)
+  })
+
+  it('getBlockCollisionBoxesLocal returns two boxes for top-half stairs (upside-down)', () => {
+    const boxes = getBlockCollisionBoxesLocal('oak_stairs_north_top')
+    expect(boxes).toHaveLength(2)
+    expect(boxes[0].minY).toBe(0)
+    expect(boxes[0].maxY).toBe(0.5)
+    expect(boxes[1].minY).toBe(0.5)
+    expect(boxes[1].maxY).toBe(1)
   })
 })

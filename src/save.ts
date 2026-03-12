@@ -61,6 +61,8 @@ export interface SaveData {
   activeQuests?: Array<{ questId: string; progress: number[] }>
   /** Completed quest ids. Omitted in older saves. */
   completedQuestIds?: string[]
+  /** Quest ids tracked on the HUD. Omitted in older saves. */
+  trackedQuestIds?: string[]
   /** Chunk keys (chunkKeyNumeric) the player has visited; used for map discovery. Omitted in older saves. */
   discoveredChunkKeys?: number[]
 }

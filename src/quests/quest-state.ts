@@ -9,9 +9,13 @@ import type { AnimalKind } from '../entities/types'
 
 let activeQuests: ActiveQuest[] = []
 let completedQuestIds: Set<string> = new Set()
+let trackedQuestIds: string[] = []
 
 /** Maximum number of active quests. */
 export const MAX_ACTIVE_QUESTS = 10
+
+/** Maximum number of quests that can be tracked on the HUD. */
+export const MAX_TRACKED_QUESTS = 5
 
 /**
  * Returns a copy of active quests with progress.
@@ -40,14 +44,56 @@ export function getQuestIdsReadyToTurnIn(): string[] {
 }
 
 /**
+ * Returns the list of quest ids currently tracked on the HUD (read-only copy).
+ */
+export function getTrackedQuestIds(): string[] {
+  return [...trackedQuestIds]
+}
+
+/**
+ * Sets the full list of tracked quest ids (e.g. from save). Clamps to MAX_TRACKED_QUESTS.
+ * Only includes ids that are currently active.
+ */
+export function setTrackedQuestIds(questIds: string[]): void {
+  const active = new Set(activeQuests.map((a) => a.questId))
+  trackedQuestIds = questIds.filter((id) => active.has(id)).slice(0, MAX_TRACKED_QUESTS)
+}
+
+/**
+ * Toggles tracking for a quest: adds if not tracked, removes if tracked.
+ * Only active quests can be tracked. Returns true if the tracked list changed.
+ */
+export function toggleQuestTracked(questId: string): boolean {
+  const active = new Set(activeQuests.map((a) => a.questId))
+  if (!active.has(questId)) return false
+  const idx = trackedQuestIds.indexOf(questId)
+  if (idx >= 0) {
+    trackedQuestIds.splice(idx, 1)
+    return true
+  }
+  if (trackedQuestIds.length >= MAX_TRACKED_QUESTS) return false
+  trackedQuestIds.push(questId)
+  return true
+}
+
+/**
+ * Returns whether a quest is currently tracked.
+ */
+export function isQuestTracked(questId: string): boolean {
+  return trackedQuestIds.includes(questId)
+}
+
+/**
  * Returns quest ids that are not active and not completed (available to accept).
  * A quest is only available if all of its prerequisiteQuestIds are completed.
  */
 export function getAvailableQuestIds(): string[] {
   const active = new Set(activeQuests.map((a) => a.questId))
   return getAllQuestIds().filter((id) => {
-    if (active.has(id) || completedQuestIds.has(id)) return false
+    if (active.has(id)) return false
     const quest = getQuestById(id)
+    const isRepeatable = quest?.category === 'repeatable'
+    if (completedQuestIds.has(id) && !isRepeatable) return false
     if (!quest?.prerequisiteQuestIds?.length) return true
     return quest.prerequisiteQuestIds.every((prereq) => completedQuestIds.has(prereq))
   })
@@ -83,6 +129,8 @@ export function abortQuest(questId: string): boolean {
   const idx = activeQuests.findIndex((a) => a.questId === questId)
   if (idx < 0) return false
   activeQuests.splice(idx, 1)
+  const trackIdx = trackedQuestIds.indexOf(questId)
+  if (trackIdx >= 0) trackedQuestIds.splice(trackIdx, 1)
   return true
 }
 
@@ -129,7 +177,11 @@ export function turnInQuest(
     reward = getQuestRewardForClass(quest, playerClass)
   }
   activeQuests.splice(idx, 1)
-  completedQuestIds.add(questId)
+  if (quest.category !== 'repeatable') {
+    completedQuestIds.add(questId)
+  }
+  const trackIdx = trackedQuestIds.indexOf(questId)
+  if (trackIdx >= 0) trackedQuestIds.splice(trackIdx, 1)
   return {
     xp: reward.xp ?? 0,
     gold: reward.gold ?? 0,
@@ -159,6 +211,23 @@ export function notifyKill(kind: AnimalKind): void {
 }
 
 /**
+ * Notifies that the player talked to an NPC (or reached a talk target).
+ * Advances talk objectives whose targetId matches. Call when the player interacts with a quest NPC.
+ * @param targetId - Id of the NPC or location (must match QuestObjectiveTalk.targetId).
+ */
+export function notifyTalk(targetId: string): void {
+  for (const a of activeQuests) {
+    const quest = getQuestById(a.questId)
+    if (!quest) continue
+    quest.objectives.forEach((obj, i) => {
+      if (obj.type === 'talk' && obj.targetId === targetId) {
+        a.progress[i] = Math.min(1, a.progress[i] + 1)
+      }
+    })
+  }
+}
+
+/**
  * Refreshes collect objectives from current inventory counts.
  * Pass a function that returns total count for a given item (e.g. from inventory).
  */
@@ -177,10 +246,15 @@ export function refreshCollectObjectives(getCount: (item: BlockType) => number):
 /**
  * Returns serializable state for save.
  */
-export function getQuestStateForSave(): { activeQuests: ActiveQuest[]; completedQuestIds: string[] } {
+export function getQuestStateForSave(): {
+  activeQuests: ActiveQuest[]
+  completedQuestIds: string[]
+  trackedQuestIds: string[]
+} {
   return {
     activeQuests: activeQuests.map((a) => ({ questId: a.questId, progress: [...a.progress] })),
     completedQuestIds: Array.from(completedQuestIds),
+    trackedQuestIds: [...trackedQuestIds],
   }
 }
 
@@ -190,7 +264,13 @@ export function getQuestStateForSave(): { activeQuests: ActiveQuest[]; completed
 export function setQuestStateFromSave(state: {
   activeQuests?: ActiveQuest[]
   completedQuestIds?: string[]
+  trackedQuestIds?: string[]
 }): void {
   activeQuests = (state.activeQuests ?? []).map((a) => ({ questId: a.questId, progress: [...a.progress] }))
   completedQuestIds = new Set(state.completedQuestIds ?? [])
+  if (state.trackedQuestIds != null) {
+    setTrackedQuestIds(state.trackedQuestIds)
+  } else {
+    trackedQuestIds = []
+  }
 }

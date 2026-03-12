@@ -521,32 +521,54 @@ export function getSnowLayerGeometry(layers: number): THREE.BufferGeometry {
 export function isSharedBlockOrSnowLayerGeometry(geo: THREE.BufferGeometry): boolean {
   if (geo === sharedBlockGeometry) return true
   if (_snowLayerGeometryCache.includes(geo)) return true
-  return _stairsGeometryCache.includes(geo)
+  if (_stairsGeometryCache.includes(geo)) return true
+  return _fenceGeometryCache.includes(geo)
 }
 
 export type StairFacing = 'north' | 'east' | 'south' | 'west'
 
+/** Vanilla-style stairs half: bottom = normal (step up), top = upside-down (e.g. on ceiling). */
+export type StairsHalf = 'bottom' | 'top'
+
+const STAIRS_FACING_INDEX: Record<StairFacing, number> = { north: 0, east: 1, south: 2, west: 3 }
 const _stairsGeometryCache: THREE.BufferGeometry[] = []
 
 /**
- * Returns shared stairs geometry for a given facing. Geometry is corner-based: spans X,Z in [0..1],
- * and represents a Minecraft-like stair shape as two boxes (bottom half-slab + top half block).
+ * Returns shared stairs geometry for a given facing and optional half.
+ * Geometry is corner-based: spans X,Z in [0..1], two boxes (slab + step).
+ * @param half When 'top', stairs are upside-down (slab at y 0.5–1, step at y 0–0.5). Default 'bottom'.
  */
-export function getStairsGeometry(facing: StairFacing): THREE.BufferGeometry {
-  const idx = facing === 'north' ? 0 : facing === 'east' ? 1 : facing === 'south' ? 2 : 3
+export function getStairsGeometry(facing: StairFacing, half: StairsHalf = 'bottom'): THREE.BufferGeometry {
+  const facingIdx = STAIRS_FACING_INDEX[facing]
+  const halfIdx = half === 'top' ? 4 : 0
+  const idx = halfIdx + facingIdx
   if (_stairsGeometryCache[idx]) return _stairsGeometryCache[idx]
 
   const createBox = (w: number, h: number, d: number, x0: number, y0: number, z0: number) => {
     const geo = new THREE.BoxGeometry(w * BLOCK_SIZE, h * BLOCK_SIZE, d * BLOCK_SIZE)
-    // Translate from centered box to corner-based placement: put min corner at (x0,y0,z0).
     geo.translate((x0 + w / 2) * BLOCK_SIZE, (y0 + h / 2) * BLOCK_SIZE, (z0 + d / 2) * BLOCK_SIZE)
     return geo
   }
 
-  // Bottom slab: full XZ, half height.
+  if (half === 'top') {
+    // Upside-down: slab at y 0.5–1, step at y 0–0.5.
+    const slab = createBox(1, 0.5, 1, 0, 0.5, 0)
+    const step =
+      facing === 'north'
+        ? createBox(1, 0.5, 0.5, 0, 0, 0)
+        : facing === 'south'
+          ? createBox(1, 0.5, 0.5, 0, 0, 0.5)
+          : facing === 'east'
+            ? createBox(0.5, 0.5, 1, 0.5, 0, 0)
+            : createBox(0.5, 0.5, 1, 0, 0, 0)
+    const merged = mergeGeometries([step, slab], true)
+    if (!merged) throw new Error(`Failed to build stairs geometry for facing: ${facing}, half: ${half}`)
+    _stairsGeometryCache[idx] = merged
+    return merged
+  }
+
+  // Bottom slab: full XZ, half height. Top step: half-height, half-depth by facing.
   const bottom = createBox(1, 0.5, 1, 0, 0, 0)
-  // Top step: half-height, half-depth depending on facing.
-  // Facing convention: "north" = step occupies the north half (negative Z direction in world).
   const top =
     facing === 'north'
       ? createBox(1, 0.5, 0.5, 0, 0.5, 0)
@@ -556,11 +578,70 @@ export function getStairsGeometry(facing: StairFacing): THREE.BufferGeometry {
           ? createBox(0.5, 0.5, 1, 0.5, 0.5, 0)
           : createBox(0.5, 0.5, 1, 0, 0.5, 0)
 
-  // Merge attributes (indexed) for instancing and correct UVs.
   const merged = mergeGeometries([bottom, top], true)
   if (!merged) throw new Error(`Failed to build stairs geometry for facing: ${facing}`)
-
   _stairsGeometryCache[idx] = merged
+  return merged
+}
+
+/** Fence connection mask: bit 0 = North (-Z), 1 = South (+Z), 2 = East (+X), 3 = West (-X). */
+const FENCE_MASK_NORTH = 1
+const FENCE_MASK_SOUTH = 2
+const FENCE_MASK_EAST = 4
+const FENCE_MASK_WEST = 8
+
+/** Post width in block units (Minecraft: 3/16). */
+const FENCE_POST_SIZE = 3 / 16
+/** Rail thickness (vertical) in block units. */
+const FENCE_RAIL_HEIGHT = 1 / 8
+/** Y positions (center) for the two horizontal rails. */
+const FENCE_RAIL_Y_LOW = 6 / 16
+const FENCE_RAIL_Y_HIGH = 9 / 16
+
+const _fenceGeometryCache: THREE.BufferGeometry[] = []
+
+/**
+ * Returns shared fence geometry for a given connection mask.
+ * Mask bits: 0 = North (-Z), 1 = South (+Z), 2 = East (+X), 3 = West (-X).
+ * Geometry is corner-based in [0..1] and includes center post plus horizontal rails to each connected side.
+ */
+export function getFenceGeometry(mask: number): THREE.BufferGeometry {
+  const idx = mask & 15
+  if (_fenceGeometryCache[idx]) return _fenceGeometryCache[idx]
+
+  const createBox = (w: number, h: number, d: number, x0: number, y0: number, z0: number) => {
+    const geo = new THREE.BoxGeometry(w * BLOCK_SIZE, h * BLOCK_SIZE, d * BLOCK_SIZE)
+    geo.translate((x0 + w / 2) * BLOCK_SIZE, (y0 + h / 2) * BLOCK_SIZE, (z0 + d / 2) * BLOCK_SIZE)
+    return geo
+  }
+
+  const postMin = 0.5 - FENCE_POST_SIZE / 2
+  const parts: THREE.BufferGeometry[] = []
+
+  // Center post: full height, narrow in XZ.
+  parts.push(createBox(FENCE_POST_SIZE, 1, FENCE_POST_SIZE, postMin, 0, postMin))
+
+  const railHalf = FENCE_RAIL_HEIGHT / 2
+  if (mask & FENCE_MASK_NORTH) {
+    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_LOW - railHalf, 0))
+    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_HIGH - railHalf, 0))
+  }
+  if (mask & FENCE_MASK_SOUTH) {
+    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_LOW - railHalf, 0.5))
+    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_HIGH - railHalf, 0.5))
+  }
+  if (mask & FENCE_MASK_EAST) {
+    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0.5, FENCE_RAIL_Y_LOW - railHalf, postMin))
+    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0.5, FENCE_RAIL_Y_HIGH - railHalf, postMin))
+  }
+  if (mask & FENCE_MASK_WEST) {
+    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0, FENCE_RAIL_Y_LOW - railHalf, postMin))
+    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0, FENCE_RAIL_Y_HIGH - railHalf, postMin))
+  }
+
+  const merged = mergeGeometries(parts, true)
+  if (!merged) throw new Error(`Failed to build fence geometry for mask: ${mask}`)
+  _fenceGeometryCache[idx] = merged
   return merged
 }
 

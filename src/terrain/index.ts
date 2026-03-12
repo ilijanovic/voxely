@@ -22,6 +22,12 @@ import {
 import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from '../constants'
 import {
   BASE_HEIGHT,
+  CAVE_THRESHOLD,
+  CHEESE_SCALE_XZ,
+  CHEESE_SCALE_Y,
+  CHEESE_THRESHOLD,
+  NOODLE_SCALE,
+  NOODLE_THRESHOLD,
   COAST_BLEND_BAND,
   COLD_HIGHLAND_TEMP_MAX,
   COLD_UPLAND_TEMP_MAX,
@@ -102,6 +108,7 @@ import {
   createMelonFeature,
   createPinkPetalsFeature,
 } from './features/extra-vegetation'
+import { createOreFeature } from './features/ore'
 import { localKey, typeToId, idToType, AIR_ID, isAirOrCarved } from './block-ids'
 import {
   FOREST_DENSITY_SCALE,
@@ -223,6 +230,12 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   const treeShapeNoise2D = createNoise2D(makeSeededRandom(seed + 999))
   const caveNoise3D = createNoise3D(makeSeededRandom(seed + 400))
   const cheeseNoise3D = createNoise3D(makeSeededRandom(seed + 401))
+  const noodleNoiseA3D = createNoise3D(makeSeededRandom(seed + 402))
+  const noodleNoiseB3D = createNoise3D(makeSeededRandom(seed + 403))
+  const oreDensityNoise3DRaw = createNoise3D(makeSeededRandom(seed + 5000))
+  /** Ore density in [0, 1]. Used by ore feature for vein placement (Vanilla-style). */
+  const oreDensityNoise3D = (x: number, y: number, z: number) =>
+    (oreDensityNoise3DRaw(x, y, z) + 1) * 0.5
   const heightTransitionNoise2D = createNoise2D(makeSeededRandom(seed + 4242))
 
   /** Cache of 2D noise samplers for feature placement; key = seedOffset. Returns value in [0, 1]. */
@@ -241,8 +254,6 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   const USE_MULTI_NOISE_BASE_SELECTION = true
 
   const SNOW_BIOMES: Biome[] = ['snow', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks', 'grove']
-  /** 3D noise caves: higher = less carving. Tuned for our pipeline; vanilla reference: docs/VANILLA_BIOME_REFERENCE.md §6. */
-  const CAVE_THRESHOLD = 0.56
 
   function clamp01(v: number): number {
     return Math.max(0, Math.min(1, v))
@@ -1077,9 +1088,18 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     getResolvedBiomeFromHeight,
     getPoiBiomeOverride: getPoiOverride,
   })
-  /** Cheese caves: vanilla cave_cheese uses constant 0.27 and xz_scale 1.0; we use threshold 0.27 (aligned) and scale 0.03. See docs/VANILLA_BIOME_REFERENCE.md §6. */
-  const CHEESE_SCALE = 0.03
-  const CHEESE_THRESHOLD = 0.27
+  /** Vanilla sloped_cheese: more caves at mid depth, fewer near surface and at bedrock. Returns 0..1. */
+  function createCheeseCaveDensityFactor(): (y: number) => number {
+    const peakY = WATER_LEVEL - 16
+    const yMin = 1
+    const yMax = WORLD_HEIGHT - 1
+    return (y: number): number => {
+      if (y <= yMin || y >= yMax) return 0
+      if (y <= peakY) return (y - yMin) / (peakY - yMin)
+      return (yMax - y) / (yMax - peakY)
+    }
+  }
+
   const stageCarvers = createStageCarvers({
     carve3d: {
       caveNoise3D,
@@ -1089,8 +1109,18 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     },
     cheese: {
       cheeseNoise3D,
-      scale: CHEESE_SCALE,
+      scaleXZ: CHEESE_SCALE_XZ,
+      scaleY: CHEESE_SCALE_Y,
       threshold: CHEESE_THRESHOLD,
+      minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+      caveDensityFactor: createCheeseCaveDensityFactor(),
+      getHeightAt: getHeight,
+    },
+    noodle: {
+      noodleNoiseA3D,
+      noodleNoiseB3D,
+      scale: NOODLE_SCALE,
+      threshold: NOODLE_THRESHOLD,
       minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
       getHeightAt: getHeight,
     },
@@ -1210,7 +1240,9 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   const fernFeature = createFernFeature()
   const flowersFeature = createFlowersFeature()
   const groundFeature = createGroundFeature()
+  const oreFeature = createOreFeature({ oreDensityNoise3D })
   const featuresList: FeatureFn[] = createOrderedFeatureList({
+    ore: oreFeature,
     trees: treeFeature,
     ferns: fernFeature,
     flowers: flowersFeature,

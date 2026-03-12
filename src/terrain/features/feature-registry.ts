@@ -8,6 +8,7 @@ import type { FeatureFn } from '../pipeline-types'
 
 /** Stable feature identifiers; order matches the sequence used in terrain/index.ts. */
 export const FEATURE_ORDER = [
+  'ore',
   'trees',
   'ferns',
   'flowers',

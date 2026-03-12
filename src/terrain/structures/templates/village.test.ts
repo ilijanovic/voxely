@@ -248,7 +248,7 @@ describe('getVillageBlocks', () => {
 })
 
 describe('getVillageWalkwayBlocks', () => {
-  it('returns only gravel blocks inside the given chunk bounds (L-path, 2 wide)', () => {
+  it('returns only gravel and grass_path blocks inside the given chunk bounds (L-path, 2 wide)', () => {
     const doors = [
       { doorX: 10, doorZ: 10, oy: 64, minX: 8, maxX: 12, minZ: 8, maxZ: 12 },
       { doorX: 14, doorZ: 14, oy: 64, minX: 12, maxX: 16, minZ: 12, maxZ: 16 },
@@ -261,7 +261,7 @@ describe('getVillageWalkwayBlocks', () => {
     const blocks = getVillageWalkwayBlocks(doors, centerX, centerZ, worldX, worldZ, chunkSize)
     expect(blocks.length).toBeGreaterThan(0)
     for (const b of blocks) {
-      expect(b.block).toBe('gravel')
+      expect(['gravel', 'grass_path']).toContain(b.block)
       expect(b.bx).toBeGreaterThanOrEqual(worldX)
       expect(b.bx).toBeLessThan(worldX + chunkSize)
       expect(b.bz).toBeGreaterThanOrEqual(worldZ)

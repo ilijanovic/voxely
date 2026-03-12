@@ -8,8 +8,10 @@ import type { ChunkContext, PipelineStage } from '../pipeline-types'
 
 export interface Stage2CheeseDeps {
   cheeseNoise3D(x: number, y: number, z: number): number
-  /** Scale for noise sampling (larger = bigger caverns). */
-  scale: number
+  /** Horizontal scale for noise sampling (x, z). Vanilla xz_scale 1.0; we use ~0.03. */
+  scaleXZ: number
+  /** Vertical scale for noise sampling (y). Vanilla y_scale 2/3 of xz; smaller = taller blobs. */
+  scaleY: number
   /** Carve where noise > threshold. */
   threshold: number
   /** Minimum blocks between cave ceiling and surface (avoids caves directly under grass). Default 0. */
@@ -54,7 +56,7 @@ function getEdgeCappedTopY(options: {
 }
 
 export function createStage2Cheese(deps: Stage2CheeseDeps): PipelineStage {
-  const { cheeseNoise3D, scale, threshold, minDepthBelowSurface = 0, caveDensityFactor, getHeightAt } = deps
+  const { cheeseNoise3D, scaleXZ, scaleY, threshold, minDepthBelowSurface = 0, caveDensityFactor, getHeightAt } = deps
   const densityAt = caveDensityFactor ?? (() => 1)
 
   return function stage2Cheese(ctx: ChunkContext): void {
@@ -68,7 +70,7 @@ export function createStage2Cheese(deps: Stage2CheeseDeps): PipelineStage {
           const wy = ly
           const wz = worldZ + lz
           const effectiveThreshold = threshold / Math.max(0.01, densityAt(wy))
-          if (cheeseNoise3D(wx * scale, wy * scale, wz * scale) > effectiveThreshold) {
+          if (cheeseNoise3D(wx * scaleXZ, wy * scaleY, wz * scaleXZ) > effectiveThreshold) {
             voxelMap[localKey(lx, ly, lz)] = CARVED_ID
           }
         }

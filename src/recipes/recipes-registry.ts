@@ -29,6 +29,12 @@ const BRICK_STAIRS = 'brick_stairs'
 const SANDSTONE = 'sandstone'
 const SANDSTONE_STAIRS = 'sandstone_stairs'
 const DOOR_CLOSED = 'door_closed'
+const OAK_FENCE = 'oak_fence'
+const SPRUCE_FENCE = 'spruce_fence'
+const BIRCH_FENCE = 'birch_fence'
+const JUNGLE_FENCE = 'jungle_fence'
+const ACACIA_FENCE = 'acacia_fence'
+const DARK_OAK_FENCE = 'dark_oak_fence'
 
 /** All 2×2 recipes. Order may affect which match is chosen when multiple match (first wins). */
 const RECIPES_2X2: Recipe2x2[] = [
@@ -251,6 +257,61 @@ const RECIPES_3X3: ShapedRecipe3x3[] = [
       OAK_PLANKS, OAK_PLANKS, null,
     ],
     result: { type: DOOR_CLOSED, count: 3 },
+  },
+  // --- Fences (Minecraft-style): 6 planks + 2 sticks → 3 fences ---
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
+      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
+      STICK, STICK, null,
+    ],
+    result: { type: OAK_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'spruce_planks', 'spruce_planks', 'spruce_planks',
+      'spruce_planks', 'spruce_planks', 'spruce_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: SPRUCE_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'birch_planks', 'birch_planks', 'birch_planks',
+      'birch_planks', 'birch_planks', 'birch_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: BIRCH_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'jungle_planks', 'jungle_planks', 'jungle_planks',
+      'jungle_planks', 'jungle_planks', 'jungle_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: JUNGLE_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'acacia_planks', 'acacia_planks', 'acacia_planks',
+      'acacia_planks', 'acacia_planks', 'acacia_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: ACACIA_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'dark_oak_planks', 'dark_oak_planks', 'dark_oak_planks',
+      'dark_oak_planks', 'dark_oak_planks', 'dark_oak_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: DARK_OAK_FENCE, count: 3 },
   },
 ]
 

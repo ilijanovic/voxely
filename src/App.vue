@@ -31,6 +31,8 @@ import {
   getActiveQuests,
   getAvailableQuestIds,
   getCompletedQuestIds,
+  getTrackedQuestIds,
+  toggleQuestTracked,
   acceptQuest,
   abortQuest,
 } from './quests/quest-state'
@@ -277,11 +279,12 @@ const levelUpDisplayRef = ref<number | null>(null)
 let levelXpInterval: ReturnType<typeof setInterval> | null = null
 let levelUpHideTimeout: ReturnType<typeof setTimeout> | null = null
 
-/** Quest log data (updated when opening and after accept/turn-in). */
+/** Quest log and tracker data (updated when opening log and after accept/turn-in/track). */
 const questListRef = ref({
   activeQuests: [] as ReturnType<typeof getActiveQuests>,
   availableQuestIds: [] as string[],
   completedQuestIds: [] as string[],
+  trackedQuestIds: [] as string[],
 })
 
 function refreshQuestList() {
@@ -290,8 +293,31 @@ function refreshQuestList() {
     activeQuests: getActiveQuests(),
     availableQuestIds: getAvailableQuestIds(),
     completedQuestIds: getCompletedQuestIds(),
+    trackedQuestIds: getTrackedQuestIds(),
   }
 }
+
+/** Tracked quests with title and objectives for the HUD tracker panel. */
+const questTrackerEntries = computed(() => {
+  const tracked = questListRef.value.trackedQuestIds
+  const active = questListRef.value.activeQuests
+  return tracked.map((questId) => {
+    const quest = getQuestById(questId)
+    const a = active.find((x) => x.questId === questId)
+    if (!quest || !a) return null
+    const objectives = quest.objectives.map((obj, i) => {
+      const progress = a.progress[i] ?? 0
+      const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
+      const done = progress >= need
+      const label =
+        obj.type === 'talk'
+          ? `${obj.label}: ${done ? 'Done' : '—'}`
+          : `${obj.label}: ${progress}/${need}`
+      return { label, progress, need, done }
+    })
+    return { questId, title: quest.title, objectives }
+  }).filter((e): e is NonNullable<typeof e> => e != null)
+})
 
 /** Quest log props filtered by context: at NPC (questLogOfferedIds set) vs personal (Q). */
 const questLogActiveQuests = computed(() => {
@@ -522,6 +548,33 @@ onUnmounted(() => {
         0 FPS
       </div>
 
+      <!-- Quest tracker (right side): tracked quests with objectives and progress. -->
+      <div
+        v-if="questTrackerEntries.length > 0"
+        aria-label="Quest objectives"
+        class="hud-panel fixed right-4 top-14 z-10 w-56 max-h-[50vh] overflow-y-auto rounded-[var(--ui-radius-md)] border-2 border-amber-800/50 px-2 py-1.5 text-[var(--ui-text)] pointer-events-none space-y-2"
+      >
+        <div
+          v-for="entry in questTrackerEntries"
+          :key="entry.questId"
+          class="space-y-0.5"
+        >
+          <div class="text-xs font-semibold text-amber-200 truncate" :title="entry.title">
+            {{ entry.title }}
+          </div>
+          <ul class="space-y-0.5 pl-2 text-[11px] text-stone-300">
+            <li
+              v-for="(obj, oi) in entry.objectives"
+              :key="oi"
+              class="truncate"
+              :class="obj.done ? 'text-amber-400/90' : ''"
+            >
+              {{ obj.label }}
+            </li>
+          </ul>
+        </div>
+      </div>
+
       <!-- Multiplayer status (below FPS, left) -->
       <div
         class="fixed left-3 top-12 z-10 rounded-[var(--ui-radius-md)] border-2 px-2.5 py-1.5 text-xs pointer-events-none"
@@ -732,12 +785,15 @@ onUnmounted(() => {
           :active-quests="questLogActiveQuests"
           :available-quest-ids="questLogAvailableQuestIds"
           :completed-quest-ids="questLogCompletedQuestIds"
-          :initial-selected-quest-id="questLogInitialSelectedId"
-          :at-quest-giver="questLogAtQuestGiver"
-          :player-class="getPlayerClass()"
+          :tracked-quest-ids="questListRef.trackedQuestIds"
           :on-accept="(id) => { const ok = acceptQuest(id); if (ok) refreshQuestList(); return ok }"
           :on-turn-in="(id, rewardChoiceIndex) => { const ok = claimQuestReward(id, rewardChoiceIndex); if (ok) refreshQuestList(); return ok }"
           :on-abort="(id) => { const ok = abortQuest(id); if (ok) refreshQuestList(); return ok }"
+          :on-toggle-track="(id) => { toggleQuestTracked(id); refreshQuestList() }"
+          :initial-selected-quest-id="questLogInitialSelectedId"
+          :at-quest-giver="questLogAtQuestGiver"
+          :player-class="getPlayerClass()"
+          :player-level="playerLevelRef"
           @close="questLogOpen = false"
         />
       </Transition>
