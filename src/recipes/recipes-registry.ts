@@ -14,6 +14,21 @@ const WOOD_PICKAXE = 'wood_pickaxe'
 const WOOD_AXE = 'wood_axe'
 const TORCH = 'torch'
 const COAL = 'coal'
+const OAK_STAIRS = 'oak_stairs'
+const SPRUCE_STAIRS = 'spruce_stairs'
+const BIRCH_STAIRS = 'birch_stairs'
+const JUNGLE_STAIRS = 'jungle_stairs'
+const ACACIA_STAIRS = 'acacia_stairs'
+const DARK_OAK_STAIRS = 'dark_oak_stairs'
+const COBBLESTONE = 'cobblestone'
+const COBBLESTONE_STAIRS = 'cobblestone_stairs'
+const STONE_BRICKS = 'stone_bricks'
+const STONE_BRICKS_STAIRS = 'stone_bricks_stairs'
+const BRICKS = 'bricks'
+const BRICK_STAIRS = 'brick_stairs'
+const SANDSTONE = 'sandstone'
+const SANDSTONE_STAIRS = 'sandstone_stairs'
+const DOOR_CLOSED = 'door_closed'
 
 /** All 2×2 recipes. Order may affect which match is chosen when multiple match (first wins). */
 const RECIPES_2X2: Recipe2x2[] = [
@@ -125,6 +140,117 @@ const RECIPES_3X3: ShapedRecipe3x3[] = [
       null, STICK, null,
     ],
     result: { type: WOOD_AXE, count: 1 },
+  },
+  // --- Stairs (Minecraft-like): 6 blocks in a stair pattern -> 4 stairs ---
+  // Oak stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      OAK_PLANKS, null, null,
+      OAK_PLANKS, OAK_PLANKS, null,
+      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
+    ],
+    result: { type: OAK_STAIRS, count: 4 },
+  },
+  // Spruce stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'spruce_planks', null, null,
+      'spruce_planks', 'spruce_planks', null,
+      'spruce_planks', 'spruce_planks', 'spruce_planks',
+    ],
+    result: { type: SPRUCE_STAIRS, count: 4 },
+  },
+  // Birch stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'birch_planks', null, null,
+      'birch_planks', 'birch_planks', null,
+      'birch_planks', 'birch_planks', 'birch_planks',
+    ],
+    result: { type: BIRCH_STAIRS, count: 4 },
+  },
+  // Jungle stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'jungle_planks', null, null,
+      'jungle_planks', 'jungle_planks', null,
+      'jungle_planks', 'jungle_planks', 'jungle_planks',
+    ],
+    result: { type: JUNGLE_STAIRS, count: 4 },
+  },
+  // Acacia stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'acacia_planks', null, null,
+      'acacia_planks', 'acacia_planks', null,
+      'acacia_planks', 'acacia_planks', 'acacia_planks',
+    ],
+    result: { type: ACACIA_STAIRS, count: 4 },
+  },
+  // Dark oak stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'dark_oak_planks', null, null,
+      'dark_oak_planks', 'dark_oak_planks', null,
+      'dark_oak_planks', 'dark_oak_planks', 'dark_oak_planks',
+    ],
+    result: { type: DARK_OAK_STAIRS, count: 4 },
+  },
+  // Cobblestone stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      COBBLESTONE, null, null,
+      COBBLESTONE, COBBLESTONE, null,
+      COBBLESTONE, COBBLESTONE, COBBLESTONE,
+    ],
+    result: { type: COBBLESTONE_STAIRS, count: 4 },
+  },
+  // Stone brick stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      STONE_BRICKS, null, null,
+      STONE_BRICKS, STONE_BRICKS, null,
+      STONE_BRICKS, STONE_BRICKS, STONE_BRICKS,
+    ],
+    result: { type: STONE_BRICKS_STAIRS, count: 4 },
+  },
+  // Brick stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      BRICKS, null, null,
+      BRICKS, BRICKS, null,
+      BRICKS, BRICKS, BRICKS,
+    ],
+    result: { type: BRICK_STAIRS, count: 4 },
+  },
+  // Sandstone stairs
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      SANDSTONE, null, null,
+      SANDSTONE, SANDSTONE, null,
+      SANDSTONE, SANDSTONE, SANDSTONE,
+    ],
+    result: { type: SANDSTONE_STAIRS, count: 4 },
+  },
+  // Oak door: 6 planks in 2 columns → 3 doors (Minecraft-style)
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      OAK_PLANKS, OAK_PLANKS, null,
+      OAK_PLANKS, OAK_PLANKS, null,
+      OAK_PLANKS, OAK_PLANKS, null,
+    ],
+    result: { type: DOOR_CLOSED, count: 3 },
   },
 ]
 

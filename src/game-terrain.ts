@@ -10,7 +10,7 @@ import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } f
 import { columnHeightCache, columnCacheKey, getBlockAt } from './chunk-runtime'
 import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from './block-registry'
 import { createTerrainSampling } from './terrain-sampling'
-import { getPoiBiomeOverride, POI_REGISTRY } from './world-pois'
+import { getPoiBiomeOverride, getActivePois } from './world-pois'
 import { BIOME_REGISTRY } from './terrain/biomes'
 import {
   MOUNTAIN_STONE_SURFACE_HEIGHT,
@@ -107,7 +107,7 @@ export function getHeight(x: number, z: number): number {
 
 /** Resolved biome for surface/blocks. POI area-theme overrides procedural biome when (x,z) is inside a placed POI. */
 export function getResolvedBiome(x: number, z: number): Biome {
-  const override = getPoiBiomeOverride(POI_REGISTRY, x, z)
+  const override = getPoiBiomeOverride(getActivePois(), x, z)
   if (override !== null) return override
   return terrainSampling.getResolvedBiome(x, z, getHeight)
 }

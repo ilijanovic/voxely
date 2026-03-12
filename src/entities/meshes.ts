@@ -405,12 +405,52 @@ function createVillagerMesh(variant?: number): THREE.Group {
   return group
 }
 
+const _refZombieBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refZombieHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refZombieLeg = { current: null as THREE.MeshStandardMaterial | null }
+
+/** Zombie: simple humanoid (green skin, upright). Used for hostile mob spawn at night. */
+const ZOMBIE_GREEN = 0x3d5c34
+const ZOMBIE_DARK = 0x2d4428
+
+function createZombieMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refZombieBody, ZOMBIE_GREEN)
+  const matHead = getMat(_refZombieHead, ZOMBIE_DARK)
+  const matLeg = getMat(_refZombieLeg, ZOMBIE_DARK)
+  const boxZombieBody = new THREE.BoxGeometry(0.45 * BLOCK, 0.7 * BLOCK, 0.25 * BLOCK)
+  const boxZombieHead = new THREE.BoxGeometry(0.4 * BLOCK, 0.4 * BLOCK, 0.4 * BLOCK)
+  const boxZombieLeg = new THREE.BoxGeometry(0.2 * BLOCK, 0.5 * BLOCK, 0.15 * BLOCK)
+  const head = new THREE.Mesh(boxZombieHead, matHead)
+  head.position.set(0, 1.15, 0)
+  head.castShadow = true
+  head.receiveShadow = true
+  const torso = new THREE.Mesh(boxZombieBody, matBody)
+  torso.position.set(0, 0.6, 0)
+  torso.castShadow = true
+  torso.receiveShadow = true
+  const legL = new THREE.Mesh(boxZombieLeg, matLeg)
+  legL.position.set(-0.12, 0.25, 0)
+  legL.castShadow = true
+  legL.receiveShadow = true
+  const legR = new THREE.Mesh(boxZombieLeg, matLeg)
+  legR.position.set(0.12, 0.25, 0)
+  legR.castShadow = true
+  legR.receiveShadow = true
+  group.add(head)
+  group.add(torso)
+  group.add(legL)
+  group.add(legR)
+  return group
+}
+
 /** Registry of mesh factories per animal kind. Add a new entry when adding a new AnimalKind. */
 export const ANIMAL_MESH_FACTORY: Record<AnimalKind, () => THREE.Group> = {
   sheep: createSheepMesh,
   pig: createPigMesh,
   wolf: createWolfMesh,
   villager: createVillagerMesh,
+  zombie: createZombieMesh,
 }
 
 /**

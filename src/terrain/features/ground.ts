@@ -1,7 +1,12 @@
 import type { Biome, BlockType } from '../../types'
 import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
+import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
+import { getFeatureDensityForBiome } from './feature-registry'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
+
+/** Seed offset for ground feature noise (tall_grass, grass_path, hay_block); deterministic per world seed. */
+const GROUND_NOISE_SEED = 800111
 
 /** Ground features (tall_grass, grass_path, hay_block) only on these surface blocks. */
 const SURFACE_BLOCKS_FOR_GROUND: BlockType[] = [
@@ -12,24 +17,6 @@ const SURFACE_BLOCKS_FOR_GROUND: BlockType[] = [
   'podzol',
   'coarse_dirt',
 ]
-
-function groundNoiseKey(wx: number, wz: number): string {
-  return `${wx},${wz}`
-}
-
-function sampleGroundNoise(cache: Map<string, number>, wx: number, wz: number): number {
-  const k = groundNoiseKey(wx, wz)
-  let v = cache.get(k)
-  if (v === undefined) {
-    // Simple hash-based pseudo-noise in [0,1] that is stable per (wx,wz).
-    let h = wx * 374761393 + wz * 668265263
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(k, v)
-  }
-  return v
-}
 
 type GroundFeatureConfig = {
   block: BlockType
@@ -71,8 +58,10 @@ const BIOME_GROUND_FEATURES: Partial<Record<Biome, GroundFeatureConfig[]>> = {
 
 export function createGroundFeature(): FeatureFn {
   return function groundFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const noiseCache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(GROUND_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -88,7 +77,9 @@ export function createGroundFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        const n = sampleGroundNoise(noiseCache, wx, wz)
+        const n = placeNoise(wx * scale, wz * scale)
+        const groundDensity = getFeatureDensityForBiome('ground', biome)
+        if (groundDensity !== undefined && n >= groundDensity) continue
 
         for (const cfg of configs) {
           if (n >= cfg.minThreshold && n < cfg.maxThreshold) {

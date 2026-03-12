@@ -1,16 +1,54 @@
 /**
  * Single source of truth for surface block rules (height-to-stone, frozen_peaks, grass_snow, etc.).
  * Pure logic only; no THREE, no DOM. Used by terrain/index.ts (worker), game-terrain.ts, and terrain-sampling.ts.
+ *
+ * Rule priority (order of checks; first match wins):
+ * 1. Mountain/windswept/meadow stone by height (MOUNTAIN_STONE_SURFACE_HEIGHT)
+ * 2. Global stone by height (SURFACE_STONE_HEIGHT) with biome exemptions
+ * 3. frozen_peaks: packed_ice / ice by slope and noise, else snow
+ * 4. jagged_peaks / snowy_slopes: stone on steep slope
+ * 5. Snow at altitude (SNOW_AT_ALTITUDE_HEIGHT) → grass_snow for non-warm biomes
+ * 6. effectiveSurface snow → grass_snow
+ * 7. Savanna grass → grass_savanna
+ * 8. Grass with snow neighbor → grass_snow
+ * 9. Default: effectiveSurface
  */
 import type { Biome, BlockType } from '../types'
-import { WATER_LEVEL } from '../constants'
 import {
+  FROZEN_PEAKS_HIGH_HEIGHT,
   JAGGED_PEAKS_STONE_SLOPE_MIN,
   MOUNTAIN_STONE_SURFACE_HEIGHT,
+  SNOW_AT_ALTITUDE_HEIGHT,
   SNOWY_SLOPES_STONE_SLOPE_MIN,
   SURFACE_STONE_HEIGHT,
 } from './surface-constants'
 import { BIOMES_WITHOUT_GRASS_SNOW } from './tree-constants'
+
+/**
+ * Per-biome surface rule flags (Minecraft-style: one source of truth for which biomes get stone/snow rules).
+ * Used so surface logic is data-driven instead of long if-chains.
+ */
+export interface SurfaceRuleBiomeConfig {
+  /** If true, use stone above MOUNTAIN_STONE_SURFACE_HEIGHT (mountain, windswept_*, meadow). */
+  stoneAtMountainHeight?: boolean
+  /** If true, do not apply global SURFACE_STONE_HEIGHT rule (peaks, jungle, badlands, etc.). */
+  exemptFromGlobalStone?: boolean
+}
+
+/** Biome → surface rule config. Only biomes with overrides are listed; others get default behaviour. */
+export const BIOME_SURFACE_RULES: Partial<Record<Biome, SurfaceRuleBiomeConfig>> = {
+  mountain: { stoneAtMountainHeight: true },
+  windswept_hills: { stoneAtMountainHeight: true },
+  windswept_forest: { stoneAtMountainHeight: true },
+  meadow: { stoneAtMountainHeight: true },
+  frozen_peaks: { exemptFromGlobalStone: true },
+  jagged_peaks: { exemptFromGlobalStone: true },
+  jungle: { exemptFromGlobalStone: true },
+  badlands: { exemptFromGlobalStone: true },
+  mushroom_fields: { exemptFromGlobalStone: true },
+  mangrove_swamp: { exemptFromGlobalStone: true },
+  old_growth_taiga: { exemptFromGlobalStone: true },
+}
 
 /** Options for context-dependent surface rules (slope, frozen_peaks noise, snow neighbor). Callers compute these. */
 export interface SurfaceRulesOptions {
@@ -34,23 +72,11 @@ export function getSurfaceBlockFromRules(
   effectiveSurface: BlockType,
   options: SurfaceRulesOptions = {},
 ): BlockType {
-  if (
-    (biome === 'mountain' ||
-      biome === 'windswept_hills' ||
-      biome === 'windswept_forest') &&
-    topY >= MOUNTAIN_STONE_SURFACE_HEIGHT
-  )
-    return 'stone'
-  if (biome === 'meadow' && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return 'stone'
+  const biomeRules = BIOME_SURFACE_RULES[biome]
+  if (biomeRules?.stoneAtMountainHeight && topY >= MOUNTAIN_STONE_SURFACE_HEIGHT) return 'stone'
   if (
     topY >= SURFACE_STONE_HEIGHT &&
-    biome !== 'frozen_peaks' &&
-    biome !== 'jagged_peaks' &&
-    biome !== 'jungle' &&
-    biome !== 'badlands' &&
-    biome !== 'mushroom_fields' &&
-    biome !== 'mangrove_swamp' &&
-    biome !== 'old_growth_taiga'
+    !biomeRules?.exemptFromGlobalStone
   )
     return 'stone'
 
@@ -58,7 +84,7 @@ export function getSurfaceBlockFromRules(
     const slope = options.slope ?? 0
     const steep = slope >= 6
     const verySteep = slope >= 9
-    const high = topY >= WATER_LEVEL + 30
+    const high = topY >= FROZEN_PEAKS_HIGH_HEIGHT
     const n = options.frozenPeaksNoiseN ?? 0.5
     const blob = options.frozenPeaksNoiseBlob ?? 0.5
     if (high && (verySteep || (steep && n < 0.62))) return 'packed_ice'
@@ -73,7 +99,7 @@ export function getSurfaceBlockFromRules(
     return 'stone'
 
   if (
-    topY >= WATER_LEVEL + 20 &&
+    topY >= SNOW_AT_ALTITUDE_HEIGHT &&
     !BIOMES_WITHOUT_GRASS_SNOW.has(biome)
   )
     return 'grass_snow'

@@ -4,8 +4,10 @@
 import type { Biome, BlockType } from '../../types'
 import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
+import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
+/** Seed offsets for feature noise (placement and type); deterministic per world seed. */
 const MUSHROOM_PLACE_NOISE_SEED = 720001
 const MUSHROOM_TYPE_NOISE_SEED = 720002
 
@@ -15,23 +17,6 @@ const MUSHROOM_DENSITY = 0.008
 const MUSHROOM_DENSITY_OLD_GROWTH_TAIGA = 0.016
 
 const SURFACE_BLOCKS_FOR_MUSHROOM: BlockType[] = ['grass', 'grass_snow', 'grass_savanna', 'dirt', 'mycelium', 'podzol']
-
-function noiseKey(seed: number, wx: number, wz: number): string {
-  return `${seed},${wx},${wz}`
-}
-
-function sampleNoise(cache: Map<string, number>, seed: number, wx: number, wz: number): number {
-  const k = noiseKey(seed, wx, wz)
-  let v = cache.get(k)
-  if (v === undefined) {
-    let h = wx * 374761393 + wz * 668265263 + seed
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(k, v)
-  }
-  return v
-}
 
 const BIOME_MUSHROOM: Partial<Record<Biome, boolean>> = {
   forest: true,
@@ -49,8 +34,11 @@ const BIOME_MUSHROOM: Partial<Record<Biome, boolean>> = {
  */
 export function createMushroomFeature(): FeatureFn {
   return function mushroomFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(MUSHROOM_PLACE_NOISE_SEED)
+    const typeNoise = getFeatureNoise(MUSHROOM_TYPE_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -70,9 +58,9 @@ export function createMushroomFeature(): FeatureFn {
         const wz = worldZ + lz
         const density =
           biome === 'old_growth_taiga' ? MUSHROOM_DENSITY_OLD_GROWTH_TAIGA : MUSHROOM_DENSITY
-        if (sampleNoise(cache, MUSHROOM_PLACE_NOISE_SEED, wx, wz) > density) continue
+        if (placeNoise(wx * scale, wz * scale) > density) continue
 
-        const typeRoll = sampleNoise(cache, MUSHROOM_TYPE_NOISE_SEED, wx, wz)
+        const typeRoll = typeNoise(wx * scale, wz * scale)
         const block: BlockType = typeRoll < 0.5 ? 'brown_mushroom' : 'red_mushroom'
         voxelMap[keyAbove] = typeToId(block)
       }

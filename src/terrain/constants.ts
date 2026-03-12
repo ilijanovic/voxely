@@ -78,3 +78,31 @@ export const PEAK_Y_RANGE = 24
 
 /** Flatness noise frequency for terrain smoothness; shared by height and local terrain. */
 export const FLAT_NOISE_SCALE = 0.01
+
+/**
+ * Multi-octave (fBm) policy for terrain detail noise (Minecraft-style).
+ * Octave i has higher frequency (lacunarity^i) and lower amplitude (persistence^i).
+ */
+export const HEIGHT_DETAIL_OCTAVES = 3
+/** Frequency multiplier per octave; each octave samples at lacunarity × previous frequency. */
+export const HEIGHT_DETAIL_LACUNARITY = 2
+/** Amplitude multiplier per octave; each octave contributes persistence × previous amplitude. */
+export const HEIGHT_DETAIL_PERSISTENCE = 0.5
+/**
+ * Normalization so fBm sum stays in a similar range to single-octave noise.
+ * Equal to (1 - persistence^octaves) / (1 - persistence).
+ */
+export const HEIGHT_DETAIL_FBM_NORMALIZE =
+  (1 - Math.pow(HEIGHT_DETAIL_PERSISTENCE, HEIGHT_DETAIL_OCTAVES)) /
+  (1 - HEIGHT_DETAIL_PERSISTENCE)
+
+/** Default scale for feature placement noise (vegetation, decoration). Same world seed yields deterministic patches. */
+export const FEATURE_PLACEMENT_NOISE_SCALE = 0.05
+
+/**
+ * Numerical stability (Far Lands): at very large |x|/|z|, floating point can degrade.
+ * Use integer-based hashing for discrete decisions (feature placement); for noise sampling,
+ * optionally wrap coordinates so noise inputs stay in a bounded range (e.g. ±NOISE_COORD_WRAP).
+ * When implementing large-world support, call wrapNoiseCoord() before passing coords to noise.
+ */
+export const NOISE_COORD_WRAP = 1 << 20

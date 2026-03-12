@@ -32,3 +32,9 @@ export const CREATURE_SPAWN_SURFACE_BLOCKS: ReadonlySet<string> = new Set([
 
 /** Max attempts to find a valid spawn position per pack member (Minecraft: 4). */
 export const CREATURE_SPAWN_POSITION_ATTEMPTS = 4
+
+/**
+ * Hostile mob spawn: only when block light at spawn position is at or below this (0–15).
+ * Torches and future sky light reduce spawns (Minecraft-style).
+ */
+export const HOSTILE_SPAWN_MAX_LIGHT = 7

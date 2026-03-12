@@ -3,30 +3,16 @@
  */
 import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
 import { localKey, typeToId, AIR_ID, CARVED_ID } from '../block-ids'
+import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
+/** Seed offsets for feature noise (placement and height); deterministic per world seed. */
 const SUGAR_CANE_NOISE_SEED = 600111
 const LILY_PAD_NOISE_SEED = 600311
 const SEAGRASS_NOISE_SEED = 600411
 const SEA_PICKLE_NOISE_SEED = 600421
 const SUGAR_CANE_HEIGHT_SEED = 600112
 const KELP_NOISE_SEED = 600211
-
-function noiseKey(seed: number, wx: number, wz: number): string {
-  return `${seed},${wx},${wz}`
-}
-
-function sampleNoise(cache: Map<string, number>, seed: number, wx: number, wz: number): number {
-  let v = cache.get(noiseKey(seed, wx, wz))
-  if (v === undefined) {
-    let h = wx * 374761393 + wz * 668265263 + seed
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(noiseKey(seed, wx, wz), v)
-  }
-  return v
-}
 
 /** Default placement threshold (higher = fewer plants). Place when noise >= threshold. */
 const SUGAR_CANE_PLACE_THRESHOLD = 0.88
@@ -39,8 +25,11 @@ const SUGAR_CANE_HEIGHT_MAX = 4
 
 export function createSugarCaneFeature(): FeatureFn {
   return function sugarCaneFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(SUGAR_CANE_NOISE_SEED)
+    const heightNoise = getFeatureNoise(SUGAR_CANE_HEIGHT_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const sugarCaneId = typeToId('sugar_cane')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -94,9 +83,9 @@ export function createSugarCaneFeature(): FeatureFn {
             : biome === 'mangrove_swamp'
               ? SUGAR_CANE_PLACE_THRESHOLD_SWAMP
               : SUGAR_CANE_PLACE_THRESHOLD
-        if (sampleNoise(cache, SUGAR_CANE_NOISE_SEED, wx, wz) < threshold) continue
+        if (placeNoise(wx * scale, wz * scale) < threshold) continue
 
-        const heightSample = sampleNoise(cache, SUGAR_CANE_HEIGHT_SEED, wx, wz)
+        const heightSample = heightNoise(wx * scale, wz * scale)
         const height =
           1 + Math.min(Math.floor(heightSample * SUGAR_CANE_HEIGHT_MAX), SUGAR_CANE_HEIGHT_MAX - 1)
 
@@ -113,8 +102,10 @@ const KELP_PLACE_THRESHOLD = 0.65
 
 export function createKelpFeature(): FeatureFn {
   return function kelpFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(KELP_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const kelpId = typeToId('kelp')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -126,7 +117,7 @@ export function createKelpFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, KELP_NOISE_SEED, wx, wz) < KELP_PLACE_THRESHOLD) continue
+        if (placeNoise(wx * scale, wz * scale) < KELP_PLACE_THRESHOLD) continue
 
         const kelpTop = WATER_LEVEL - 1
         const baseY = topY + 1
@@ -148,8 +139,10 @@ const LILY_PAD_DENSITY = 0.04
  */
 export function createLilyPadFeature(): FeatureFn {
   return function lilyPadFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(LILY_PAD_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const lilyPadId = typeToId('lily_pad')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -165,7 +158,7 @@ export function createLilyPadFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, LILY_PAD_NOISE_SEED, wx, wz) > LILY_PAD_DENSITY) continue
+        if (placeNoise(wx * scale, wz * scale) > LILY_PAD_DENSITY) continue
 
         voxelMap[keyAboveWater] = lilyPadId
       }
@@ -181,8 +174,10 @@ const SEAGRASS_DENSITY = 0.12
  */
 export function createSeagrassFeature(): FeatureFn {
   return function seagrassFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(SEAGRASS_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const seagrassId = typeToId('seagrass')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -197,7 +192,7 @@ export function createSeagrassFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, SEAGRASS_NOISE_SEED, wx, wz) > SEAGRASS_DENSITY) continue
+        if (placeNoise(wx * scale, wz * scale) > SEAGRASS_DENSITY) continue
 
         voxelMap[keyAbove] = seagrassId
       }
@@ -213,8 +208,10 @@ const SEA_PICKLE_DENSITY = 0.03
  */
 export function createSeaPickleFeature(): FeatureFn {
   return function seaPickleFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(SEA_PICKLE_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const seaPickleId = typeToId('sea_pickle')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -229,7 +226,7 @@ export function createSeaPickleFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, SEA_PICKLE_NOISE_SEED, wx, wz) > SEA_PICKLE_DENSITY) continue
+        if (placeNoise(wx * scale, wz * scale) > SEA_PICKLE_DENSITY) continue
 
         voxelMap[keyAbove] = seaPickleId
       }

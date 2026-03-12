@@ -5,7 +5,7 @@
 import type { BlockType, ChunkData } from './types'
 import { CHUNK_SIZE, WORLD_HEIGHT } from './constants'
 import type { BlockModEntry } from './terrain-core'
-import { getBlockHeight } from './block-registry'
+import { getBlockCollisionBoxesLocal, type CollisionBoxLocal, getBlockHeight } from './block-registry'
 
 export const chunks = new Map<number, ChunkData>()
 export const blockModifications = new Map<string, BlockType | 'air'>()
@@ -85,6 +85,34 @@ export function getBlockHeightAt(bx: number, by: number, bz: number): number {
   const type = getBlockAt(bx, by, bz)
   if (type === null || type === 'air') return 0
   return getBlockHeight(type)
+}
+
+export type CollisionBoxWorld = {
+  minX: number
+  minY: number
+  minZ: number
+  maxX: number
+  maxY: number
+  maxZ: number
+}
+
+/**
+ * Returns collision boxes for the block at (bx, by, bz) in world space.
+ * @returns Empty array for air/unloaded/non-solid blocks.
+ */
+export function getBlockCollisionBoxesAt(bx: number, by: number, bz: number): CollisionBoxWorld[] {
+  const type = getBlockAt(bx, by, bz)
+  if (type === null || type === 'air') return []
+  const local: CollisionBoxLocal[] = getBlockCollisionBoxesLocal(type)
+  if (local.length === 0) return []
+  return local.map((b) => ({
+    minX: bx + b.minX,
+    minY: by + b.minY,
+    minZ: bz + b.minZ,
+    maxX: bx + b.maxX,
+    maxY: by + b.maxY,
+    maxZ: bz + b.maxZ,
+  }))
 }
 
 export function isSolidBlock(

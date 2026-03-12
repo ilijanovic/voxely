@@ -211,6 +211,24 @@ describe('matchRecipe3x3', () => {
     expect(matchRecipe3x3(torchBottomRight)!.result.type).toBe('torch')
     expect(matchRecipe3x3(torchBottomRight)!.result.count).toBe(4)
   })
+
+  it('matches oak stairs (stair pattern -> 4 stairs)', () => {
+    const grid = [
+      'oak_planks',
+      null,
+      null,
+      'oak_planks',
+      'oak_planks',
+      null,
+      'oak_planks',
+      'oak_planks',
+      'oak_planks',
+    ]
+    const match = matchRecipe3x3(grid)
+    expect(match).not.toBeNull()
+    expect(match!.result.type).toBe('oak_stairs')
+    expect(match!.result.count).toBe(4)
+  })
 })
 
 describe('getConsumeAmountsForCraft3x3', () => {

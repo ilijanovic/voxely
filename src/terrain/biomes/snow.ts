@@ -34,10 +34,9 @@ export const snowDefinition: BiomeDefinition = {
       temperature: -0.65,
       humidity: -0.2,
       weirdness: 0.1,
-      y: 0.6,
+      y: 0.25,
     },
     weights: {
-      y: 2.2,
       temperature: 2.2,
       continentalness: 1.4,
       erosion: 1.6,

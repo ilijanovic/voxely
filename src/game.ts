@@ -24,6 +24,9 @@ import {
   FOG_NEAR_CHUNK_FACTOR,
   FOG_FAR_CHUNK_FACTOR,
   MAP_DISCOVER_RADIUS_CHUNKS,
+  TOTAL_PERSISTENT_SLOTS,
+  MAX_STACK_SIZE,
+  AUTOSAVE_INTERVAL_MS,
 } from './constants'
 import {
   getSelectedBlockType,
@@ -91,6 +94,10 @@ import {
   isSolidBlock as isBlockTypeSolid,
   isPlaceableBlock,
   isReplaceableByPlacement,
+  isStairsBlock,
+  getPlacedStairsId,
+  type StairFacing,
+  getBlockCollisionBoxesLocal,
   isUnbreakableBlock,
   getBlockBreakTimeWithTool,
   getBlockDefinition,
@@ -187,10 +194,11 @@ import {
   getBlockModsForChunk,
 } from './chunk-runtime'
 import { isWaterBlock, getWaterLevel, computeWaterSpread } from './game/fluid/water-flow'
+import { isOccludingBlock as isBlockTypeOccluding } from './block-registry'
 import { isPendingSpawnReady } from './game/player/pending-spawn'
 import { RaycastMeshCache } from './game/chunks/raycast-cache'
 import { initChunkWorkerClient, type ChunkWorkerClient } from './game/chunks/chunk-worker-client'
-import { POI_REGISTRY } from './world-pois'
+import { createPoiRegistryForSpawn, getActivePois, setActivePois } from './world-pois'
 import { applyChunkPayload as applyChunkPayloadToScene } from './game/chunks/chunk-apply'
 import { updateChunks as updateChunksFromModule } from './game/chunks/chunk-manager'
 import {
@@ -217,7 +225,32 @@ import {
   applyTorchShadowSettingsToPlacedTorches,
   removeTorchAt,
   type PlacedTorch,
+  quantizeAxisNormal,
+  removeTorchesInChunk,
 } from './game/world-interactions/torches'
+import {
+  canSupportTorch,
+} from './game/world-interactions/torches'
+
+/**
+ * Returns true if the given block type is a torch (floor) or wall torch variant.
+ */
+function isTorchLikeBlockType(t: BlockType): boolean {
+  return t === 'torch' || /^wall_torch_(north|east|south|west)$/.test(t)
+}
+
+/**
+ * Gets the attachment normal for a torch-like block type.
+ * @throws when called with a non-torch block type.
+ */
+function getTorchNormalFromTorchLikeBlockType(t: BlockType): { x: number; y: number; z: number } {
+  if (t === 'torch') return { x: 0, y: 1, z: 0 }
+  if (t === 'wall_torch_east') return { x: 1, y: 0, z: 0 }
+  if (t === 'wall_torch_west') return { x: -1, y: 0, z: 0 }
+  if (t === 'wall_torch_south') return { x: 0, y: 0, z: 1 }
+  if (t === 'wall_torch_north') return { x: 0, y: 0, z: -1 }
+  throw new Error(`Expected torch-like block type, got: ${t}`)
+}
 import { createPlayerMeshOnly, createPOVShadowBody } from './game/player/player-mesh'
 export { createPlayerMeshOnly } from './game/player/player-mesh'
 
@@ -424,8 +457,6 @@ let tallGrassMaterial: THREE.MeshStandardMaterial | null = null
 
 // ================= AUTOSAVE (localStorage) =================
 
-const AUTOSAVE_INTERVAL_MS = 10000
-
 /** Pending camera orientation from load; applied once after PointerLockControls is created. */
 let loadedRotationY: number | null = null
 let loadedLookPitch: number | null = null
@@ -498,9 +529,9 @@ function saveGame(): void {
     removedBlocks,
     placedBlocks,
     placedTorches: placedTorches.map((t) => ({
-      x: t.x,
-      y: t.y,
-      z: t.z,
+      x: t.bx,
+      y: t.by,
+      z: t.bz,
       ...(t.nx !== undefined && t.ny !== undefined && t.nz !== undefined
         ? { nx: t.nx, ny: t.ny, nz: t.nz }
         : {}),
@@ -537,6 +568,24 @@ function loadGame(): boolean {
   }
   if (data.worldSeed !== WORLD_SEED) return false
 
+  const {
+    x: playerX,
+    y: playerY,
+    z: playerZ,
+    rotationY,
+    lookPitch,
+  } = data.player
+
+  if (
+    !Number.isFinite(playerX) ||
+    !Number.isFinite(playerY) ||
+    !Number.isFinite(playerZ) ||
+    !Number.isFinite(rotationY) ||
+    !Number.isFinite(lookPitch)
+  ) {
+    return false
+  }
+
   for (const { x, y, z } of data.removedBlocks ?? []) {
     blockModifications.set(blockKeyString(x, y, z), 'air')
     invalidateColumnHeight(x, z)
@@ -556,22 +605,26 @@ function loadGame(): boolean {
         t.nx !== undefined && t.ny !== undefined && t.nz !== undefined
           ? { x: t.nx, y: t.ny, z: t.nz }
           : undefined
-      const group = createTorchGroup(t.x, t.y, t.z, faceNormal)
+      const bx = Math.round(t.x)
+      const by = Math.round(t.y)
+      const bz = Math.round(t.z)
+      const group = createTorchGroup(bx, by, bz, faceNormal)
       torchContainer.add(group)
       placedTorches.push({
-        x: t.x,
-        y: t.y,
-        z: t.z,
+        bx,
+        by,
+        bz,
         ...(faceNormal && { nx: faceNormal.x, ny: faceNormal.y, nz: faceNormal.z }),
         group,
+        chunkKeyNum: chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE)),
       })
     }
   }
 
   // Preload chunks in the footprint around the saved player position (same logic as initial spawn).
   if (typeof scene !== 'undefined') {
-    const px = data.player.x
-    const pz = data.player.z
+    const px = playerX
+    const pz = playerZ
     const footHalf = PLAYER_HALF + 0.5
     const minCx = Math.floor((px - footHalf) / CHUNK_SIZE)
     const maxCx = Math.floor((px + footHalf) / CHUNK_SIZE)
@@ -603,7 +656,7 @@ function loadGame(): boolean {
           if (!chunks.has(chunkKeyNumeric(cx, cz))) generateChunk(scene, cx, cz)
         }
       }
-      player.position.set(data.player.x, data.player.y, data.player.z)
+      player.position.set(playerX, playerY, playerZ)
       player.visible = true
     }
   }
@@ -611,10 +664,10 @@ function loadGame(): boolean {
   if (!pendingLoad) {
     player.visible = true
   }
-  lastLookYaw = data.player.rotationY
-  lastLookPitch = data.player.lookPitch
-  loadedRotationY = data.player.rotationY
-  loadedLookPitch = data.player.lookPitch
+  lastLookYaw = rotationY
+  lastLookPitch = lookPitch
+  loadedRotationY = rotationY
+  loadedLookPitch = lookPitch
   playerLevel = Math.max(1, Math.min(MAX_LEVEL, data.player.level ?? 1))
   playerExperience = Math.max(0, data.player.experience ?? 0)
   setGold(Math.max(0, data.player.gold ?? 0))
@@ -640,9 +693,9 @@ function loadGame(): boolean {
     else pendingSnowForced = data.snowForced
   }
   if (data.inventory && data.inventory.length > 0) {
-    const valid = data.inventory.slice(0, 36).map((s) =>
+    const valid = data.inventory.slice(0, TOTAL_PERSISTENT_SLOTS).map((s) =>
       s && s.type && VALID_BLOCK_TYPES.has(s.type)
-        ? { type: s.type, count: Math.min(s.count, 64) }
+        ? { type: s.type, count: Math.min(s.count, MAX_STACK_SIZE) }
         : { type: null as BlockType | null, count: 0 },
     )
     setPersistentSlots(valid)
@@ -800,8 +853,11 @@ function applyBlockChangeToLoadedChunk(params: {
   next: BlockType | 'air'
   /** When true, also request updated chunk payload from worker (if enabled). */
   requestWorkerChunk?: boolean
+  /** Internal: skip torch neighbor validation to avoid recursive updates. */
+  skipTorchValidation?: boolean
 }): void {
   const { bx, by, bz, next } = params
+  blockLightCacheVersion++
   invalidateColumnHeight(bx, bz)
 
   const cx = Math.floor(bx / CHUNK_SIZE)
@@ -836,6 +892,66 @@ function applyBlockChangeToLoadedChunk(params: {
   } else {
     raycastMeshCache.markDirty()
     _frustumDirty = true
+  }
+
+  /**
+   * Validates torches adjacent to this changed block. If their support face is no longer sturdy,
+   * they pop off (torch block removed + item drop), Vanilla-style.
+   */
+  function validateAdjacentTorches(changedX: number, changedY: number, changedZ: number): void {
+    const neighborCoords: Array<[number, number, number]> = [
+      [changedX + 1, changedY, changedZ],
+      [changedX - 1, changedY, changedZ],
+      [changedX, changedY + 1, changedZ],
+      [changedX, changedY - 1, changedZ],
+      [changedX, changedY, changedZ + 1],
+      [changedX, changedY, changedZ - 1],
+    ]
+
+    for (const [tx, ty, tz] of neighborCoords) {
+      const torchType = getBlockAt(tx, ty, tz)
+      if (torchType === null || torchType === 'air') continue
+      if (!isTorchLikeBlockType(torchType as BlockType)) continue
+      const { x: nx, y: ny, z: nz } = getTorchNormalFromTorchLikeBlockType(torchType as BlockType)
+
+      // No ceiling torches in Vanilla.
+      if (ny < 0) {
+        // Remove invalid legacy ceiling attachment.
+      } else {
+        const sx = tx - nx
+        const sy = ty - ny
+        const sz = tz - nz
+        const support = getBlockAt(sx, sy, sz)
+        if (canSupportTorch(support, { x: nx, y: ny, z: nz })) continue
+      }
+
+      // Pop off: remove torch mesh + torch block, drop item.
+      const ctx = getChunkSyncCtx()
+      removeTorchAt({ bx: tx, by: ty, bz: tz, torchContainer: ctx.torchContainer, placedTorches: ctx.placedTorches })
+      blockModifications.set(blockKeyString(tx, ty, tz), 'air')
+      applyBlockChangeToLoadedChunk({
+        bx: tx,
+        by: ty,
+        bz: tz,
+        next: 'air',
+        requestWorkerChunk: true,
+        skipTorchValidation: true,
+      })
+      spawnDropItem({
+        scene,
+        drops,
+        worldX: tx + 0.5 + (Math.random() - 0.5) * 0.3,
+        worldZ: tz + 0.5 + (Math.random() - 0.5) * 0.3,
+        startY: ty + 0.8,
+        restY: ty + 0.2,
+        blockType: 'torch',
+        time: performance.now() / 1000,
+      })
+    }
+  }
+
+  if (params.skipTorchValidation !== true) {
+    validateAdjacentTorches(bx, by, bz)
   }
 
   if ((params.requestWorkerChunk ?? true) && chunkWorker) {
@@ -875,9 +991,12 @@ function breakBlock(
 ): void {
   const ctx = getChunkSyncCtx()
   const useWorker = !!chunkWorker
+  const doorDrop =
+    blockType === 'door_closed' || blockType === 'door_open' ? 'door_closed' : undefined
   breakBlockSync(ctx, chunkKeyNum, blockType, worldX, worldY, worldZ, {
     skipRefresh: useWorker,
     time,
+    dropType: doorDrop,
   })
   // Only fill with water when this column is under ocean/lake (surface below water level), not when digging on land.
   const surfaceUnderwater = getHeight(worldX, worldZ) < WATER_LEVEL
@@ -908,6 +1027,7 @@ function breakBlock(
  */
 function unloadChunk(scene: THREE.Scene, keyNum: number): void {
   const result = unloadChunkSync(scene, keyNum, raycastMeshCache)
+  removeTorchesInChunk({ chunkKeyNum: keyNum, torchContainer, placedTorches })
   if (result.frustumDirty) _frustumDirty = true
 }
 
@@ -921,7 +1041,40 @@ function placeTorch(
   worldZ: number,
   faceNormal?: { x: number; y: number; z: number },
 ): boolean {
-  return placeTorchSync(getChunkSyncCtx(), worldX, worldY, worldZ, faceNormal)
+  const bx = Math.floor(worldX)
+  const by = Math.floor(worldY)
+  const bz = Math.floor(worldZ)
+  const preferredNormal = faceNormal ? quantizeAxisNormal(faceNormal) : undefined
+
+  const at = getBlockAt(bx, by, bz)
+  if (at !== null && at !== 'air' && !isReplaceableByPlacement(at)) return false
+
+  // Vanilla-style: place floor torch on top face; wall torch on side faces.
+  if (!preferredNormal || preferredNormal.y < 0) return false
+  const isFloor = preferredNormal.y === 1
+  const torchBlockType: BlockType =
+    isFloor
+      ? 'torch'
+      : preferredNormal.x === 1
+        ? 'wall_torch_east'
+        : preferredNormal.x === -1
+          ? 'wall_torch_west'
+          : preferredNormal.z === 1
+            ? 'wall_torch_south'
+            : 'wall_torch_north'
+
+  // Support must be sturdy (simplified: solid block).
+  const supportX = bx - preferredNormal.x
+  const supportY = by - preferredNormal.y
+  const supportZ = bz - preferredNormal.z
+  const support = getBlockAt(supportX, supportY, supportZ)
+  if (!canSupportTorch(support, preferredNormal)) return false
+
+  blockModifications.set(blockKeyString(bx, by, bz), torchBlockType)
+  applyBlockChangeToLoadedChunk({ bx, by, bz, next: torchBlockType })
+
+  // Also place the custom mesh/light immediately (chunk refresh will keep it in sync).
+  return placeTorchSync(getChunkSyncCtx(), bx, by, bz, preferredNormal)
 }
 
 /**
@@ -982,13 +1135,54 @@ let lastPlayerChunkZ: number | null = null
 /** Chunk keys (chunkKeyNumeric) the player has entered; used for map discovery and persisted in save. */
 let discoveredChunkKeys = new Set<number>()
 
+/** Cache for block-light queries used by spawn checks (key: blockKeyNumeric). Invalidated on block changes. */
+const blockLightCache = new Map<number, { version: number; value: number }>()
+/** Incremented on any block change to invalidate blockLightCache. */
+let blockLightCacheVersion = 1
+
 // ================= PLAYER =================
 
 /**
  * Creates the player mesh, finds spawn (biome-based with fallbacks), preloads spawn footprint chunks (worker or sync), adds player to scene.
  * When using chunk worker, spawn position is applied later via applyPendingSpawnIfReady once chunks are loaded.
  */
-function createPlayer(scene: THREE.Scene) {
+/**
+ * Resolves the initial spawn (x, z) for a new session. Uses biome-based search with fallbacks.
+ * This is computed before POIs are set up so the spawn search is not affected by POI biome overrides.
+ */
+function resolveInitialSpawnXZ(): { x: number; z: number } {
+  // Ensure POI overrides do not influence the spawn search.
+  setActivePois([])
+
+  if (SPAWN_ABOVE_CAVE_DEBUG) return findSpawnAboveCave()
+
+  const first = findSpawnInBiome(SPAWN_BIOME)
+  let spawnX = first.x
+  let spawnZ = first.z
+
+  // Fallback: if only (0,0) found, try every other spawnable biome so we get forest/savanna/plains etc.
+  if (spawnX === 0 && spawnZ === 0) {
+    for (const fallbackBiome of SPAWNABLE_BIOMES) {
+      if (fallbackBiome === SPAWN_BIOME) continue
+      const fallback = findSpawnInBiome(fallbackBiome)
+      if (fallback.x !== 0 || fallback.z !== 0) {
+        spawnX = fallback.x
+        spawnZ = fallback.z
+        break
+      }
+    }
+  }
+
+  // Ultimate fallback: use fixed spawn coordinates from config if still at origin.
+  if (spawnX === 0 && spawnZ === 0) {
+    spawnX = SPAWN_X
+    spawnZ = SPAWN_Z
+  }
+
+  return { x: spawnX, z: spawnZ }
+}
+
+function createPlayer(scene: THREE.Scene, resolvedSpawn: { x: number; z: number }) {
   const player = createPlayerMeshOnly()
   const head = player.children[0] as THREE.Mesh
   const body = player.children[1] as THREE.Mesh
@@ -997,34 +1191,8 @@ function createPlayer(scene: THREE.Scene) {
   const arm1 = player.children[4] as THREE.Mesh
   const arm2 = player.children[5] as THREE.Mesh
 
-  let spawnX: number
-  let spawnZ: number
-  if (SPAWN_ABOVE_CAVE_DEBUG) {
-    const caveSpawn = findSpawnAboveCave()
-    spawnX = caveSpawn.x
-    spawnZ = caveSpawn.z
-  } else {
-    const first = findSpawnInBiome(SPAWN_BIOME)
-    spawnX = first.x
-    spawnZ = first.z
-    // Fallback: if only (0,0) found, try every other spawnable biome so we get forest/savanna/plains etc.
-    if (spawnX === 0 && spawnZ === 0) {
-      for (const fallbackBiome of SPAWNABLE_BIOMES) {
-        if (fallbackBiome === SPAWN_BIOME) continue
-        const fallback = findSpawnInBiome(fallbackBiome)
-        if (fallback.x !== 0 || fallback.z !== 0) {
-          spawnX = fallback.x
-          spawnZ = fallback.z
-          break
-        }
-      }
-    }
-    // Ultimate fallback: use fixed spawn coordinates from config if still at origin
-    if (spawnX === 0 && spawnZ === 0) {
-      spawnX = SPAWN_X
-      spawnZ = SPAWN_Z
-    }
-  }
+  const spawnX = resolvedSpawn.x
+  const spawnZ = resolvedSpawn.z
   columnHeightCache.clear()
   const footHalf = PLAYER_HALF + 0.5
   const minCx = Math.floor((spawnX - footHalf) / CHUNK_SIZE)
@@ -1447,8 +1615,11 @@ async function init(container?: HTMLElement): Promise<void> {
   initSceneAndRenderer(container)
   initLightsAndSky()
   initPostProcessing()
+  // Resolve spawn first so the "first spawn village" POI is placed around the actual spawn, not (0,0).
+  const resolvedSpawn = resolveInitialSpawnXZ()
+  setActivePois(createPoiRegistryForSpawn(resolvedSpawn))
   initChunkWorker()
-  initPlayerAndWorldApi()
+  initPlayerAndWorldApi(resolvedSpawn)
   initControlsAndInput()
   registerDebugCommands()
 }
@@ -1581,7 +1752,7 @@ function initPostProcessing(): void {
 function initChunkWorker(): void {
   const client = initChunkWorkerClient({
     seed: WORLD_SEED,
-    pois: POI_REGISTRY,
+    pois: getActivePois(),
     maxWorkers: Infinity,
     onPayload: (payload) =>
       applyChunkPayloadToScene(
@@ -1594,6 +1765,8 @@ function initChunkWorker(): void {
           foliageColormapData,
           tallGrassMaterial,
           getResolvedBiome,
+          torchContainer,
+          placedTorches,
           onChunkAdded: (data) => {
             spawnEntitiesForChunk(scene, chunkKey(data.cx, data.cz), data.cx, data.cz)
             const keyNum = chunkKeyNumeric(data.cx, data.cz)
@@ -1625,8 +1798,8 @@ function initChunkWorker(): void {
 /**
  * Creates player mesh and spawn logic, registers world API (getBlock, getBiome, getSurfaceY, etc.), creates POV hands and shadow body.
  */
-function initPlayerAndWorldApi(): void {
-  const created = createPlayer(scene)
+function initPlayerAndWorldApi(resolvedSpawn: { x: number; z: number }): void {
+  const created = createPlayer(scene, resolvedSpawn)
   player = created.player
   head = created.head
   body = created.body
@@ -1640,6 +1813,77 @@ function initPlayerAndWorldApi(): void {
     getSurfaceY,
     getColumnSurfaceY,
     getBiome: getResolvedBiome,
+    getBlockLightAt: (x, y, z) => {
+      const bx = Math.floor(x)
+      const by = Math.floor(y)
+      const bz = Math.floor(z)
+      const cacheKey = blockKeyNumeric(bx, by, bz)
+      const cached = blockLightCache.get(cacheKey)
+      if (cached && cached.version === blockLightCacheVersion) return cached.value
+      // Vanilla-like block light spread with basic occlusion:
+      // - Torches emit 14
+      // - Light falls off by 1 per step (6-neighborhood)
+      // - Occluding blocks stop propagation (no "through walls")
+      const startBlock = getBlockAt(bx, by, bz)
+      if (startBlock === null) return 0
+      if (startBlock !== 'air' && startBlock !== 'torch' && isBlockTypeOccluding(startBlock as BlockType))
+        return 0
+
+      const MAX_LIGHT = 14
+      const visited = new Set<number>()
+      const qx: number[] = [bx]
+      const qy: number[] = [by]
+      const qz: number[] = [bz]
+      const qd: number[] = [0]
+      visited.add(blockKeyNumeric(bx, by, bz))
+
+      while (qx.length) {
+        const x0 = qx.shift()!
+        const y0 = qy.shift()!
+        const z0 = qz.shift()!
+        const d0 = qd.shift()!
+        const levelHere = MAX_LIGHT - d0
+        if (levelHere <= 0) continue
+
+        const t = getBlockAt(x0, y0, z0)
+        if (t === 'torch' || (t !== null && t !== 'air' && isTorchLikeBlockType(t as BlockType))) {
+          // Light at the torch's own block is 14; at the start cell it is 14 - distance.
+          blockLightCache.set(cacheKey, { version: blockLightCacheVersion, value: levelHere })
+          return levelHere
+        }
+
+        // Do not propagate through occluding blocks (but allow propagation from within air/non-occluding).
+        if (t !== null && t !== 'air' && isBlockTypeOccluding(t as BlockType)) continue
+
+        const nd = d0 + 1
+        if (nd > MAX_LIGHT) continue
+        const neighbors: Array<[number, number, number]> = [
+          [x0 + 1, y0, z0],
+          [x0 - 1, y0, z0],
+          [x0, y0 + 1, z0],
+          [x0, y0 - 1, z0],
+          [x0, y0, z0 + 1],
+          [x0, y0, z0 - 1],
+        ]
+        for (const [nx, ny, nz] of neighbors) {
+          if (ny < 0 || ny >= WORLD_HEIGHT) continue
+          const key = blockKeyNumeric(nx, ny, nz)
+          if (visited.has(key)) continue
+          const bt = getBlockAt(nx, ny, nz)
+          if (bt === null) continue
+          // We enqueue occluding blocks too so we can detect if they are torches (they aren't),
+          // but we will stop propagation from them above.
+          visited.add(key)
+          qx.push(nx)
+          qy.push(ny)
+          qz.push(nz)
+          qd.push(nd)
+        }
+      }
+
+      blockLightCache.set(cacheKey, { version: blockLightCacheVersion, value: 0 })
+      return 0
+    },
   })
 
   loadGame()
@@ -2825,10 +3069,17 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
         const useBz = Math.floor(placeHit.point.z - 0.01 * _direction.z)
         const useBlock = getBlockAt(useBx, useBy, useBz)
         if (useBlock === 'door_closed' || useBlock === 'door_open') {
-          const keyStr = blockKeyString(useBx, useBy, useBz)
           const next = useBlock === 'door_closed' ? 'door_open' : 'door_closed'
-          blockModifications.set(keyStr, next)
+          const above = getBlockAt(useBx, useBy + 1, useBz)
+          const below = getBlockAt(useBx, useBy - 1, useBz)
+          const isDoor = (t: string | null) => t === 'door_closed' || t === 'door_open'
+          const otherBy = isDoor(above) ? useBy + 1 : isDoor(below) ? useBy - 1 : null
+          blockModifications.set(blockKeyString(useBx, useBy, useBz), next)
           applyBlockChangeToLoadedChunk({ bx: useBx, by: useBy, bz: useBz, next })
+          if (otherBy !== null) {
+            blockModifications.set(blockKeyString(useBx, otherBy, useBz), next)
+            applyBlockChangeToLoadedChunk({ bx: useBx, by: otherBy, bz: useBz, next })
+          }
         } else if (useBlock === 'crafting_table') {
           onCraftingTableUse?.()
         } else {
@@ -2876,14 +3127,117 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             const px = player.position.x
             const py = player.position.y
             const pz = player.position.z
-            // Block at (adjX, adjY, adjZ) occupies [adjX, adjX+1] x [adjY, adjY+1] x [adjZ, adjZ+1].
-            const blockOverlapsPlayer =
-              Math.min(adjX + 1, px + PLAYER_HALF) > Math.max(adjX, px - PLAYER_HALF) &&
-              Math.min(adjY + 1, py + PLAYER_HEIGHT) > Math.max(adjY, py) &&
-              Math.min(adjZ + 1, pz + PLAYER_HALF) > Math.max(adjZ, pz - PLAYER_HALF)
             const at = getBlockAt(adjX, adjY, adjZ)
             const keyStr = blockKeyString(adjX, adjY, adjZ)
             const blockOverlapsEntity = blockCellOverlapsAnyEntity(adjX, adjY, adjZ)
+
+            /**
+             * Quantizes a world direction vector (XZ) into one of the four cardinal facings.
+             * @param dx - Direction x component
+             * @param dz - Direction z component
+             */
+            function quantizeFacingFromDirectionXZ(dx: number, dz: number): StairFacing {
+              if (Math.abs(dx) >= Math.abs(dz)) return dx >= 0 ? 'east' : 'west'
+              return dz >= 0 ? 'south' : 'north'
+            }
+
+            const blockToPlace = (() => {
+              if (sel === 'water') return 'water_source' as BlockType
+              if (isStairsBlock(sel)) {
+                const facing = quantizeFacingFromDirectionXZ(rayDirection.x, rayDirection.z)
+                return getPlacedStairsId(sel, facing) as BlockType
+              }
+              return sel
+            })()
+
+            /**
+             * Returns true if placing blockType at (bx,by,bz) would overlap the player's AABB.
+             */
+            function wouldPlacedBlockOverlapPlayer(
+              blockType: BlockType,
+              bx: number,
+              by: number,
+              bz: number,
+            ): boolean {
+              const playerMinX = px - PLAYER_HALF
+              const playerMaxX = px + PLAYER_HALF
+              const playerMinY = py
+              const playerMaxY = py + PLAYER_HEIGHT
+              const playerMinZ = pz - PLAYER_HALF
+              const playerMaxZ = pz + PLAYER_HALF
+              const boxes = getBlockCollisionBoxesLocal(blockType)
+              if (boxes.length === 0) return false
+              for (const b of boxes) {
+                const minX = bx + b.minX
+                const maxX = bx + b.maxX
+                const minY = by + b.minY
+                const maxY = by + b.maxY
+                const minZ = bz + b.minZ
+                const maxZ = bz + b.maxZ
+                const xO = Math.min(playerMaxX, maxX) - Math.max(playerMinX, minX)
+                const yO = Math.min(playerMaxY, maxY) - Math.max(playerMinY, minY)
+                const zO = Math.min(playerMaxZ, maxZ) - Math.max(playerMinZ, minZ)
+                if (xO > 0 && yO > 0 && zO > 0) return true
+              }
+              return false
+            }
+
+            /** Door placement: two blocks (adjY and adjY+1), one consume; skip single-block path. */
+            if (blockToPlace === 'door_closed') {
+              const atUpper = getBlockAt(adjX, adjY + 1, adjZ)
+              const upperOk =
+                atUpper === null || atUpper === 'air' || isReplaceableByPlacement(atUpper)
+              const lowerOk = at === null || at === 'air' || isReplaceableByPlacement(at)
+              const doorOverlapsPlayer =
+                wouldPlacedBlockOverlapPlayer('door_closed', adjX, adjY, adjZ) ||
+                wouldPlacedBlockOverlapPlayer('door_closed', adjX, adjY + 1, adjZ)
+              const doorOverlapsEntity =
+                blockCellOverlapsAnyEntity(adjX, adjY, adjZ) ||
+                blockCellOverlapsAnyEntity(adjX, adjY + 1, adjZ)
+              if (
+                upperOk &&
+                lowerOk &&
+                !doorOverlapsPlayer &&
+                !doorOverlapsEntity
+              ) {
+                const ctx = getChunkSyncCtx()
+                removeTorchAt({
+                  bx: adjX,
+                  by: adjY,
+                  bz: adjZ,
+                  torchContainer: ctx.torchContainer,
+                  placedTorches: ctx.placedTorches,
+                })
+                removeTorchAt({
+                  bx: adjX,
+                  by: adjY + 1,
+                  bz: adjZ,
+                  torchContainer: ctx.torchContainer,
+                  placedTorches: ctx.placedTorches,
+                })
+                blockModifications.set(blockKeyString(adjX, adjY, adjZ), 'door_closed')
+                blockModifications.set(blockKeyString(adjX, adjY + 1, adjZ), 'door_closed')
+                applyBlockChangeToLoadedChunk({
+                  bx: adjX,
+                  by: adjY,
+                  bz: adjZ,
+                  next: 'door_closed',
+                })
+                applyBlockChangeToLoadedChunk({
+                  bx: adjX,
+                  by: adjY + 1,
+                  bz: adjZ,
+                  next: 'door_closed',
+                })
+                consumeOneFromSelectedSlot()
+              } else if (isPlaceDebug()) {
+                console.warn(
+                  'Place (F): door placement rejected (upper cell occupied, overlap, or not replaceable).'
+                )
+              }
+            } else {
+            const blockOverlapsPlayer = wouldPlacedBlockOverlapPlayer(blockToPlace, adjX, adjY, adjZ)
+
             if (blockOverlapsPlayer) {
               if (isPlaceDebug()) console.warn('Place (F): block would overlap player.')
             } else if (blockOverlapsEntity) {
@@ -2898,9 +3252,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                 bz: adjZ,
                 torchContainer: ctx.torchContainer,
                 placedTorches: ctx.placedTorches,
-                blockKeyNumeric,
               })
-              const blockToPlace = sel === 'water' ? ('water_source' as BlockType) : sel
               blockModifications.set(keyStr, blockToPlace)
               applyBlockChangeToLoadedChunk({
                 bx: adjX,
@@ -2909,6 +3261,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                 next: blockToPlace,
               })
               consumeOneFromSelectedSlot()
+            }
             }
           }
         }

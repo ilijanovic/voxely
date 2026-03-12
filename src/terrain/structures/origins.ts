@@ -1,5 +1,6 @@
 /**
  * Deterministic structure origin placement. Grid-based candidates, biome and flatness checks.
+ * Each origin places a single piece (max depth 1; no jigsaw expansion). Terminator = one piece per origin.
  */
 import type { Biome } from '../../types'
 import { CHUNK_SIZE } from '../../constants'

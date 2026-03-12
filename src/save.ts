@@ -7,7 +7,10 @@ import { getAllBlockIds } from './block-registry'
 
 export const SAVE_KEY = 'voxel-save'
 
-/** Increment when save format changes; used to reject or migrate older saves. */
+/**
+ * Increment when save format changes; used to reject or migrate older saves.
+ * Policy: add a roundtrip test in save.test.ts for new optional fields; keep OLD_SAVE_FIXTURE_* for previous version.
+ */
 export const SAVE_VERSION = 8
 
 /** One inventory slot (hotbar or main; crafting grid not persisted). */
@@ -70,14 +73,19 @@ export const VALID_BLOCK_TYPES = new Set<string>(getAllBlockIds())
 
 /**
  * Persists save data to localStorage under SAVE_KEY.
- * Silently ignores quota exceeded or disabled storage.
+ * Logs and ignores quota exceeded or disabled storage.
  * @param data - Full save payload (player, block mods, torches, day time, etc.)
  */
 export function saveToStorage(data: SaveData): void {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(data))
-  } catch {
-    // quota exceeded or disabled
+  } catch (error) {
+    if (typeof console !== 'undefined' && console && typeof console.warn === 'function') {
+      console.warn(
+        '[save] Failed to write save to localStorage. Saving is disabled or quota exceeded.',
+        error,
+      )
+    }
   }
 }
 

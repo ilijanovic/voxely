@@ -16,9 +16,21 @@ const CACTUS_ID = typeToId('cactus')
 const CACTUS_FLOWER_ID = typeToId('cactus_flower')
 const SAND_ID = typeToId('sand')
 
+/** Cactus height seed offset (desert-decor.ts); mock returns 0.5 so height is 2 or 3. */
+const CACTUS_HEIGHT_NOISE_SEED = 500223
+
+/**
+ * Mock getFeatureNoise so desert features place (deterministic). Placement noise above thresholds, height noise gives mix of 2–3.
+ */
+function mockGetFeatureNoise(seedOffset: number): (x: number, z: number) => number {
+  if (seedOffset === CACTUS_HEIGHT_NOISE_SEED) return () => 0.5
+  return () => 0.9
+}
+
 /** Builds a chunk context with desert biome and sand surface for all columns. */
 function buildDesertSandContext(chunkX: number, chunkZ: number): ReturnType<typeof createChunkContext> {
   const ctx = createChunkContext(chunkX, chunkZ, [])
+  ctx.getFeatureNoise = mockGetFeatureNoise
   for (let lx = 0; lx < CHUNK_SIZE; lx++) {
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       ctx.heightmap[lx][lz] = SURFACE_Y

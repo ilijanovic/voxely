@@ -4,8 +4,10 @@
  */
 import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT } from '../../constants'
 import { localKey, typeToId, idToType, AIR_ID, CARVED_ID } from '../block-ids'
+import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
+/** Seed offsets for feature noise; deterministic per world seed. */
 const DEAD_BUSH_NOISE_SEED = 400111
 const CACTUS_NOISE_SEED = 500222
 const CACTUS_HEIGHT_NOISE_SEED = 500223
@@ -59,23 +61,6 @@ const NON_SOLID_FOR_CACTUS = new Set<string>([
   'pink_petals',
 ])
 
-function noiseKey(seed: number, wx: number, wz: number): string {
-  return `${seed},${wx},${wz}`
-}
-
-function sampleNoise(cache: Map<string, number>, seed: number, wx: number, wz: number): number {
-  const k = noiseKey(seed, wx, wz)
-  let v = cache.get(k)
-  if (v === undefined) {
-    let h = wx * 374761393 + wz * 668265263 + seed
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(k, v)
-  }
-  return v
-}
-
 /** Returns true if this block id is solid for vanilla cactus adjacency (would break cactus if adjacent). Exported for tests. */
 export function isSolidForCactus(id: number): boolean {
   if (id === AIR_ID || id === CARVED_ID) return false
@@ -85,8 +70,10 @@ export function isSolidForCactus(id: number): boolean {
 
 export function createDeadBushFeature(): FeatureFn {
   return function deadBushFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(DEAD_BUSH_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -114,7 +101,7 @@ export function createDeadBushFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, DEAD_BUSH_NOISE_SEED, wx, wz) < DEAD_BUSH_THRESHOLD) continue
+        if (placeNoise(wx * scale, wz * scale) < DEAD_BUSH_THRESHOLD) continue
 
         voxelMap[keyAbove] = typeToId('dead_bush')
       }
@@ -124,8 +111,11 @@ export function createDeadBushFeature(): FeatureFn {
 
 export function createCactusFeature(): FeatureFn {
   return function cactusFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(CACTUS_NOISE_SEED)
+    const heightNoise = getFeatureNoise(CACTUS_HEIGHT_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const cactusId = typeToId('cactus')
     const cactusFlowerId = typeToId('cactus_flower')
 
@@ -146,9 +136,9 @@ export function createCactusFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, CACTUS_NOISE_SEED, wx, wz) < CACTUS_PLACE_THRESHOLD) continue
+        if (placeNoise(wx * scale, wz * scale) < CACTUS_PLACE_THRESHOLD) continue
 
-        const heightSample = sampleNoise(cache, CACTUS_HEIGHT_NOISE_SEED, wx, wz)
+        const heightSample = heightNoise(wx * scale, wz * scale)
         const height =
           heightSample < CACTUS_HEIGHT_2_THRESHOLD ? CACTUS_HEIGHT_MIN : CACTUS_HEIGHT_MAX
 

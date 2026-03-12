@@ -150,49 +150,81 @@ export function getFirstSpawnVillageHousePositions(center: { x: number; z: numbe
   ]
 }
 
-/** Author-defined registry of all fixed POIs. */
-export const POI_REGISTRY: WorldPoi[] = [
-  // First spawn village (quest line): one village area with 5 houses; single flatten for whole area to avoid sharp edges.
-  // areaTheme ensures a land biome in the village so flowers, grass, and trees can spawn (forest at spawn).
-  {
-    type: 'village',
-    x: FIRST_SPAWN_VILLAGE_CENTER.x,
-    z: FIRST_SPAWN_VILLAGE_CENTER.z,
-    radius: VILLAGE_AREA_FLATTEN_RADIUS,
-    areaTheme: 'forest',
-    noAutoVillagers: true,
-    id: FIRST_SPAWN_VILLAGE_ID,
-    flatten: {
+/**
+ * Builds the fixed POI registry for a given spawn center.
+ * The first-spawn village and its quest NPCs are placed relative to this center.
+ * @param center - World (x, z) spawn center used for the first-spawn POIs.
+ */
+export function createPoiRegistryForSpawn(center: { x: number; z: number }): WorldPoi[] {
+  return [
+    // First spawn village (quest line): one village area with 5 houses; single flatten for whole area to avoid sharp edges.
+    // areaTheme ensures a land biome in the village so flowers, grass, and trees can spawn.
+    {
+      type: 'village',
+      x: center.x,
+      z: center.z,
       radius: VILLAGE_AREA_FLATTEN_RADIUS,
-      transitionBlocks: VILLAGE_AREA_FLATTEN_TRANSITION_BLOCKS,
+      areaTheme: 'forest',
+      noAutoVillagers: true,
+      id: FIRST_SPAWN_VILLAGE_ID,
+      flatten: {
+        radius: VILLAGE_AREA_FLATTEN_RADIUS,
+        transitionBlocks: VILLAGE_AREA_FLATTEN_TRANSITION_BLOCKS,
+      },
+      houses: ((): VillageHousePosition[] => {
+        const houseSizes: VillageHouseSize[] = ['large', 'small', 'medium', 'small', 'medium']
+        return getFirstSpawnVillageHousePositions(center).map((pos, i) => ({
+          x: pos.x,
+          z: pos.z,
+          houseSize: houseSizes[i],
+        }))
+      })(),
     },
-    houses: ((): VillageHousePosition[] => {
-      const houseSizes: VillageHouseSize[] = ['large', 'small', 'medium', 'small', 'medium']
-      return getFirstSpawnVillageHousePositions(FIRST_SPAWN_VILLAGE_CENTER).map((pos, i) => ({
-        x: pos.x,
-        z: pos.z,
-        houseSize: houseSizes[i],
-      }))
-    })(),
-  },
-  {
-    type: 'npc',
-    x: FIRST_SPAWN_VILLAGE_CENTER.x,
-    z: FIRST_SPAWN_VILLAGE_CENTER.z,
-    radius: 16,
-    count: 7,
-    questOfferIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
-  },
-  {
-    type: 'npc',
-    x: FIRST_SPAWN_VILLAGE_CENTER.x + FIRST_SPAWN_VILLAGE_HOUSE_SPACING_X,
-    z: FIRST_SPAWN_VILLAGE_CENTER.z + FIRST_SPAWN_VILLAGE_HOUSE_SPACING_Z,
-    radius: 8,
-    count: 1,
-    questOfferIds: ['second_npc_planks', 'second_npc_stones', 'second_npc_sticks', 'sheep_slayer', 'wool_gatherer', 'hunt_pigs', 'wolf_pelts'],
-    prerequisiteQuestIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
-  },
-]
+    {
+      type: 'npc',
+      x: center.x,
+      z: center.z,
+      radius: 16,
+      count: 7,
+      questOfferIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
+    },
+    {
+      type: 'npc',
+      x: center.x + FIRST_SPAWN_VILLAGE_HOUSE_SPACING_X,
+      z: center.z + FIRST_SPAWN_VILLAGE_HOUSE_SPACING_Z,
+      radius: 8,
+      count: 1,
+      questOfferIds: [
+        'second_npc_planks',
+        'second_npc_stones',
+        'second_npc_sticks',
+        'sheep_slayer',
+        'wool_gatherer',
+        'hunt_pigs',
+        'wolf_pelts',
+      ],
+      prerequisiteQuestIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
+    },
+  ]
+}
+
+let activePois: WorldPoi[] = createPoiRegistryForSpawn(FIRST_SPAWN_VILLAGE_CENTER)
+
+/**
+ * Returns the active POI registry used by both main thread and worker initialization.
+ * Keep this stable for the lifetime of a world/seed.
+ */
+export function getActivePois(): WorldPoi[] {
+  return activePois
+}
+
+/**
+ * Sets the active POI registry (e.g. after resolving actual spawn position).
+ * @param pois - The POIs to use as the global registry for this session.
+ */
+export function setActivePois(pois: WorldPoi[]): void {
+  activePois = pois
+}
 
 /**
  * Returns the biome override for (x, z) if that point lies inside a POI with areaTheme.

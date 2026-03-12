@@ -10,6 +10,8 @@ export {
   BIOME_REGISTRY,
   getBiomeByClimate,
   getLandBiomeByClimate,
+  getLandBiomeByMultiNoise,
+  getLandBiomeBlendByMultiNoise,
   getBiomeByMultiNoise,
 } from './registry'
 export { getLandBiomeBlendByClimate } from './registry'

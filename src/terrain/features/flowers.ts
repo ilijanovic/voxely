@@ -4,8 +4,11 @@
 import type { Biome, BlockType } from '../../types'
 import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
+import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
+import { getFeatureDensityForBiome } from './feature-registry'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
+/** Seed offset for flower type selection; deterministic per world seed. */
 const FLOWER_NOISE_SEED = 919291
 /** Seed for "place flower or not" noise; must differ from FLOWER_NOISE_SEED so type and density are independent. */
 const FLOWER_PLACE_NOISE_SEED = 717171
@@ -19,37 +22,6 @@ const SURFACE_BLOCKS_FOR_FLOWERS: BlockType[] = [
   'podzol',
   'coarse_dirt',
 ]
-
-function flowerNoiseKey(wx: number, wz: number): string {
-  return `${wx},${wz}`
-}
-
-function sampleFlowerNoise(cache: Map<string, number>, wx: number, wz: number): number {
-  const k = flowerNoiseKey(wx, wz)
-  let v = cache.get(k)
-  if (v === undefined) {
-    let h = wx * 374761393 + wz * 668265263 + FLOWER_NOISE_SEED
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(k, v)
-  }
-  return v
-}
-
-/** Deterministic noise in [0,1] for "place a flower here or not". Used with FLOWER_DENSITY. */
-function sampleFlowerPlaceNoise(cache: Map<string, number>, wx: number, wz: number): number {
-  const k = `place_${flowerNoiseKey(wx, wz)}`
-  let v = cache.get(k)
-  if (v === undefined) {
-    let h = wx * 374761393 + wz * 668265263 + FLOWER_PLACE_NOISE_SEED
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(k, v)
-  }
-  return v
-}
 
 type FlowerEntry = { block: BlockType; minThreshold: number; maxThreshold: number }
 
@@ -140,8 +112,11 @@ const BIOME_FLOWERS: Partial<Record<Biome, FlowerEntry[]>> = {
 
 export function createFlowersFeature(): FeatureFn {
   return function flowersFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const noiseCache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(FLOWER_PLACE_NOISE_SEED)
+    const typeNoise = getFeatureNoise(FLOWER_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -161,9 +136,10 @@ export function createFlowersFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleFlowerPlaceNoise(noiseCache, wx, wz) > FLOWER_DENSITY) continue
+        const flowerDensity = getFeatureDensityForBiome('flowers', biome) ?? FLOWER_DENSITY
+        if (placeNoise(wx * scale, wz * scale) > flowerDensity) continue
 
-        const n = sampleFlowerNoise(noiseCache, wx, wz)
+        const n = typeNoise(wx * scale, wz * scale)
         for (const entry of entries) {
           if (n >= entry.minThreshold && n < entry.maxThreshold) {
             voxelMap[keyAbove] = typeToId(entry.block)

@@ -5,6 +5,7 @@
  */
 import type { BlockType } from '../../../types'
 import type { VillageHouseSize } from '../origins'
+import { pickVillageHouseFromPool } from '../template-pools'
 
 export type { VillageHouseSize }
 
@@ -271,21 +272,15 @@ export function getDoorPosition(
 }
 
 /**
- * Deterministic village house size from world seed and origin. Used for procedural villages.
- * @returns VillageHouseSize with roughly even distribution.
+ * Deterministic village house size from world seed and origin (template pool with weights).
+ * Small houses more common, large rarer (Minecraft-style).
  */
 export function getVillageHouseSizeFromSeed(
   seed: number,
   ox: number,
   oz: number,
 ): VillageHouseSize {
-  let h = seed + Math.floor(ox) * 374761393 + Math.floor(oz) * 668265263
-  h = (h ^ (h >> 13)) * 1274126177
-  h ^= h >> 16
-  const t = (h >>> 0) / 0xffffffff
-  if (t < 1 / 3) return 'small'
-  if (t < 2 / 3) return 'medium'
-  return 'large'
+  return pickVillageHouseFromPool(seed, ox, oz)
 }
 
 /** Height (blocks) at which windows are placed (second block above floor). */
@@ -356,12 +351,6 @@ export function getVillageBlocks(
   const minZ = oz - halfZ
   const maxX = minX + widthX - 1
   const maxZ = minZ + widthZ - 1
-  const windowY = oy + WINDOW_HEIGHT_OFFSET
-
-  const { floorMaterial, wallMaterial, useWoodCorners, cornerWood } = getHouseMaterials(ox, oz)
-  const isCorner = (bx: number, bz: number) =>
-    (bx === minX || bx === maxX) && (bz === minZ || bz === maxZ)
-
   const h = hashOrigin(ox, oz)
   const lengthIsZ = widthZ >= widthX
   const doorOnSecondWall = ((h >> 16) & 1) === 1
@@ -375,6 +364,11 @@ export function getVillageBlocks(
     doorX = doorOnSecondWall ? maxX : minX
     doorZ = minZ + halfZ
   }
+
+  const windowY = oy + WINDOW_HEIGHT_OFFSET
+  const { floorMaterial, wallMaterial, useWoodCorners, cornerWood } = getHouseMaterials(ox, oz)
+  const isCorner = (bx: number, bz: number) =>
+    (bx === minX || bx === maxX) && (bz === minZ || bz === maxZ)
 
   const windowPositions = new Set<string>()
 
@@ -445,6 +439,22 @@ export function getVillageBlocks(
 
   const out: Array<{ bx: number; by: number; bz: number; block: BlockType }> = []
 
+  /**
+   * Returns the roof block for this house. Uses hay_block for more rustic/farm houses and
+   * planks/stone bricks for more built-up variants, derived deterministically from the origin.
+   */
+  function pickRoofBlock(): BlockType {
+    const roofHash = (h >> 20) >>> 0
+    const rustic = (roofHash & 1) === 1
+    if (rustic) return 'hay_block'
+    if (wallMaterial === 'bricks') return 'stone_bricks'
+    if (wallMaterial === 'stone') return 'stone'
+    // Default: simple plank roof for wooden houses.
+    return 'oak_planks'
+  }
+
+  const roofBlock = pickRoofBlock()
+
   for (let dx = 0; dx < widthX; dx++) {
     for (let dz = 0; dz < widthZ; dz++) {
       for (let dy = 0; dy < height; dy++) {
@@ -461,7 +471,7 @@ export function getVillageBlocks(
           continue
         }
         if (isRoof) {
-          out.push({ bx, by, bz, block: 'hay_block' })
+          out.push({ bx, by, bz, block: roofBlock })
           continue
         }
 
@@ -481,10 +491,19 @@ export function getVillageBlocks(
         }
         if (!isWindow) {
           const wallIsBrickOrStone = wallMaterial === 'bricks' || wallMaterial === 'stone'
-          const wallBlock =
-            !wallIsBrickOrStone && useWoodCorners && isCorner(bx, bz)
-              ? cornerWood
-              : wallMaterial
+          const isFoundationRow = doorYOffset === 1
+
+          let wallBlock: BlockType
+
+          if (isFoundationRow && !isCorner(bx, bz)) {
+            // Stone foundation ring under walls to give houses a more grounded look.
+            wallBlock = 'stone'
+          } else if (!wallIsBrickOrStone && useWoodCorners && isCorner(bx, bz)) {
+            wallBlock = cornerWood
+          } else {
+            wallBlock = wallMaterial
+          }
+
           out.push({ bx, by, bz, block: wallBlock })
         }
       }

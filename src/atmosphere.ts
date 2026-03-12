@@ -52,6 +52,14 @@ export function setDayTime(t: number): void {
   dayTime = t
 }
 
+/** True when the sun is below horizon (used for hostile mob spawn: spawn only at night). */
+export function isNight(): boolean {
+  const t = dayTime % 1
+  const sunAngle = t * Math.PI * 2
+  const sunHeight = Math.sin(sunAngle)
+  return sunHeight < 0
+}
+
 export function getSunDirection(): THREE.Vector3 {
   return _sunDirection
 }

@@ -76,6 +76,11 @@ export const WATER_SPREAD_INTERVAL_SEC = WATER_SPREAD_TICKS / 20
 /** Max stack size for most items (Minecraft: 64; some items like eggs stack to 16). */
 export const MAX_STACK_SIZE = 64
 
+/** Target max health for survival (Minecraft: 20). Used when health/damage/regeneration are implemented. */
+export const SURVIVAL_HEALTH_MAX = 20
+/** Target max hunger for survival (Minecraft: 20). Used when hunger/food/regeneration are implemented. */
+export const SURVIVAL_HUNGER_MAX = 20
+
 /** Hotbar slot count (Minecraft: 9). */
 export const HOTBAR_SLOTS = 9
 /** Main inventory rows × columns (Minecraft: 3×9). */
@@ -157,6 +162,9 @@ export const MAP_COLOR_HIGH = '#9a9a9a'
 export const MAP_COLOR_FOG = '#5a5a5a'
 /** Map color for undiscovered area. */
 export const MAP_COLOR_UNDISCOVERED = '#2a2a2a'
+
+/** Autosave interval for localStorage saves (milliseconds). */
+export const AUTOSAVE_INTERVAL_MS = 10000
 /** Map color per biome name for full map (snow, forest, desert, etc.). Fallback used if biome missing. */
 export const MAP_BIOME_COLORS: Record<string, string> = {
   plains: '#6b8c5d',

@@ -25,7 +25,6 @@ import {
   blockModifications,
   chunkKeyNumeric,
   chunkKey,
-  blockKeyNumeric,
   blockKeyString,
   localKey,
   decodeLocalKey,
@@ -52,7 +51,12 @@ import {
 } from '../../block-materials'
 import { despawnEntitiesInChunk } from '../../entities/spawn'
 import { spawnDrop as spawnDropItem, type Drop } from '../world-interactions/drops'
-import { placeTorch as placeTorchSystem, type PlacedTorch } from '../world-interactions/torches'
+import {
+  placeTorch as placeTorchSystem,
+  removeTorchesInChunk,
+  isWallTorchBlockType,
+  type PlacedTorch,
+} from '../world-interactions/torches'
 import { breakBlock as breakBlockSystem } from '../world-interactions/mining'
 import { RaycastMeshCache } from './raycast-cache'
 
@@ -404,19 +408,21 @@ export function spawnDrop(
 
 export function placeTorch(
   ctx: ChunkSyncContext,
-  worldX: number,
-  worldY: number,
-  worldZ: number,
-  faceNormal?: { x: number; y: number; z: number },
+  bx: number,
+  by: number,
+  bz: number,
+  preferredNormal?: { x: number; y: number; z: number },
 ): boolean {
   return placeTorchSystem({
-    worldX,
-    worldY,
-    worldZ,
-    faceNormal,
+    bx,
+    by,
+    bz,
+    blockType: 'torch',
+    preferredNormal,
+    chunkKeyNum: chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE)),
     torchContainer: ctx.torchContainer,
     placedTorches: ctx.placedTorches,
-    blockKeyNumeric,
+    getBlockAt,
   })
 }
 
@@ -553,7 +559,7 @@ export function breakBlock(
   worldX: number,
   worldY: number,
   worldZ: number,
-  options?: { skipRefresh?: boolean; time?: number },
+  options?: { skipRefresh?: boolean; time?: number; dropType?: BlockType },
 ): void {
   const time = options?.time ?? 0
   breakBlockSystem({
@@ -578,6 +584,7 @@ export function breakBlock(
     time,
     spawnDrop: (wx, wz, startY, restY, bt, t) => spawnDrop(ctx, wx, wz, startY, restY, bt, t),
     skipRefresh: options?.skipRefresh,
+    dropType: options?.dropType,
   })
 }
 
@@ -696,9 +703,28 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
   const positionsByType = buildPositionsByType(worldX, worldZ, voxelMapEntries)
   const blockPositionsByType = new Map<BlockType, BlockPos[]>()
   group.userData = { chunkKeyNum: keyNum, cx: chunkX, cz: chunkZ }
+
+  // Torches are stored in voxel data but rendered as custom meshes + lights (not instanced cubes).
+  removeTorchesInChunk({ chunkKeyNum: keyNum, torchContainer: ctx.torchContainer, placedTorches: ctx.placedTorches })
   for (const [blockType, positions] of positionsByType) {
     const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions)
     blockPositionsByType.set(blockType, visible)
+    if (blockType === 'torch' || isWallTorchBlockType(blockType)) {
+      for (const p of visible) {
+        placeTorchSystem({
+          bx: p.x,
+          by: p.y,
+          bz: p.z,
+          blockType: blockType === 'torch' ? 'torch' : (blockType as any),
+          preferredNormal: undefined,
+          chunkKeyNum: keyNum,
+          torchContainer: ctx.torchContainer,
+          placedTorches: ctx.placedTorches,
+          getBlockAt,
+        })
+      }
+      continue
+    }
     // tall_grass is rendered only via getTallGrassPositions + addTallGrassLayer below.
     if (blockType === 'tall_grass') continue
     // Flowers and fern use cross geometry (same as in chunk-apply).

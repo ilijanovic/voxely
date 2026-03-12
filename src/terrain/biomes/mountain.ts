@@ -34,10 +34,9 @@ export const mountainDefinition: BiomeDefinition = {
       temperature: -0.25,
       humidity: -0.25,
       weirdness: 0.2,
-      y: 0.55,
+      y: 0.25,
     },
     weights: {
-      y: 2,
       continentalness: 1.6,
       erosion: 1.8,
       weirdness: 1.2,

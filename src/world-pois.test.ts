@@ -8,11 +8,11 @@ import {
   getFixedSpawnsInChunk,
   getFirstSpawnVillageHousePositions,
   FIRST_SPAWN_VILLAGE_CENTER,
+  createPoiRegistryForSpawn,
   POI_DEFAULT_FLATTEN_RADIUS,
   POI_DEFAULT_FLATTEN_TRANSITION_BLOCKS,
   VILLAGE_AREA_FLATTEN_RADIUS,
   VILLAGE_AREA_FLATTEN_TRANSITION_BLOCKS,
-  POI_REGISTRY,
   type WorldPoi,
 } from './world-pois'
 
@@ -129,6 +129,7 @@ describe('getPoiFlattenAt', () => {
 
 describe('getFixedVillageOriginsInChunk', () => {
   const mockGetHeight = (x: number, z: number) => 64 + (x + z) % 3
+  const poiRegistry = createPoiRegistryForSpawn(FIRST_SPAWN_VILLAGE_CENTER)
 
   it('returns one origin per house when village has houses', () => {
     const housePositions = getFirstSpawnVillageHousePositions(FIRST_SPAWN_VILLAGE_CENTER)
@@ -168,7 +169,7 @@ describe('getFixedVillageOriginsInChunk', () => {
 
   it('first spawn POI registry yields 5 village origins for overlapping chunk', () => {
     const origins = getFixedVillageOriginsInChunk(
-      POI_REGISTRY,
+      poiRegistry,
       1,
       1,
       mockGetHeight,
@@ -185,13 +186,14 @@ describe('getFixedVillageOriginsInChunk', () => {
 
 describe('getFixedSpawnsInChunk', () => {
   const WORLD_SEED_FOR_TEST = 42
+  const poiRegistry = createPoiRegistryForSpawn(FIRST_SPAWN_VILLAGE_CENTER)
 
   /**
    * With worldSeed, NPC positions are global: only the single spawn at index 0 for each POI gets questOfferIds.
    * Collect spawns from all chunks that overlap the first-spawn village NPC POIs and assert exactly one quest giver per POI.
    */
   it('with worldSeed yields exactly one quest giver per NPC POI across overlapping chunks', () => {
-    const npcPois = POI_REGISTRY.filter((p): p is WorldPoi & { type: 'npc' } => p.type === 'npc')
+    const npcPois = poiRegistry.filter((p): p is WorldPoi & { type: 'npc' } => p.type === 'npc')
     const questOfferIdsByPoi = npcPois
       .filter((p) => p.questOfferIds != null && p.questOfferIds.length > 0)
       .map((p) => p.questOfferIds!.slice(0))
@@ -203,7 +205,7 @@ describe('getFixedSpawnsInChunk', () => {
       for (let cz = minChunk; cz <= maxChunk; cz++) {
         const chunkKey = `${cx},${cz}`
         const spawns = getFixedSpawnsInChunk(
-          POI_REGISTRY,
+          poiRegistry,
           chunkKey,
           cx,
           cz,

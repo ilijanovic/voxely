@@ -4,10 +4,11 @@
 import type { Biome, BlockType } from '../../types'
 import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
+import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
+/** Seed offsets for feature noise (placement and large_fern choice); deterministic per world seed. */
 const FERN_NOISE_SEED = 819381
-/** Seed for choosing large_fern vs fern; must differ from FERN_NOISE_SEED. */
 const LARGE_FERN_NOISE_SEED = 819382
 const SURFACE_BLOCKS_FOR_FERN: BlockType[] = [
   'grass',
@@ -20,36 +21,6 @@ const SURFACE_BLOCKS_FOR_FERN: BlockType[] = [
 
 /** Fraction of fern placements that become large_fern (0–1). */
 const LARGE_FERN_CHANCE = 0.12
-
-function fernNoiseKey(seed: number, wx: number, wz: number): string {
-  return `${seed},${wx},${wz}`
-}
-
-function sampleFernNoise(cache: Map<string, number>, wx: number, wz: number): number {
-  const k = fernNoiseKey(FERN_NOISE_SEED, wx, wz)
-  let v = cache.get(k)
-  if (v === undefined) {
-    let h = wx * 374761393 + wz * 668265263 + FERN_NOISE_SEED
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(k, v)
-  }
-  return v
-}
-
-function sampleLargeFernNoise(cache: Map<string, number>, wx: number, wz: number): number {
-  const k = fernNoiseKey(LARGE_FERN_NOISE_SEED, wx, wz)
-  let v = cache.get(k)
-  if (v === undefined) {
-    let h = wx * 374761393 + wz * 668265263 + LARGE_FERN_NOISE_SEED
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(k, v)
-  }
-  return v
-}
 
 /** Default threshold: place fern when noise >= this (higher = fewer ferns). */
 const FERN_PLACE_THRESHOLD = 0.82
@@ -74,8 +45,11 @@ const BIOME_FERN: Partial<Record<Biome, boolean>> = {
 
 export function createFernFeature(): FeatureFn {
   return function fernFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const noiseCache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(FERN_NOISE_SEED)
+    const largeFernNoise = getFeatureNoise(LARGE_FERN_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -101,9 +75,9 @@ export function createFernFeature(): FeatureFn {
                 biome === 'old_growth_taiga'
               ? FERN_PLACE_THRESHOLD_FOREST
               : FERN_PLACE_THRESHOLD
-        if (sampleFernNoise(noiseCache, wx, wz) < threshold) continue
+        if (placeNoise(wx * scale, wz * scale) < threshold) continue
 
-        const largeFernRoll = sampleLargeFernNoise(noiseCache, wx, wz)
+        const largeFernRoll = largeFernNoise(wx * scale, wz * scale)
         const block: BlockType = largeFernRoll < LARGE_FERN_CHANCE ? 'large_fern' : 'fern'
         voxelMap[keyAbove] = typeToId(block)
       }

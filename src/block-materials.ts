@@ -3,6 +3,7 @@
  * Game holds grass/foliage colormap data and passes it into setGrassInstanceColors / setFoliageInstanceColors.
  */
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { BlockType, Biome, BlockPos } from './types'
 import {
   BLOCK_SIZE,
@@ -519,7 +520,48 @@ export function getSnowLayerGeometry(layers: number): THREE.BufferGeometry {
 /** True if geometry is shared (block or snow layer); do not dispose when unloading chunks. */
 export function isSharedBlockOrSnowLayerGeometry(geo: THREE.BufferGeometry): boolean {
   if (geo === sharedBlockGeometry) return true
-  return _snowLayerGeometryCache.includes(geo)
+  if (_snowLayerGeometryCache.includes(geo)) return true
+  return _stairsGeometryCache.includes(geo)
+}
+
+export type StairFacing = 'north' | 'east' | 'south' | 'west'
+
+const _stairsGeometryCache: THREE.BufferGeometry[] = []
+
+/**
+ * Returns shared stairs geometry for a given facing. Geometry is corner-based: spans X,Z in [0..1],
+ * and represents a Minecraft-like stair shape as two boxes (bottom half-slab + top half block).
+ */
+export function getStairsGeometry(facing: StairFacing): THREE.BufferGeometry {
+  const idx = facing === 'north' ? 0 : facing === 'east' ? 1 : facing === 'south' ? 2 : 3
+  if (_stairsGeometryCache[idx]) return _stairsGeometryCache[idx]
+
+  const createBox = (w: number, h: number, d: number, x0: number, y0: number, z0: number) => {
+    const geo = new THREE.BoxGeometry(w * BLOCK_SIZE, h * BLOCK_SIZE, d * BLOCK_SIZE)
+    // Translate from centered box to corner-based placement: put min corner at (x0,y0,z0).
+    geo.translate((x0 + w / 2) * BLOCK_SIZE, (y0 + h / 2) * BLOCK_SIZE, (z0 + d / 2) * BLOCK_SIZE)
+    return geo
+  }
+
+  // Bottom slab: full XZ, half height.
+  const bottom = createBox(1, 0.5, 1, 0, 0, 0)
+  // Top step: half-height, half-depth depending on facing.
+  // Facing convention: "north" = step occupies the north half (negative Z direction in world).
+  const top =
+    facing === 'north'
+      ? createBox(1, 0.5, 0.5, 0, 0.5, 0)
+      : facing === 'south'
+        ? createBox(1, 0.5, 0.5, 0, 0.5, 0.5)
+        : facing === 'east'
+          ? createBox(0.5, 0.5, 1, 0.5, 0.5, 0)
+          : createBox(0.5, 0.5, 1, 0, 0.5, 0)
+
+  // Merge attributes (indexed) for instancing and correct UVs.
+  const merged = mergeGeometries([bottom, top], true)
+  if (!merged) throw new Error(`Failed to build stairs geometry for facing: ${facing}`)
+
+  _stairsGeometryCache[idx] = merged
+  return merged
 }
 
 /**

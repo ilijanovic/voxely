@@ -34,6 +34,8 @@ export function breakBlock(params: {
   ) => void
   /** When true, do not refresh meshes (caller will re-request chunk from worker and replace). */
   skipRefresh?: boolean
+  /** Override drop item type (e.g. door_open and door_closed both drop door_closed). */
+  dropType?: BlockType
 }): void {
   if (params.isUnbreakableBlock(params.blockType)) return
   const data = params.chunks.get(params.chunkKeyNum)
@@ -48,13 +50,30 @@ export function breakBlock(params: {
       ? positions[instanceIndex]
       : { x: params.worldX, y: params.worldY, z: params.worldZ }
 
+  const affectedBlockTypes = new Set<BlockType>([params.blockType])
+
+  /** When breaking a door, clear the other half (same column) and drop a single door_closed. */
+  const isDoorBlock = (t: string | null): t is BlockType =>
+    t === 'door_closed' || t === 'door_open'
+  if (isDoorBlock(params.blockType)) {
+    const above = params.getBlockAt(pos.x, pos.y + 1, pos.z)
+    const below = params.getBlockAt(pos.x, pos.y - 1, pos.z)
+    const otherBy = isDoorBlock(above) ? pos.y + 1 : isDoorBlock(below) ? pos.y - 1 : null
+    if (otherBy !== null) {
+      const otherType = params.getBlockAt(pos.x, otherBy, pos.z)
+      if (otherType !== null && otherType !== 'air') affectedBlockTypes.add(otherType as BlockType)
+      params.blockModifications.set(params.blockKeyString(pos.x, otherBy, pos.z), 'air')
+      const lxOther = pos.x - data.cx * params.chunkSize
+      const lzOther = pos.z - data.cz * params.chunkSize
+      data.voxelMap.delete(params.localKey(lxOther, otherBy, lzOther))
+    }
+  }
+
   params.blockModifications.set(params.blockKeyString(pos.x, pos.y, pos.z), 'air')
   params.invalidateColumnHeight(pos.x, pos.z)
   const lx = pos.x - data.cx * params.chunkSize
   const lz = pos.z - data.cz * params.chunkSize
   data.voxelMap.delete(params.localKey(lx, pos.y, lz))
-
-  const affectedBlockTypes = new Set<BlockType>([params.blockType])
   const neighbors: [number, number, number][] = [
     [pos.x + 1, pos.y, pos.z],
     [pos.x - 1, pos.y, pos.z],
@@ -86,6 +105,7 @@ export function breakBlock(params: {
     }
   }
   const restY = groundY + dropSize * 0.5
-  params.spawnDrop(cx, cz, startY, restY, params.blockType, params.time)
+  const dropItemType = params.dropType ?? params.blockType
+  params.spawnDrop(cx, cz, startY, restY, dropItemType, params.time)
   if (!params.skipRefresh) params.refreshChunkVisibleMeshes(data, affectedBlockTypes)
 }

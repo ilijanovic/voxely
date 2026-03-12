@@ -5,7 +5,13 @@
 import { describe, it, expect } from 'vitest'
 import type { Biome } from '../../types'
 import { BIOME_TERRAIN, BIOME_LAYERS } from './index'
-import { BIOME_REGISTRY, getBiomeByMultiNoise, getLandBiomeBlendByClimate } from './registry'
+import {
+  BIOME_REGISTRY,
+  getBiomeByMultiNoise,
+  getLandBiomeBlendByClimate,
+  getLandBiomeBlendByMultiNoise,
+  getLandBiomeByMultiNoise,
+} from './registry'
 
 const ALL_BIOMES: Biome[] = [
   'plains',
@@ -163,7 +169,7 @@ describe('getLandBiomeBlendByClimate', () => {
     }
   })
 
-  it('at the midpoint between two climate centers, blend is roughly 50/50 between them', () => {
+  it('at the midpoint between two climate centers, blend is between them (rarity can skew t)', () => {
     let found = false
     for (let i = 0; i < BASE_LAND_BIOMES.length; i++) {
       for (let j = i + 1; j < BASE_LAND_BIOMES.length; j++) {
@@ -177,8 +183,9 @@ describe('getLandBiomeBlendByClimate', () => {
         const outPair = [out.primary, out.secondary].sort()
         const targetPair = [a, b].sort()
         if (outPair[0] !== targetPair[0] || outPair[1] !== targetPair[1]) continue
-        expect(out.t).toBeGreaterThan(0.35)
-        expect(out.t).toBeLessThan(0.65)
+        // With rarity weighting, t can skew toward the common biome; allow 0.2–0.8.
+        expect(out.t).toBeGreaterThan(0.2)
+        expect(out.t).toBeLessThan(0.8)
         found = true
         break
       }
@@ -199,5 +206,46 @@ describe('getBiomeByMultiNoise', () => {
       y: 0.22,
     })
     expect(BIOME_REGISTRY[r].multiNoise, `selected biome ${r} has no multiNoise`).toBeDefined()
+  })
+})
+
+describe('getLandBiomeByMultiNoise', () => {
+  it('never returns ocean', () => {
+    for (let i = 0; i <= 10; i++) {
+      for (let j = 0; j <= 10; j++) {
+        const continentalness = i / 10
+        const humidity = -1 + (j / 10) * 2
+        const b = getLandBiomeByMultiNoise({
+          continentalness,
+          erosion: 0,
+          temperature: 0,
+          humidity,
+          weirdness: 0,
+          y: 0.25,
+        })
+        expect(b).not.toBe('ocean')
+      }
+    }
+  })
+})
+
+describe('getLandBiomeBlendByMultiNoise', () => {
+  it('returns t in [0,1] and land biomes', () => {
+    for (let i = 0; i <= 10; i++) {
+      for (let j = 0; j <= 10; j++) {
+        const out = getLandBiomeBlendByMultiNoise({
+          continentalness: i / 10,
+          erosion: 0,
+          temperature: 0,
+          humidity: -1 + (j / 10) * 2,
+          weirdness: 0,
+          y: 0.25,
+        })
+        expect(out.t).toBeGreaterThanOrEqual(0)
+        expect(out.t).toBeLessThanOrEqual(1)
+        expect(out.primary).not.toBe('ocean')
+        expect(out.secondary).not.toBe('ocean')
+      }
+    }
   })
 })

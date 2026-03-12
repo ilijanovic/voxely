@@ -57,6 +57,12 @@ export interface ClimateBounds {
   humidityMax: number
 }
 
+/**
+ * Rarity weight for climate-based selection. Higher = more common (larger effective region).
+ * Default 1 when not set. Minecraft-style: plains/forest common, jungle/badlands rare.
+ */
+export const DEFAULT_BIOME_RARITY_WEIGHT = 1
+
 /** Full biome definition: blocks + terrain + optional climate (for base biomes). */
 export interface BiomeDefinition {
   blocks: BiomeBlockSet
@@ -68,4 +74,14 @@ export interface BiomeDefinition {
    * When present, the biome can be selected by nearest-center distance in 6D space.
    */
   multiNoise?: MultiNoiseSelector6D
+  /**
+   * Optional rarity weight for land biome selection. Higher = more common (effective distSq divided by this).
+   * Use values &gt; 1 for common biomes (plains, forest), &lt; 1 for rare (jungle, badlands, mushroom_fields).
+   */
+  rarityWeight?: number
+  /**
+   * Optional parent biome for sub-biome / edge logic. When set, this biome may only be considered
+   * when near a boundary of the parent (e.g. Jungle Edge only next to Jungle). Not yet used in selection.
+   */
+  parentBiome?: import('../../types').Biome
 }

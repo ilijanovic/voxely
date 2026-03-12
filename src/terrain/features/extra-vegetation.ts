@@ -5,8 +5,10 @@
 import type { Biome, BlockType } from '../../types'
 import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
 import { localKey, typeToId, idToType, isAirOrCarved } from '../block-ids'
+import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
+/** Seed offsets for feature noise; deterministic per world seed. */
 const BAMBOO_NOISE_SEED = 700111
 const BAMBOO_HEIGHT_SEED = 700112
 const VINE_NOISE_SEED = 700211
@@ -27,23 +29,6 @@ const SURFACE_BLOCKS_FOR_SWEET_BERRY: BlockType[] = [
   'coarse_dirt',
 ]
 
-function noiseKey(seed: number, wx: number, wz: number): string {
-  return `${seed},${wx},${wz}`
-}
-
-function sampleNoise(cache: Map<string, number>, seed: number, wx: number, wz: number): number {
-  const k = noiseKey(seed, wx, wz)
-  let v = cache.get(k)
-  if (v === undefined) {
-    let h = wx * 374761393 + wz * 668265263 + seed
-    h = (h ^ (h >> 13)) * 1274126177
-    h ^= h >> 16
-    v = (h >>> 0) / 0xffffffff
-    cache.set(k, v)
-  }
-  return v
-}
-
 const BAMBOO_PLACE_THRESHOLD = 0.88
 const BAMBOO_HEIGHT_MAX = 4
 const VINE_DENSITY = 0.015
@@ -59,8 +44,11 @@ const PINK_PETALS_DENSITY = 0.03
  */
 export function createBambooFeature(): FeatureFn {
   return function bambooFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(BAMBOO_NOISE_SEED)
+    const heightNoise = getFeatureNoise(BAMBOO_HEIGHT_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const bambooId = typeToId('bamboo')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -78,12 +66,12 @@ export function createBambooFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, BAMBOO_NOISE_SEED, wx, wz) < BAMBOO_PLACE_THRESHOLD) continue
+        if (placeNoise(wx * scale, wz * scale) < BAMBOO_PLACE_THRESHOLD) continue
 
         const height =
           1 +
           Math.min(
-            Math.floor(sampleNoise(cache, BAMBOO_HEIGHT_SEED, wx, wz) * BAMBOO_HEIGHT_MAX),
+            Math.floor(heightNoise(wx * scale, wz * scale) * BAMBOO_HEIGHT_MAX),
             BAMBOO_HEIGHT_MAX - 1,
           )
         for (let h = 1; h <= height; h++) {
@@ -100,8 +88,10 @@ export function createBambooFeature(): FeatureFn {
  */
 export function createVineFeature(): FeatureFn {
   return function vineFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(VINE_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const vineId = typeToId('vine')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -119,7 +109,7 @@ export function createVineFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, VINE_NOISE_SEED, wx, wz) > VINE_DENSITY) continue
+        if (placeNoise(wx * scale, wz * scale) > VINE_DENSITY) continue
 
         voxelMap[keyAbove] = vineId
       }
@@ -138,8 +128,10 @@ const SWEET_BERRY_BIOMES: Partial<Record<Biome, boolean>> = {
  */
 export function createSweetBerryBushFeature(): FeatureFn {
   return function sweetBerryBushFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(SWEET_BERRY_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const bushId = typeToId('sweet_berry_bush')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -157,7 +149,7 @@ export function createSweetBerryBushFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, SWEET_BERRY_NOISE_SEED, wx, wz) > SWEET_BERRY_DENSITY) continue
+        if (placeNoise(wx * scale, wz * scale) > SWEET_BERRY_DENSITY) continue
 
         voxelMap[keyAbove] = bushId
       }
@@ -177,8 +169,10 @@ const PUMPKIN_MELON_BIOMES: Partial<Record<Biome, boolean>> = {
  */
 export function createPumpkinFeature(): FeatureFn {
   return function pumpkinFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(PUMPKIN_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const pumpkinId = typeToId('pumpkin')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -196,7 +190,7 @@ export function createPumpkinFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, PUMPKIN_NOISE_SEED, wx, wz) > PUMPKIN_DENSITY) continue
+        if (placeNoise(wx * scale, wz * scale) > PUMPKIN_DENSITY) continue
 
         voxelMap[keyAbove] = pumpkinId
       }
@@ -209,8 +203,10 @@ export function createPumpkinFeature(): FeatureFn {
  */
 export function createMelonFeature(): FeatureFn {
   return function melonFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(MELON_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const melonId = typeToId('melon')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -228,7 +224,7 @@ export function createMelonFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, MELON_NOISE_SEED, wx, wz) > MELON_DENSITY) continue
+        if (placeNoise(wx * scale, wz * scale) > MELON_DENSITY) continue
 
         voxelMap[keyAbove] = melonId
       }
@@ -241,8 +237,10 @@ export function createMelonFeature(): FeatureFn {
  */
 export function createPinkPetalsFeature(): FeatureFn {
   return function pinkPetalsFeature(ctx: ChunkContext): void {
-    const { worldX, worldZ, heightmap, biomeMap, voxelMap } = ctx
-    const cache = new Map<string, number>()
+    const { worldX, worldZ, heightmap, biomeMap, voxelMap, getFeatureNoise } = ctx
+    if (!getFeatureNoise) return
+    const placeNoise = getFeatureNoise(PINK_PETALS_NOISE_SEED)
+    const scale = FEATURE_PLACEMENT_NOISE_SCALE
     const pinkPetalsId = typeToId('pink_petals')
 
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -260,7 +258,7 @@ export function createPinkPetalsFeature(): FeatureFn {
 
         const wx = worldX + lx
         const wz = worldZ + lz
-        if (sampleNoise(cache, PINK_PETALS_NOISE_SEED, wx, wz) > PINK_PETALS_DENSITY) continue
+        if (placeNoise(wx * scale, wz * scale) > PINK_PETALS_DENSITY) continue
 
         voxelMap[keyAbove] = pinkPetalsId
       }

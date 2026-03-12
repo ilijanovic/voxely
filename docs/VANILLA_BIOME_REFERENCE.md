@@ -1,3 +1,21 @@
+# Vanilla Reference (Minecraft Java 1.20.2) — Compact
+
+This project uses Minecraft vanilla as the **authoritative reference** for worldgen concepts and parameters where comparable. To keep the repo context small, the full data is stored as JSON, not as a long markdown table.
+
+## Data (machine-readable)
+- `docs/vanilla_biome_data.json` — per-biome temperature/downfall/spawners/features (subset)
+- `docs/vanilla_terrain_cave_reference.json` — cave-related reference values used for tuning
+
+## Sources
+- Biomes: `https://assets.mcasset.cloud/1.20.2/data/minecraft/worldgen/biome/{id}.json`
+- Noise settings / caves: `worldgen/noise_settings/overworld.json` and `worldgen/density_function/overworld/caves/*`
+- Surface rules reference: `https://minecraft.wiki/w/Surface_rule`
+
+## Voxely mapping notes (high-signal)
+- Voxely climate is normalized to \([0,1]\) while vanilla temperatures can exceed 1.0 (e.g. desert 2.0). Map “hot” to the high end of our range.
+- Voxely biome selection uses **climate bounds** + optional **multi-noise centers**; see `docs/BIOMES.md` and `src/terrain/biomes/registry.ts`.
+- Voxely surface blocks are defined in biome definitions + code surface rules (not vanilla JSON surface rules); see `docs/SURFACE_GENERATION.md` and `src/terrain/surface-rules.ts`.
+
 # Vanilla Reference (Minecraft Java 1.20.2)
 
 **Vanilla is the single authoritative reference for worldgen in this project.** All parameters for biomes, terrain (global noise), caves, and surface rules are documented here from Minecraft Java 1.20.2. We align only what is clearly comparable (e.g. climate scales); the rest is recorded for reference and optional tuning.

@@ -8,7 +8,7 @@ import { getStructureOriginsInChunk } from '../terrain/structures/origins'
 import { getHeight, getResolvedBiome, WORLD_SEED } from '../game-terrain'
 import { getAreaAt, getRandomMobLevelInArea } from '../world-areas'
 import {
-  POI_REGISTRY,
+  getActivePois,
   getFixedVillageOriginsInChunk,
   getFixedSpawnsInChunk,
 } from '../world-pois'
@@ -28,7 +28,9 @@ import {
   DEFAULT_CREATURE_SPAWN_PROBABILITY,
   CREATURE_SPAWN_SURFACE_BLOCKS,
   CREATURE_SPAWN_POSITION_ATTEMPTS,
+  HOSTILE_SPAWN_MAX_LIGHT,
 } from './spawn-constants'
+import { isNight } from '../atmosphere'
 import type { Biome } from '../types'
 
 /** Min and max number of villagers to spawn per village (deterministic per village origin). */
@@ -114,6 +116,20 @@ export const ANIMAL_DEFS: AnimalDef[] = [
     behaviour: 'passive',
     defaultDisposition: 'friendly',
     maxHealth: 20,
+  },
+  {
+    kind: 'zombie',
+    aabb: { halfX: 0.3, halfZ: 0.3, height: 1.9 },
+    walkSpeed: 0.9,
+    runSpeed: 2.2,
+    spawnBiomes: ['plains', 'forest', 'savanna'],
+    maxPerChunk: 1,
+    behaviour: 'chase',
+    defaultDisposition: 'aggro',
+    maxHealth: 20,
+    spawnWeight: 3,
+    spawnGroupMin: 1,
+    spawnGroupMax: 2,
   },
 ]
 
@@ -289,6 +305,11 @@ export function spawnEntitiesForChunk(
           const posBiome = api.getBiome(wx, wz)
           if (!def.spawnBiomes.includes(posBiome)) continue
           const y = api.getColumnSurfaceY(wx, wz)
+          if (def.defaultDisposition === 'aggro') {
+            if (!isNight()) continue
+            const light = api.getBlockLightAt?.(wx, y, wz) ?? 0
+            if (light > HOSTILE_SPAWN_MAX_LIGHT) continue
+          }
           const block = api.getBlockAt(wx, y, wz)
           if (block !== 'air' && block !== null && !CREATURE_SPAWN_SURFACE_BLOCKS.has(block)) continue
           const area = getAreaAt(wx, wz)
@@ -324,7 +345,7 @@ export function spawnEntitiesForChunk(
     getResolvedBiome,
   )
   const fixedVillageOrigins = getFixedVillageOriginsInChunk(
-    POI_REGISTRY,
+    getActivePois(),
     chunkX,
     chunkZ,
     getHeight,
@@ -383,7 +404,7 @@ export function spawnEntitiesForChunk(
   }
 
   const fixedSpawns = getFixedSpawnsInChunk(
-    POI_REGISTRY,
+    getActivePois(),
     chunkKey,
     chunkX,
     chunkZ,

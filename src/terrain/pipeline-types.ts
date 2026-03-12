@@ -19,6 +19,11 @@ export interface ChunkContext {
   blockMods: Array<{ bx: number; by: number; bz: number; value: BlockType | 'air' }>
   /** Structure origins for this chunk; set by structures_starts stage, used by features stage. */
   structureOrigins?: StructureOrigin[]
+  /**
+   * Optional 2D noise for feature placement/density. Returns a sampler in [0, 1] per (seed + seedOffset, x, z).
+   * Provided by the chunk generator; use for vegetation and decoration placement (Minecraft-style).
+   */
+  getFeatureNoise?(seedOffset: number): (x: number, z: number) => number
 }
 
 /** A pipeline stage: reads/writes context. */

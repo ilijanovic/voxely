@@ -8,17 +8,17 @@ import type { Biome, BlockType } from './types'
 import { WATER_LEVEL } from './constants'
 import {
   BASE_HEIGHT,
-  CLIMATE_PARAM_SCALE,
-  CLIMATE_WARP_AMP,
-  CLIMATE_WARP_SCALE,
   COAST_BLEND_BAND,
   COLD_HIGHLAND_TEMP_MAX,
   COLD_UPLAND_TEMP_MAX,
   EROSION_AMPLITUDE,
   EROSION_DETAIL_BOOST_MAX,
   EROSION_JAGGEDNESS_START,
-  EROSION_SCALE,
   FLAT_NOISE_SCALE,
+  HEIGHT_DETAIL_FBM_NORMALIZE,
+  HEIGHT_DETAIL_LACUNARITY,
+  HEIGHT_DETAIL_OCTAVES,
+  HEIGHT_DETAIL_PERSISTENCE,
   HEIGHT_TRANSITION_AMPLITUDE,
   HEIGHT_TRANSITION_SCALE,
   HIGHLAND_GROVE_MAX,
@@ -40,19 +40,17 @@ import {
   SPAWN_ORIGIN_FOREST_TEMP,
   SNOW_BIOME_HEIGHT_BOOST,
   WEIRDNESS_RIDGE_AMP,
-  WEIRDNESS_SCALE,
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './terrain/constants'
 import {
   getBiomeByMultiNoise,
   getLandBiomeBlendByClimate,
+  getLandBiomeBlendByMultiNoise,
 } from './terrain/biomes'
 import { BIOME_LAYERS, BIOME_TERRAIN, BIOME_VALUE } from './terrain/biomes'
 import { getSurfaceBlockFromRules } from './terrain/surface-rules'
 import { makeSeededRandom } from './terrain/utils'
-
-const TEMP_SCALE = CLIMATE_PARAM_SCALE
-const HUMIDITY_SCALE = CLIMATE_PARAM_SCALE
+import { createClimateSampler } from './terrain/climate-sampler'
 
 export type GetHeightFn = (x: number, z: number) => number
 
@@ -97,22 +95,21 @@ export function createTerrainSampling(seed: number) {
   const weirdnessNoise2D = createNoise(seed + 909)
   const heightTransitionNoise2D = createNoise(seed + 4242)
 
-  function getClimateWarpedPos(x: number, z: number): { xw: number; zw: number } {
-    const wx = climateWarpNoise2D(x * CLIMATE_WARP_SCALE, z * CLIMATE_WARP_SCALE)
-    const wz = climateWarpNoise2D(x * CLIMATE_WARP_SCALE + 77.7, z * CLIMATE_WARP_SCALE - 31.3)
-    return { xw: x + wx * CLIMATE_WARP_AMP, zw: z + wz * CLIMATE_WARP_AMP }
-  }
+  const climate = createClimateSampler({
+    temperatureNoise2D,
+    humidityNoise2D,
+    continentalNoise2D,
+    climateWarpNoise2D,
+    erosionNoise2D,
+    weirdnessNoise2D,
+  })
 
   function getTemperature(x: number, z: number): number {
-    const { xw, zw } = getClimateWarpedPos(x, z)
-    const n = temperatureNoise2D(xw * TEMP_SCALE, zw * TEMP_SCALE)
-    return (n + 1) * 0.5
+    return climate.getTemperature01(x, z)
   }
 
   function getHumidity(x: number, z: number): number {
-    const { xw, zw } = getClimateWarpedPos(x, z)
-    const n = humidityNoise2D(xw * HUMIDITY_SCALE, zw * HUMIDITY_SCALE)
-    return (n + 1) * 0.5
+    return climate.getHumidity01(x, z)
   }
 
   /** 5-tap smoothed temperature in [0,1] for biome blend (parity with terrain/index). */
@@ -136,13 +133,11 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getTemperatureSigned(x: number, z: number): number {
-    const { xw, zw } = getClimateWarpedPos(x, z)
-    return temperatureNoise2D(xw * TEMP_SCALE, zw * TEMP_SCALE)
+    return climate.getTemperatureSigned(x, z)
   }
 
   function getHumiditySigned(x: number, z: number): number {
-    const { xw, zw } = getClimateWarpedPos(x, z)
-    return humidityNoise2D(xw * HUMIDITY_SCALE, zw * HUMIDITY_SCALE)
+    return climate.getHumiditySigned(x, z)
   }
 
   function getTemperatureSignedSmoothed(x: number, z: number): number {
@@ -170,8 +165,7 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getContinentalness(x: number, z: number): number {
-    const n = continentalNoise2D(x * CLIMATE_PARAM_SCALE, z * CLIMATE_PARAM_SCALE)
-    return (n + 1) * 0.5
+    return climate.getContinentalness01(x, z)
   }
 
   /** 5-tap smoothed continentalness for ocean/land blend (parity with terrain/index). */
@@ -219,21 +213,17 @@ export function createTerrainSampling(seed: number) {
     let humidity = getHumiditySmoothed(x, z)
     const biased = applySpawnOriginForestBias(x, z, c, temp, humidity)
     c = biased.c
-    const land = getLandBiomeBlendByClimate(biased.temp, biased.humidity)
-    // Base land biome from climate only so main thread and worker agree (forest, spawn, colors).
-    // Multi-noise is still used for peak variant selection (frozen/jagged/stony_peaks).
-    const USE_MULTI_NOISE_BASE_SELECTION = false
-    if (USE_MULTI_NOISE_BASE_SELECTION) {
-      const pick = getBiomeByMultiNoise({
-        continentalness: c,
-        erosion: getErosionSignedSmoothed(x, z),
-        temperature: getTemperatureSignedSmoothed(x, z),
-        humidity: getHumiditySignedSmoothed(x, z),
-        weirdness: getWeirdnessSmoothed(x, z),
-        y: 0.25,
-      })
-      if (pick !== 'ocean') land.primary = pick
-    }
+    const USE_MULTI_NOISE_BASE_SELECTION = true
+    const land = USE_MULTI_NOISE_BASE_SELECTION
+      ? getLandBiomeBlendByMultiNoise({
+          continentalness: c,
+          erosion: getErosionSignedSmoothed(x, z),
+          temperature: getTemperatureSignedSmoothed(x, z),
+          humidity: getHumiditySignedSmoothed(x, z),
+          weirdness: getWeirdnessSmoothed(x, z),
+          y: 0.25,
+        })
+      : getLandBiomeBlendByClimate(biased.temp, biased.humidity)
 
     // Blend ocean <-> land across a coastal band to avoid a hard cutoff.
     if (c < OCEAN_CONTINENTALNESS_THRESHOLD - COAST_BLEND_BAND) {
@@ -283,7 +273,15 @@ export function createTerrainSampling(seed: number) {
 
   function getLocalTerrain(x: number, z: number, biome: Biome): number {
     const params = BIOME_TERRAIN[biome]
-    const n = detailNoise2D(x * params.detailFreq, z * params.detailFreq)
+    let fbmSum = 0
+    let freq = params.detailFreq
+    let amp = 1
+    for (let i = 0; i < HEIGHT_DETAIL_OCTAVES; i++) {
+      fbmSum += detailNoise2D(x * freq, z * freq) * amp
+      freq *= HEIGHT_DETAIL_LACUNARITY
+      amp *= HEIGHT_DETAIL_PERSISTENCE
+    }
+    const n = fbmSum / HEIGHT_DETAIL_FBM_NORMALIZE
     const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = params.detailAmp * (params.flatness + (1 - params.flatness) * smooth)
@@ -316,7 +314,7 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getErosionSigned(x: number, z: number): number {
-    return erosionNoise2D(x * EROSION_SCALE, z * EROSION_SCALE)
+    return climate.getErosionSigned(x, z)
   }
 
   function getErosionSignedSmoothed(x: number, z: number): number {
@@ -336,7 +334,7 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getWeirdness(x: number, z: number): number {
-    return weirdnessNoise2D(x * WEIRDNESS_SCALE, z * WEIRDNESS_SCALE)
+    return climate.getWeirdnessSigned(x, z)
   }
 
   function getWeirdnessSmoothed(x: number, z: number): number {
@@ -374,7 +372,15 @@ export function createTerrainSampling(seed: number) {
     const mountainAllowedFactor =
       (pA.mountainAllowed ? 1 : 0) * (1 - t) + (pB.mountainAllowed ? 1 : 0) * t
     const macro = getMacroTerrain(x, z)
-    const n = detailNoise2D(x * detailFreq, z * detailFreq)
+    let fbmSum = 0
+    let freq = detailFreq
+    let amp = 1
+    for (let i = 0; i < HEIGHT_DETAIL_OCTAVES; i++) {
+      fbmSum += detailNoise2D(x * freq, z * freq) * amp
+      freq *= HEIGHT_DETAIL_LACUNARITY
+      amp *= HEIGHT_DETAIL_PERSISTENCE
+    }
+    const n = fbmSum / HEIGHT_DETAIL_FBM_NORMALIZE
     const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = detailAmp * (flatness + (1 - flatness) * smooth)

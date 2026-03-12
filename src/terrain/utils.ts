@@ -21,3 +21,14 @@ export function smoothstep(a: number, b: number, x: number): number {
 export function clamp(x: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, x))
 }
+
+/**
+ * Wraps a world coordinate for use in noise sampling to avoid float drift at very large distances (Far Lands).
+ * Use when |x| or |z| may exceed NOISE_COORD_WRAP; otherwise return x unchanged.
+ * Deterministic: same x always yields same result.
+ */
+export function wrapNoiseCoord(x: number, wrap: number): number {
+  if (Math.abs(x) < wrap) return x
+  const w = ((x % wrap) + wrap) % wrap
+  return w
+}

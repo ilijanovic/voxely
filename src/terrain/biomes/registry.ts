@@ -9,6 +9,7 @@ import type {
   MultiNoise6Point,
   MultiNoiseSelector6D,
 } from './types'
+import { DEFAULT_BIOME_RARITY_WEIGHT } from './types'
 import { desertDefinition } from './desert'
 import { oceanDefinition } from './ocean'
 import { plainsDefinition } from './plains'
@@ -75,6 +76,25 @@ const BASE_LAND_BIOMES: Biome[] = [
   'old_growth_taiga',
 ]
 
+/**
+ * Rarity weight per base land biome for climate-based selection (Minecraft-style).
+ * Higher = more common (larger effective Voronoi region). Used as divisor for distSq.
+ * Missing entries use DEFAULT_BIOME_RARITY_WEIGHT (1).
+ */
+const BIOME_RARITY_WEIGHT: Partial<Record<Biome, number>> = {
+  plains: 2,
+  forest: 2,
+  desert: 1,
+  savanna: 1,
+  mountain: 1,
+  snow: 0.8,
+  jungle: 0.4,
+  mangrove_swamp: 0.5,
+  old_growth_taiga: 0.5,
+  badlands: 0.3,
+  mushroom_fields: 0.2,
+}
+
 const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [
   'continentalness',
   'erosion',
@@ -84,6 +104,10 @@ const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [
   'y',
 ]
 
+/**
+ * Computes squared distance between a query point and a selector in 6D multi-noise space.
+ * Uses optional per-dimension weights (defaults to 1).
+ */
 function distSqMultiNoise(query: MultiNoise6Point, selector: MultiNoiseSelector6D): number {
   let d = 0
   for (const k of MULTI_NOISE_KEYS) {
@@ -94,6 +118,9 @@ function distSqMultiNoise(query: MultiNoise6Point, selector: MultiNoiseSelector6
   return d
 }
 
+/**
+ * Computes squared distance between (temp, humidity) and the center of a biome's climate bounds.
+ */
 function distSq(temp: number, humidity: number, c: ClimateBounds): number {
   const tMid = (c.tempMin + c.tempMax) / 2
   const hMid = (c.humidityMin + c.humidityMax) / 2
@@ -101,9 +128,10 @@ function distSq(temp: number, humidity: number, c: ClimateBounds): number {
 }
 
 /**
- * Select a land biome from 2D climate.
- * Uses nearest climate center so that low temperature => snow,
- * high temperature + low humidity => desert, etc.
+ * Select a land biome from 2D climate with rarity weighting (Minecraft-style).
+ * Uses nearest climate center; effective distance is divided by rarity weight so
+ * common biomes (plains, forest) have larger regions, rare (jungle, badlands) smaller.
+ * Fallback: if no biome matches (all lack climate), returns plains.
  */
 export function getLandBiomeByClimate(temp: number, humidity: number): Biome {
   let best: Biome = 'plains'
@@ -111,7 +139,9 @@ export function getLandBiomeByClimate(temp: number, humidity: number): Biome {
   for (const b of BASE_LAND_BIOMES) {
     const def = BIOME_REGISTRY[b]
     if (!def.climate) continue
-    const d = distSq(temp, humidity, def.climate)
+    const rawD = distSq(temp, humidity, def.climate)
+    const weight = def.rarityWeight ?? BIOME_RARITY_WEIGHT[b] ?? DEFAULT_BIOME_RARITY_WEIGHT
+    const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       bestD = d
       best = b
@@ -127,9 +157,16 @@ export interface LandBiomeBlend {
   t: number
 }
 
+export interface LandBiomeBlendMultiNoise {
+  primary: Biome
+  secondary: Biome
+  /** Weight for secondary biome in [0,1]. */
+  t: number
+}
+
 /**
- * Return the two closest land biomes in climate space plus a blend weight.
- * This is meant to soften biome transitions (avoid hard edges).
+ * Return the two closest land biomes in climate space (with rarity weighting) plus a blend weight.
+ * Softens biome transitions (avoid hard edges). Uses same effective distance as getLandBiomeByClimate.
  */
 export function getLandBiomeBlendByClimate(temp: number, humidity: number): LandBiomeBlend {
   let best: Biome = 'plains'
@@ -140,7 +177,9 @@ export function getLandBiomeBlendByClimate(temp: number, humidity: number): Land
   for (const b of BASE_LAND_BIOMES) {
     const def = BIOME_REGISTRY[b]
     if (!def.climate) continue
-    const d = distSq(temp, humidity, def.climate)
+    const rawD = distSq(temp, humidity, def.climate)
+    const weight = def.rarityWeight ?? BIOME_RARITY_WEIGHT[b] ?? DEFAULT_BIOME_RARITY_WEIGHT
+    const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       second = best
       secondD = bestD
@@ -153,8 +192,6 @@ export function getLandBiomeBlendByClimate(temp: number, humidity: number): Land
   }
 
   // Convert distances to a stable, bounded secondary weight.
-  // Far from any boundary: bestD << secondD => t ~ 0.
-  // Exactly between: bestD == secondD => t = 0.5.
   const denom = bestD + secondD
   const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0
   return { primary: best, secondary: second, t }
@@ -166,6 +203,55 @@ export function getLandBiomeBlendByClimate(temp: number, humidity: number): Land
  */
 export function getBiomeByClimate(temp: number, humidity: number): Biome {
   return getLandBiomeByClimate(temp, humidity)
+}
+
+/**
+ * Select a land biome by nearest multi-noise center in 6D.
+ * Only considers base land biomes (excludes ocean and height-resolved highland/peak variants).
+ */
+export function getLandBiomeByMultiNoise(point: MultiNoise6Point): Biome {
+  let best: Biome = 'plains'
+  let bestD = Infinity
+  for (const b of BASE_LAND_BIOMES) {
+    const def = BIOME_REGISTRY[b]
+    if (!def.multiNoise) continue
+    const d = distSqMultiNoise(point, def.multiNoise)
+    if (d < bestD) {
+      bestD = d
+      best = b
+    }
+  }
+  return best
+}
+
+/**
+ * Return the two closest land biomes in multi-noise space plus a blend weight.
+ * This is the multi-noise analogue to `getLandBiomeBlendByClimate()`.
+ */
+export function getLandBiomeBlendByMultiNoise(point: MultiNoise6Point): LandBiomeBlendMultiNoise {
+  let best: Biome = 'plains'
+  let bestD = Infinity
+  let second: Biome = 'plains'
+  let secondD = Infinity
+
+  for (const b of BASE_LAND_BIOMES) {
+    const def = BIOME_REGISTRY[b]
+    if (!def.multiNoise) continue
+    const d = distSqMultiNoise(point, def.multiNoise)
+    if (d < bestD) {
+      second = best
+      secondD = bestD
+      best = b
+      bestD = d
+    } else if (d < secondD) {
+      second = b
+      secondD = d
+    }
+  }
+
+  const denom = bestD + secondD
+  const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0
+  return { primary: best, secondary: second, t }
 }
 
 /**

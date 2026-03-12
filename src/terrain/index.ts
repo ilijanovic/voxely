@@ -22,17 +22,17 @@ import {
 import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from '../constants'
 import {
   BASE_HEIGHT,
-  CLIMATE_PARAM_SCALE,
-  CLIMATE_WARP_AMP,
-  CLIMATE_WARP_SCALE,
   COAST_BLEND_BAND,
   COLD_HIGHLAND_TEMP_MAX,
   COLD_UPLAND_TEMP_MAX,
   EROSION_AMPLITUDE,
   EROSION_DETAIL_BOOST_MAX,
   EROSION_JAGGEDNESS_START,
-  EROSION_SCALE,
   FLAT_NOISE_SCALE,
+  HEIGHT_DETAIL_FBM_NORMALIZE,
+  HEIGHT_DETAIL_LACUNARITY,
+  HEIGHT_DETAIL_OCTAVES,
+  HEIGHT_DETAIL_PERSISTENCE,
   HEIGHT_TRANSITION_AMPLITUDE,
   HEIGHT_TRANSITION_SCALE,
   HIGHLAND_GROVE_MAX,
@@ -54,7 +54,6 @@ import {
   SPAWN_ORIGIN_FOREST_TEMP,
   SNOW_BIOME_HEIGHT_BOOST,
   WEIRDNESS_RIDGE_AMP,
-  WEIRDNESS_SCALE,
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './constants'
 import { getSurfaceBlockFromRules } from './surface-rules'
@@ -68,10 +67,12 @@ import {
   BIOME_TERRAIN,
   getBiomeByMultiNoise,
   getLandBiomeBlendByClimate,
+  getLandBiomeBlendByMultiNoise,
 } from './biomes'
+import { createClimateSampler } from './climate-sampler'
 import { makeSeededRandom, clamp } from './utils'
 import { runPipeline, createChunkContext } from './pipeline'
-import type { ChunkContext } from './pipeline-types'
+import type { ChunkContext, FeatureFn } from './pipeline-types'
 import { createNoopStage } from './stages/noop'
 import { createStageStructuresStarts } from './stages/structures-starts'
 import { createStageNoise } from './stages/noise'
@@ -79,6 +80,7 @@ import { createStageBiomes } from './stages/biomes'
 import { createStageCarvers } from './stages/carvers'
 import { createStageSurface } from './stages/surface'
 import { createStageFeatures } from './stages/features'
+import { createOrderedFeatureList, getFeatureDensityForBiome } from './features/feature-registry'
 import { createTreeFeature } from './features/trees'
 import { createFernFeature } from './features/ferns'
 import { createFlowersFeature } from './features/flowers'
@@ -223,11 +225,20 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   const cheeseNoise3D = createNoise3D(makeSeededRandom(seed + 401))
   const heightTransitionNoise2D = createNoise2D(makeSeededRandom(seed + 4242))
 
-  const TEMP_SCALE = CLIMATE_PARAM_SCALE
-  const HUMIDITY_SCALE = CLIMATE_PARAM_SCALE
-  const CONTINENTAL_SCALE = CLIMATE_PARAM_SCALE
-  /** Base land biome from climate only so worker and main thread agree. Multi-noise still used for peak variants. */
-  const USE_MULTI_NOISE_BASE_SELECTION = false
+  /** Cache of 2D noise samplers for feature placement; key = seedOffset. Returns value in [0, 1]. */
+  const featureNoiseCache = new Map<number, (x: number, z: number) => number>()
+  function getFeatureNoise(seedOffset: number): (x: number, z: number) => number {
+    let sampler = featureNoiseCache.get(seedOffset)
+    if (sampler === undefined) {
+      const noise2D = createNoise2D(makeSeededRandom(seed + seedOffset))
+      sampler = (x: number, z: number) => (noise2D(x, z) + 1) * 0.5
+      featureNoiseCache.set(seedOffset, sampler)
+    }
+    return sampler
+  }
+
+  /** Use Minecraft-style multi-noise for base land biome selection. */
+  const USE_MULTI_NOISE_BASE_SELECTION = true
 
   const SNOW_BIOMES: Biome[] = ['snow', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks', 'grove']
   /** 3D noise caves: higher = less carving. Tuned for our pipeline; vanilla reference: docs/VANILLA_BIOME_REFERENCE.md §6. */
@@ -250,16 +261,17 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     return center * 0.5 + (n + s + e + w) * 0.125
   }
 
-  function getClimateWarpedPos(x: number, z: number): { xw: number; zw: number } {
-    const wx = climateWarpNoise2D(x * CLIMATE_WARP_SCALE, z * CLIMATE_WARP_SCALE)
-    const wz = climateWarpNoise2D(x * CLIMATE_WARP_SCALE + 77.7, z * CLIMATE_WARP_SCALE - 31.3)
-    return { xw: x + wx * CLIMATE_WARP_AMP, zw: z + wz * CLIMATE_WARP_AMP }
-  }
+  const climate = createClimateSampler({
+    temperatureNoise2D,
+    humidityNoise2D,
+    continentalNoise2D,
+    climateWarpNoise2D,
+    erosionNoise2D,
+    weirdnessNoise2D,
+  })
 
   function getTemperature(x: number, z: number): number {
-    const { xw, zw } = getClimateWarpedPos(x, z)
-    const n = temperatureNoise2D(xw * TEMP_SCALE, zw * TEMP_SCALE)
-    return (n + 1) * 0.5
+    return climate.getTemperature01(x, z)
   }
 
   function getTemperatureSmoothed(x: number, z: number): number {
@@ -274,9 +286,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   }
 
   function getHumidity(x: number, z: number): number {
-    const { xw, zw } = getClimateWarpedPos(x, z)
-    const n = humidityNoise2D(xw * HUMIDITY_SCALE, zw * HUMIDITY_SCALE)
-    return (n + 1) * 0.5
+    return climate.getHumidity01(x, z)
   }
 
   /**
@@ -292,13 +302,11 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   }
 
   function getTemperatureSigned(x: number, z: number): number {
-    const { xw, zw } = getClimateWarpedPos(x, z)
-    return temperatureNoise2D(xw * TEMP_SCALE, zw * TEMP_SCALE)
+    return climate.getTemperatureSigned(x, z)
   }
 
   function getHumiditySigned(x: number, z: number): number {
-    const { xw, zw } = getClimateWarpedPos(x, z)
-    return humidityNoise2D(xw * HUMIDITY_SCALE, zw * HUMIDITY_SCALE)
+    return climate.getHumiditySigned(x, z)
   }
 
   function getTemperatureSignedSmoothed(x: number, z: number): number {
@@ -333,8 +341,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   }
 
   function getContinentalness(x: number, z: number): number {
-    const n = continentalNoise2D(x * CONTINENTAL_SCALE, z * CONTINENTAL_SCALE)
-    return (n + 1) * 0.5
+    return climate.getContinentalness01(x, z)
   }
 
   /**
@@ -375,18 +382,16 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     let humidity = getHumiditySmoothed(x, z)
     const biased = applySpawnOriginForestBias(x, z, c, temp, humidity)
     c = biased.c
-    const land = getLandBiomeBlendByClimate(biased.temp, biased.humidity)
-    if (USE_MULTI_NOISE_BASE_SELECTION) {
-      const pick = getBiomeByMultiNoise({
-        continentalness: c,
-        erosion: getErosionSignedSmoothed(x, z),
-        temperature: getTemperatureSignedSmoothed(x, z),
-        humidity: getHumiditySignedSmoothed(x, z),
-        weirdness: getWeirdnessSmoothed(x, z),
-        y: 0.25,
-      })
-      if (pick !== 'ocean') land.primary = pick
-    }
+    const land = USE_MULTI_NOISE_BASE_SELECTION
+      ? getLandBiomeBlendByMultiNoise({
+          continentalness: c,
+          erosion: getErosionSignedSmoothed(x, z),
+          temperature: getTemperatureSignedSmoothed(x, z),
+          humidity: getHumiditySignedSmoothed(x, z),
+          weirdness: getWeirdnessSmoothed(x, z),
+          y: 0.25,
+        })
+      : getLandBiomeBlendByClimate(biased.temp, biased.humidity)
     if (c < OCEAN_CONTINENTALNESS_THRESHOLD - COAST_BLEND_BAND) {
       return { primary: 'ocean', secondary: 'ocean', t: 0 }
     }
@@ -405,7 +410,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   }
 
   function getErosionSigned(x: number, z: number): number {
-    return erosionNoise2D(x * EROSION_SCALE, z * EROSION_SCALE)
+    return climate.getErosionSigned(x, z)
   }
 
   function getErosionSignedSmoothed(x: number, z: number): number {
@@ -425,7 +430,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   }
 
   function getWeirdness(x: number, z: number): number {
-    return weirdnessNoise2D(x * WEIRDNESS_SCALE, z * WEIRDNESS_SCALE)
+    return climate.getWeirdnessSigned(x, z)
   }
 
   function getWeirdnessSmoothed(x: number, z: number): number {
@@ -468,7 +473,16 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
 
     const macro = getMacroTerrain(x, z)
 
-    const n = detailNoise2D(x * detailFreq, z * detailFreq)
+    /** Multi-octave detail (fBm): macro + micro structure; each octave higher freq, lower amplitude. */
+    let fbmSum = 0
+    let freq = detailFreq
+    let amp = 1
+    for (let i = 0; i < HEIGHT_DETAIL_OCTAVES; i++) {
+      fbmSum += detailNoise2D(x * freq, z * freq) * amp
+      freq *= HEIGHT_DETAIL_LACUNARITY
+      amp *= HEIGHT_DETAIL_PERSISTENCE
+    }
+    const n = fbmSum / HEIGHT_DETAIL_FBM_NORMALIZE
     const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = detailAmp * (flatness + (1 - flatness) * smooth)
@@ -727,6 +741,15 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     forestCache: Map<string, number>,
   ): boolean {
     const placement = getTreePlacementCached(wx, wz, treeCache)
+    const registryDensity = getFeatureDensityForBiome('trees', biome)
+    if (registryDensity !== undefined) {
+      if (
+        (biome === 'forest' || biome === 'jungle' || biome === 'windswept_forest') &&
+        getForestDensityCached(wx, wz, forestCache) <= FOREST_DENSITY_THRESHOLD
+      )
+        return false
+      return placement > 1 - registryDensity
+    }
     if (biome === 'forest') {
       if (getForestDensityCached(wx, wz, forestCache) <= FOREST_DENSITY_THRESHOLD) return false
       return placement > TREE_PLACEMENT_FOREST_THRESHOLD
@@ -877,8 +900,8 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       biome === 'windswept_gravelly_hills'
     )
       return false
-    const surface = getSurfaceBlock(ctx, lx, lz)
-    if (surface === 'sand') return false
+    const surfaceId = ctx.voxelMap[localKey(lx, topY, lz)]
+    const surface = surfaceId !== undefined ? idToType(surfaceId) : 'air'
     const allowedSurface =
       surface === 'grass' ||
       surface === 'grass_snow' ||
@@ -1080,6 +1103,16 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
       getHeightAt: getHeight,
     },
+    worm: {
+      seed,
+      startRate: 0.08,
+      cellSize: 24,
+      steps: 40,
+      radius: 2.5,
+      maxY: WATER_LEVEL + 48,
+      minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+      getHeightAt: getHeight,
+    },
   })
 
   function getSurfaceBlock(ctx: ChunkContext, lx: number, lz: number): BlockType {
@@ -1177,27 +1210,28 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   const fernFeature = createFernFeature()
   const flowersFeature = createFlowersFeature()
   const groundFeature = createGroundFeature()
+  const featuresList: FeatureFn[] = createOrderedFeatureList({
+    trees: treeFeature,
+    ferns: fernFeature,
+    flowers: flowersFeature,
+    ground: groundFeature,
+    dead_bush: createDeadBushFeature(),
+    cactus: createCactusFeature(),
+    sugar_cane: createSugarCaneFeature(),
+    kelp: createKelpFeature(),
+    lily_pad: createLilyPadFeature(),
+    seagrass: createSeagrassFeature(),
+    sea_pickle: createSeaPickleFeature(),
+    mushrooms: createMushroomFeature(),
+    bamboo: createBambooFeature(),
+    vine: createVineFeature(),
+    sweet_berry_bush: createSweetBerryBushFeature(),
+    pumpkin: createPumpkinFeature(),
+    melon: createMelonFeature(),
+    pink_petals: createPinkPetalsFeature(),
+  })
   const stageFeatures = createStageFeatures({
-    features: [
-      treeFeature,
-      fernFeature,
-      flowersFeature,
-      groundFeature,
-      createDeadBushFeature(),
-      createCactusFeature(),
-      createSugarCaneFeature(),
-      createKelpFeature(),
-      createLilyPadFeature(),
-      createSeagrassFeature(),
-      createSeaPickleFeature(),
-      createMushroomFeature(),
-      createBambooFeature(),
-      createVineFeature(),
-      createSweetBerryBushFeature(),
-      createPumpkinFeature(),
-      createMelonFeature(),
-      createPinkPetalsFeature(),
-    ],
+    features: featuresList,
     paintStructuresDeps: { seed, getHeight, getResolvedBiome, pois },
   })
 
@@ -1229,6 +1263,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     currentChunkContext = { chunkX, chunkZ }
     try {
       const ctx = createChunkContext(chunkX, chunkZ, blockMods)
+      ctx.getFeatureNoise = getFeatureNoise
       runPipeline(ctx, stages)
 
       for (const m of ctx.blockMods) {

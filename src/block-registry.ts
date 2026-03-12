@@ -31,6 +31,8 @@ export interface BlockDefinition {
   id: string
   displayName: string
   textures: BlockTextures
+  /** Optional hint: block is a stairs family item or a placed stairs variant (used for placement/collision/rendering). */
+  stairs?: boolean
   /** Collision and raycast: block occupies space. Default true. */
   solid?: boolean
   /** Rendering: alpha cutout / translucent. Default false. */
@@ -280,6 +282,38 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: true,
+    occludes: false,
+  }),
+  D({
+    id: 'wall_torch_east',
+    displayName: 'Wall Torch (East)',
+    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    solid: false,
+    placeable: false,
+    occludes: false,
+  }),
+  D({
+    id: 'wall_torch_west',
+    displayName: 'Wall Torch (West)',
+    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    solid: false,
+    placeable: false,
+    occludes: false,
+  }),
+  D({
+    id: 'wall_torch_south',
+    displayName: 'Wall Torch (South)',
+    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    solid: false,
+    placeable: false,
+    occludes: false,
+  }),
+  D({
+    id: 'wall_torch_north',
+    displayName: 'Wall Torch (North)',
+    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    solid: false,
+    placeable: false,
     occludes: false,
   }),
   D({
@@ -1009,6 +1043,81 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Crafting Table',
     textures: { type: 'single', texture: 'crafting_table_top' },
   }),
+  // --- Stairs (items + placed variants) ---
+  ...(
+    [
+      { baseId: 'oak_planks', stairsItemId: 'oak_stairs', display: 'Oak Stairs', harvestCategory: 'wood' as const },
+      {
+        baseId: 'spruce_planks',
+        stairsItemId: 'spruce_stairs',
+        display: 'Spruce Stairs',
+        harvestCategory: 'wood' as const,
+      },
+      { baseId: 'birch_planks', stairsItemId: 'birch_stairs', display: 'Birch Stairs', harvestCategory: 'wood' as const },
+      {
+        baseId: 'jungle_planks',
+        stairsItemId: 'jungle_stairs',
+        display: 'Jungle Stairs',
+        harvestCategory: 'wood' as const,
+      },
+      {
+        baseId: 'acacia_planks',
+        stairsItemId: 'acacia_stairs',
+        display: 'Acacia Stairs',
+        harvestCategory: 'wood' as const,
+      },
+      {
+        baseId: 'dark_oak_planks',
+        stairsItemId: 'dark_oak_stairs',
+        display: 'Dark Oak Stairs',
+        harvestCategory: 'wood' as const,
+      },
+      {
+        baseId: 'cobblestone',
+        stairsItemId: 'cobblestone_stairs',
+        display: 'Cobblestone Stairs',
+        harvestCategory: 'stone' as const,
+      },
+      {
+        baseId: 'stone_bricks',
+        stairsItemId: 'stone_bricks_stairs',
+        display: 'Stone Brick Stairs',
+        harvestCategory: 'stone' as const,
+      },
+      { baseId: 'bricks', stairsItemId: 'brick_stairs', display: 'Brick Stairs', harvestCategory: 'stone' as const },
+      {
+        baseId: 'sandstone',
+        stairsItemId: 'sandstone_stairs',
+        display: 'Sandstone Stairs',
+        harvestCategory: 'dirt' as const,
+      },
+    ] as const
+  ).flatMap(({ baseId, stairsItemId, display, harvestCategory }) => {
+    const placed = [
+      `${stairsItemId}_north`,
+      `${stairsItemId}_east`,
+      `${stairsItemId}_south`,
+      `${stairsItemId}_west`,
+    ] as const
+    return [
+      D({
+        id: stairsItemId,
+        displayName: display,
+        textures: { type: 'single', texture: baseId === 'bricks' ? 'brick' : baseId === 'stone_bricks' ? 'stonebrick' : baseId },
+        stairs: true,
+        harvestCategory,
+      }),
+      ...placed.map((id) =>
+        D({
+          id,
+          displayName: display,
+          textures: { type: 'single', texture: baseId === 'bricks' ? 'brick' : baseId === 'stone_bricks' ? 'stonebrick' : baseId },
+          stairs: true,
+          harvestCategory,
+        }),
+      ),
+    ]
+  }),
 ]
 
 /** Non-placeable held items (weapons, tools, materials). Shown in hotbar and first-person hand. */
@@ -1137,6 +1246,40 @@ export function getBlockDefinition(id: string): BlockDefinition | undefined {
   return REGISTRY.get(id)
 }
 
+export type StairFacing = 'north' | 'east' | 'south' | 'west'
+
+/**
+ * Returns true when the id is a stairs family item (e.g. oak_stairs) or a placed stairs variant (e.g. oak_stairs_north).
+ */
+export function isStairsBlock(id: string): boolean {
+  return REGISTRY.get(id)?.stairs === true
+}
+
+/**
+ * Returns true when the id is a placed stairs variant (e.g. oak_stairs_north).
+ */
+export function isPlacedStairsVariant(id: string): boolean {
+  return /_stairs_(north|east|south|west)$/.test(id)
+}
+
+/**
+ * Returns the stairs item id for a stairs id (placed or item). For non-stairs ids, returns the id unchanged.
+ */
+export function getStairsItemId(id: string): string {
+  if (!isStairsBlock(id)) return id
+  return id.replace(/_(north|east|south|west)$/, '')
+}
+
+/**
+ * Builds the placed stairs variant id for the given stairs item id and facing.
+ * If stairItemId is not a stairs id, it returns stairItemId unchanged.
+ */
+export function getPlacedStairsId(stairItemId: string, facing: StairFacing): string {
+  if (!isStairsBlock(stairItemId)) return stairItemId
+  const base = getStairsItemId(stairItemId)
+  return `${base}_${facing}`
+}
+
 /** Returns all registered block type ids (for save validation, hotbar icons, etc.). */
 export function getAllBlockIds(): string[] {
   return Array.from(REGISTRY.keys())
@@ -1225,6 +1368,69 @@ export function getBlockHeight(blockType: string): number {
   const flowM = /^water_flowing_([1-7])$/.exec(blockType)
   if (flowM) return 0.9 - (parseInt(flowM[1], 10) - 1) * 0.05
   return 1
+}
+
+export type CollisionBoxLocal = {
+  minX: number
+  minY: number
+  minZ: number
+  maxX: number
+  maxY: number
+  maxZ: number
+}
+
+const FULL_BLOCK_BOX: CollisionBoxLocal = {
+  minX: 0,
+  minY: 0,
+  minZ: 0,
+  maxX: 1,
+  maxY: 1,
+  maxZ: 1,
+}
+
+/**
+ * Returns collision boxes in local block space \([0..1]\) for a given block type.
+ * Non-solid blocks return an empty array.
+ */
+export function getBlockCollisionBoxesLocal(blockType: string): CollisionBoxLocal[] {
+  const def = REGISTRY.get(blockType)
+  if (!def || def.solid === false) return []
+
+  // Water has custom height/rendering; treat as non-solid for collision.
+  if (def.fluid) return []
+
+  // Snow layers: collide as a shorter full block.
+  const snowM = /^snow_layer_([1-8])$/.exec(blockType)
+  if (snowM) {
+    const h = parseInt(snowM[1], 10) / 8
+    return [{ ...FULL_BLOCK_BOX, maxY: h }]
+  }
+
+  if (isPlacedStairsVariant(blockType)) {
+    const facing: StairFacing = blockType.endsWith('_north')
+      ? 'north'
+      : blockType.endsWith('_east')
+        ? 'east'
+        : blockType.endsWith('_south')
+          ? 'south'
+          : 'west'
+    // Bottom slab + top step (Minecraft-like).
+    const bottom: CollisionBoxLocal = { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 }
+    const top: CollisionBoxLocal =
+      facing === 'north'
+        ? { minX: 0, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 0.5 }
+        : facing === 'south'
+          ? { minX: 0, minY: 0.5, minZ: 0.5, maxX: 1, maxY: 1, maxZ: 1 }
+          : facing === 'east'
+            ? { minX: 0.5, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 }
+            : { minX: 0, minY: 0.5, minZ: 0, maxX: 0.5, maxY: 1, maxZ: 1 }
+    return [bottom, top]
+  }
+
+  // Default: full block, but respect height-based blocks (e.g. flowing water already handled above).
+  const h = getBlockHeight(blockType)
+  if (h !== 1) return [{ ...FULL_BLOCK_BOX, maxY: h }]
+  return [FULL_BLOCK_BOX]
 }
 
 /** True if the block cannot be broken by the player (e.g. bedrock). */

@@ -13,6 +13,8 @@ import { localKey, chunkKeyNumeric } from '../../chunk-runtime'
 import {
   sharedBlockGeometry,
   sharedTallGrassGeometry,
+  getStairsGeometry,
+  type StairFacing,
   FOLIAGE_BLOCK_TYPES,
   getMaterialForBlockType,
   setFoliageInstanceColors,
@@ -22,6 +24,8 @@ import {
 import { isOccludingBlock as isBlockTypeOccluding, getBlockHeight } from '../../block-registry'
 import { filterVisibleBlocks } from './visible-blocks'
 import { sharedWaterPlaneGeometry } from '../../block-materials'
+import { getBlockAt } from '../../chunk-runtime'
+import { placeTorch, removeTorchesInChunk, isWallTorchBlockType } from '../world-interactions/torches'
 
 export type ChunkApplyDeps = {
   chunks: Map<number, ChunkData>
@@ -30,6 +34,8 @@ export type ChunkApplyDeps = {
   foliageColormapData: ImageData | null
   tallGrassMaterial: THREE.MeshStandardMaterial | null
   getResolvedBiome: (x: number, z: number) => Biome
+  torchContainer: THREE.Group | undefined
+  placedTorches: import('../world-interactions/torches').PlacedTorch[]
   onChunkAdded?: (data: ChunkData) => void
   onChunkChanged?: () => void
 }
@@ -69,6 +75,32 @@ function addInstancedLayer(
   const count = positions.length
   if (count === 0) return null
   const mesh = new THREE.InstancedMesh(sharedBlockGeometry, material as THREE.Material, count)
+  mesh.count = count
+  for (let i = 0; i < count; i++) {
+    const p = positions[i]
+    _position.set(p.x, p.y, p.z)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, count)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  if (userData) mesh.userData = userData
+  group.add(mesh)
+  return mesh
+}
+
+function addStairsInstancedLayer(
+  group: THREE.Group,
+  positions: BlockPos[],
+  facing: StairFacing,
+  material: THREE.Material | THREE.Material[],
+  userData?: { chunkKeyNum: number; blockType: BlockType },
+): THREE.InstancedMesh | null {
+  const count = positions.length
+  if (count === 0) return null
+  const mesh = new THREE.InstancedMesh(getStairsGeometry(facing), material as THREE.Material, count)
   mesh.count = count
   for (let i = 0; i < count; i++) {
     const p = positions[i]
@@ -189,6 +221,17 @@ const CROSS_GEOMETRY_BLOCK_TYPES: BlockType[] = [
   'sweet_berry_bush',
   'pink_petals',
 ]
+
+function isPlacedStairsBlockType(blockType: BlockType): boolean {
+  return /_stairs_(north|east|south|west)$/.test(blockType)
+}
+
+function getStairsFacingFromBlockType(blockType: BlockType): StairFacing {
+  if (blockType.endsWith('_north')) return 'north'
+  if (blockType.endsWith('_east')) return 'east'
+  if (blockType.endsWith('_south')) return 'south'
+  return 'west'
+}
 
 function pseudoRandomFromBlockPos(seed: number, x: number, y: number, z: number): number {
   let h = seed >>> 0
@@ -341,6 +384,11 @@ export function applyChunkPayload(
   worldSeed: number,
 ): void {
   const keyNum = chunkKeyNumeric(payload.chunkX, payload.chunkZ)
+  removeTorchesInChunk({
+    chunkKeyNum: keyNum,
+    torchContainer: deps.torchContainer,
+    placedTorches: deps.placedTorches,
+  })
   let wasReplacing = false
   if (deps.chunks.has(keyNum)) {
     wasReplacing = true
@@ -383,6 +431,8 @@ export function applyChunkPayload(
       }
       // Flowers, fern, tall_grass use cross geometry (not full cube); skip so they are rendered below.
       if (CROSS_GEOMETRY_BLOCK_TYPES.includes(blockType) || blockType === 'tall_grass') continue
+      // Stairs are rendered via instancing with custom geometry below.
+      if (isPlacedStairsBlockType(blockType)) continue
       addGeometryLayerMesh(group, layer, getMaterialForBlockType(blockType), {
         chunkKeyNum: keyNum,
         blockType,
@@ -432,6 +482,22 @@ export function applyChunkPayload(
         })
       }
       blockPositionsByType.set(blockType, visible)
+      if (blockType === 'torch' || isWallTorchBlockType(blockType)) {
+        for (const p of visible) {
+          placeTorch({
+            bx: p.x,
+            by: p.y,
+            bz: p.z,
+            blockType: blockType === 'torch' ? 'torch' : (blockType as any),
+            preferredNormal: undefined,
+            chunkKeyNum: keyNum,
+            torchContainer: deps.torchContainer,
+            placedTorches: deps.placedTorches,
+            getBlockAt,
+          })
+        }
+        continue
+      }
       if (payload.geometryLayers && payload.geometryLayers.length > 0) {
         // Only run instancing for tinted blocks and cross-geometry blocks (flowers, fern, tall_grass).
         const isTintedOrCross =
@@ -453,6 +519,16 @@ export function applyChunkPayload(
         if (mesh && deps.grassColormapData) {
           setGrassInstanceColors(mesh, visible, deps.getResolvedBiome, deps.grassColormapData)
         }
+        continue
+      }
+      if (isPlacedStairsBlockType(blockType)) {
+        addStairsInstancedLayer(
+          group,
+          visible,
+          getStairsFacingFromBlockType(blockType),
+          getMaterialForBlockType(blockType),
+          { chunkKeyNum: keyNum, blockType },
+        )
         continue
       }
       const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {

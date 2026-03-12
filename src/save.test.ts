@@ -112,4 +112,82 @@ describe('saveToStorage and loadFromStorage roundtrip', () => {
     saveToStorage(data)
     expect(loadFromStorage()).toEqual(data)
   })
+
+  it('roundtrips SaveData with all critical optional fields (no drops)', () => {
+    const data: SaveData = {
+      saveVersion: SAVE_VERSION,
+      worldSeed: 42,
+      player: {
+        x: 10,
+        y: 70,
+        z: -5,
+        rotationY: 1.5,
+        lookPitch: 0.1,
+        level: 2,
+        experience: 100,
+        gold: 50,
+        health: 18,
+        hunger: 14,
+      },
+      removedBlocks: [{ x: 0, y: 64, z: 0 }],
+      placedBlocks: [
+        { x: 1, y: 65, z: 1, type: 'grass' },
+        { x: 2, y: 65, z: 2, type: 'torch' },
+      ],
+      placedTorches: [{ x: 3, y: 66, z: 3, nx: 0, ny: 1, nz: 0 }],
+      dayTime: 0.75,
+      snowForced: false,
+      inventory: Array.from({ length: 36 }, (_, i) =>
+        i === 0 ? { type: 'dirt', count: 64 } : { type: null, count: 0 },
+      ),
+      activeQuests: [{ questId: 'q1', progress: [1, 0] }],
+      completedQuestIds: ['q0'],
+      discoveredChunkKeys: [0, 1, 2],
+    }
+    saveToStorage(data)
+    const loaded = loadFromStorage()
+    expect(loaded).not.toBe(null)
+    expect(loaded!.saveVersion).toBe(data.saveVersion)
+    expect(loaded!.worldSeed).toBe(data.worldSeed)
+    expect(loaded!.player.x).toBe(data.player.x)
+    expect(loaded!.player.level).toBe(data.player.level)
+    expect(loaded!.removedBlocks).toEqual(data.removedBlocks)
+    expect(loaded!.placedBlocks).toEqual(data.placedBlocks)
+    expect(loaded!.placedTorches).toEqual(data.placedTorches)
+    expect(loaded!.dayTime).toBe(data.dayTime)
+    expect(loaded!.snowForced).toBe(data.snowForced)
+    expect(loaded!.inventory).toHaveLength(data.inventory!.length)
+    expect(loaded!.activeQuests).toEqual(data.activeQuests)
+    expect(loaded!.completedQuestIds).toEqual(data.completedQuestIds)
+    expect(loaded!.discoveredChunkKeys).toEqual(data.discoveredChunkKeys)
+  })
+})
+
+/** Minimal valid save from previous version; used to ensure we can still load older saves. */
+const OLD_SAVE_FIXTURE_V7 = JSON.stringify({
+  saveVersion: 7,
+  worldSeed: 999,
+  player: { x: 0, y: 64, z: 0, rotationY: 0, lookPitch: 0 },
+  removedBlocks: [],
+  placedBlocks: [],
+})
+
+describe('save versioning (load older)', () => {
+  beforeEach(() => {
+    const mock = createStorageMock()
+    vi.stubGlobal('localStorage', mock)
+  })
+
+  it('loads older save fixture (v7) and returns valid shape', () => {
+    const mock = createStorageMock({ [SAVE_KEY]: OLD_SAVE_FIXTURE_V7 })
+    vi.stubGlobal('localStorage', mock)
+    const loaded = loadFromStorage()
+    expect(loaded).not.toBe(null)
+    expect(loaded!.saveVersion).toBe(7)
+    expect(loaded!.worldSeed).toBe(999)
+    expect(loaded!.player).toBeDefined()
+    expect(loaded!.player.x).toBe(0)
+    expect(loaded!.removedBlocks).toEqual([])
+    expect(loaded!.placedBlocks).toEqual([])
+  })
 })
