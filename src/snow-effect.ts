@@ -2,7 +2,7 @@
  * Visual snow effect: falling particles only visible in cold biomes and when above water.
  * Particles are in world space so they stay fixed while the player moves.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { Biome } from './types'
 
 const PARTICLE_COUNT = 3000

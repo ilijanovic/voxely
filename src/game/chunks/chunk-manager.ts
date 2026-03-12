@@ -1,4 +1,4 @@
-import type * as THREE from 'three'
+import type * as THREE from '@/three'
 import { chunks, chunkKey, chunkKeyNumeric, getBlockModsForChunk } from '../../chunk-runtime'
 import { getRenderDistance, getRenderDistanceSq } from '../../graphics-settings'
 import { spawnEntitiesForChunk } from '../../entities/spawn'

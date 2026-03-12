@@ -1,7 +1,7 @@
 /**
  * Quest NPC icon: canvas-drawn symbol above quest giver's head (! or ? in yellow/gray).
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { Entity } from './types'
 import {
   getAvailableQuestIds,

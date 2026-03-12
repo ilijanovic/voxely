@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import {
   getAntialias,
   getFovNormal,
@@ -11,12 +11,15 @@ import {
 export type SceneInitResult = {
   scene: THREE.Scene
   camera: THREE.PerspectiveCamera
-  renderer: THREE.WebGLRenderer
+  renderer: THREE.WebGPURenderer
   torchContainer: THREE.Group
   fpsEl: HTMLElement | null
 }
 
-export function initSceneAndRenderer(container?: HTMLElement): SceneInitResult {
+/**
+ * Creates scene, camera, and WebGPU renderer. Must be awaited; call await renderer.init() before first render if not using setAnimationLoop.
+ */
+export async function initSceneAndRenderer(container?: HTMLElement): Promise<SceneInitResult> {
   const scene = new THREE.Scene()
   const torchContainer = new THREE.Group()
   scene.add(torchContainer)
@@ -30,13 +33,13 @@ export function initSceneAndRenderer(container?: HTMLElement): SceneInitResult {
   )
   scene.add(camera)
 
-  let renderer: THREE.WebGLRenderer
+  let renderer: THREE.WebGPURenderer
   try {
-    renderer = new THREE.WebGLRenderer({ antialias: getAntialias() })
+    renderer = new THREE.WebGPURenderer({ antialias: getAntialias() })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
     throw new Error(
-      `WebGL could not be initialized. The game requires hardware-accelerated graphics. ${msg}`,
+      `WebGPU renderer could not be created. The game requires hardware-accelerated graphics. ${msg}`,
       { cause: err },
     )
   }
@@ -48,6 +51,8 @@ export function initSceneAndRenderer(container?: HTMLElement): SceneInitResult {
   renderer.shadowMap.type =
     getShadowMapType() === 'pcf_soft' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap
   ;(container ?? document.body).appendChild(renderer.domElement)
+
+  await renderer.init()
 
   const fpsEl = document.getElementById('fps')
   return { scene, camera, renderer, torchContainer, fpsEl }

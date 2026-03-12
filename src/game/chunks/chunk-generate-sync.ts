@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { BlockType, ChunkData, BlockPos, TreeNoiseCaches, Biome } from '../../types'
 import {
   CHUNK_SIZE,

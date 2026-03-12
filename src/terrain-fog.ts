@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 
 /** Softer than quadratic (2): same distance gets less fog so terrain and trees fade more evenly. */
 const FOG_CURVE_EXPONENT = 1.4

@@ -1,4 +1,4 @@
-import type * as THREE from 'three'
+import type * as THREE from '@/three'
 
 /** Block type = registry id (string). All placeable/terrain block ids from block-registry. */
 export type BlockType = string

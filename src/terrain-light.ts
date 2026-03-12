@@ -2,7 +2,7 @@
  * Light-based terrain darkening: block/sky light (0–15) is passed per instance and
  * multiplies fragment color so caves are dark and surface is bright (Minecraft-like).
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import { TERRAIN_LIGHT_MIN } from './constants'
 import type { BlockPos } from './types'
 

@@ -796,6 +796,8 @@ onUnmounted(() => {
           :on-craft-one="craftOne3x3"
           @close="closeCraftingTable"
         />
+      </Transition>
+      <Transition name="modal">
         <Furnace v-if="furnaceOpen" @close="closeFurnace" />
       </Transition>
 

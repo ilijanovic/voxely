@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import { PLAYER_HEIGHT, PLAYER_MESH_VISUAL_HEIGHT } from '../../game-collision'
 
 /**

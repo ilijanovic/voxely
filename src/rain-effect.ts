@@ -2,7 +2,7 @@
  * Visual rain effect: falling particles when global weather is rain and not in cold biomes.
  * Snow takes precedence in cold biomes.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { Biome } from './types'
 import { getWeather } from './weather'
 

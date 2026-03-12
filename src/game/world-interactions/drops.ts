@@ -1,7 +1,7 @@
 /**
  * Drop items: spawn after block break, land with a short fall animation, bob and rotate in place, move toward player when in magnet radius, pickup when within pickup radius.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { BlockType } from '../../types'
 import { getMaterialForBlockType } from '../../block-materials'
 import { addBlockToInventory } from '../../game-hotbar'

@@ -2,7 +2,7 @@
  * Hurt flash: when an entity is hit, its mesh briefly tints red (Minecraft-style).
  * Uses per-entity material clones so shared materials are not changed globally.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import { getAllEntities, getEntityMesh } from './registry'
 import {
   HURT_FLASH_DURATION_SECONDS,

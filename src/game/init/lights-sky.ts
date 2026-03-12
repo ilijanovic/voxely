@@ -1,6 +1,67 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
+import {
+  uniform,
+  mix,
+  smoothstep,
+  vec3,
+  vec4,
+  positionLocal,
+  normalize,
+  min,
+  clamp,
+  float,
+} from 'three/tsl'
 import { getShadowMapSize } from '../../graphics-settings'
 import { SUN_DISTANCE } from '../../atmosphere'
+
+/**
+ * Sky uniform nodes; atmosphere updates .value each frame.
+ */
+export interface SkyUniforms {
+  uTopColor: ReturnType<typeof uniform>
+  uHorizonColor: ReturnType<typeof uniform>
+  uBottomColor: ReturnType<typeof uniform>
+  uSunHeight: ReturnType<typeof uniform>
+}
+
+/**
+ * Creates a TSL NodeMaterial for the sky dome with the same gradient/sunset logic as the former ShaderMaterial.
+ */
+function createSkyNodeMaterial(): { material: THREE.NodeMaterial; uniforms: SkyUniforms } {
+  const uTopColor = uniform(new THREE.Color(0x87ceeb))
+  const uHorizonColor = uniform(new THREE.Color(0xb8dce8))
+  const uBottomColor = uniform(new THREE.Color(0xdceef7))
+  const uSunHeight = uniform(1.0)
+
+  const material = new THREE.NodeMaterial()
+  const pl = positionLocal
+  const t = normalize(pl).y.mul(0.5).add(0.5)
+  let color = mix(uBottomColor, uHorizonColor, smoothstep(float(0), float(0.5), t))
+  color = mix(color, uTopColor, smoothstep(float(0.5), float(1), t))
+  const sunset = smoothstep(float(-0.45), float(0.25), uSunHeight).mul(
+    float(1).sub(smoothstep(float(0.25), float(0.65), uSunHeight)),
+  )
+  const sunsetClamped = min(float(1), sunset.mul(1.4))
+  const sunsetColor = vec3(1, 0.35, 0.05)
+  const morning = smoothstep(float(0.08), float(0.35), uSunHeight).mul(
+    float(1).sub(smoothstep(float(0.35), float(0.75), uSunHeight)),
+  )
+  const morningClamped = min(float(1), morning.mul(1.2))
+  const morningColor = vec3(1, 0.75, 0.5)
+  const horizonBand = smoothstep(float(0), float(0.18), min(t, float(1).sub(t)))
+  color = mix(color, sunsetColor, sunsetClamped.mul(horizonBand))
+  color = mix(color, morningColor, morningClamped.mul(horizonBand))
+  const night = clamp(uSunHeight.mul(-2), float(0), float(1))
+  color = mix(color, vec3(0.01, 0.02, 0.05), night)
+  material.fragmentNode = vec4(color, 1)
+  material.depthWrite = false
+  material.side = THREE.BackSide
+  material.fog = false
+  return {
+    material,
+    uniforms: { uTopColor, uHorizonColor, uBottomColor, uSunHeight },
+  }
+}
 
 export interface LightsAndSky {
   sunLight: THREE.DirectionalLight
@@ -62,50 +123,8 @@ export function initLightsAndSky(scene: THREE.Scene, shadowRadius: number): Ligh
 
   const skyGeo = new THREE.SphereGeometry(500, 32, 32)
   skyGeo.scale(-1, 1, 1)
-  const skyMat = new THREE.ShaderMaterial({
-    vertexShader: `
-      varying float vHeight;
-      void main() {
-        vHeight = normalize(position).y * 0.5 + 0.5;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 uTopColor;
-      uniform vec3 uHorizonColor;
-      uniform vec3 uBottomColor;
-      uniform float uSunHeight;
-      varying float vHeight;
-      void main() {
-        float t = vHeight;
-        vec3 color = mix(uBottomColor, uHorizonColor, smoothstep(0.0, 0.5, t));
-        color = mix(color, uTopColor, smoothstep(0.5, 1.0, t));
-        float sunset = smoothstep(-0.45, 0.25, uSunHeight) *
-          (1.0 - smoothstep(0.25, 0.65, uSunHeight));
-        sunset = min(1.0, sunset * 1.4);
-        vec3 sunsetColor = vec3(1.0, 0.35, 0.05);
-        float morning = smoothstep(0.08, 0.35, uSunHeight) *
-          (1.0 - smoothstep(0.35, 0.75, uSunHeight));
-        morning = min(1.0, morning * 1.2);
-        vec3 morningColor = vec3(1.0, 0.75, 0.5);
-        float horizonBand = smoothstep(0.0, 0.18, min(t, 1.0 - t));
-        color = mix(color, sunsetColor, sunset * horizonBand);
-        color = mix(color, morningColor, morning * horizonBand);
-        float night = clamp(-uSunHeight * 2.0, 0.0, 1.0);
-        color = mix(color, vec3(0.01, 0.02, 0.05), night);
-        gl_FragColor = vec4(color, 1.0);
-      }
-    `,
-    uniforms: {
-      uTopColor: { value: new THREE.Color(0x87ceeb) },
-      uHorizonColor: { value: new THREE.Color(0xb8dce8) },
-      uBottomColor: { value: new THREE.Color(0xdceef7) },
-      uSunHeight: { value: 1.0 },
-    },
-    depthWrite: false,
-    side: THREE.BackSide,
-    fog: false,
-  })
+  const { material: skyMat, uniforms: skyUniforms } = createSkyNodeMaterial()
+  ;(skyMat as unknown as { uniforms: SkyUniforms }).uniforms = skyUniforms
   const sky = new THREE.Mesh(skyGeo, skyMat)
   sky.castShadow = false
   sky.receiveShadow = false

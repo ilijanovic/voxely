@@ -1,4 +1,4 @@
-import type * as THREE from 'three'
+import type * as THREE from '@/three'
 import type { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js'
 import type { BlockType } from '../types'
 import type { Drop } from './world-interactions/drops'
@@ -21,7 +21,7 @@ export interface GameContext {
   // Core Three.js objects
   scene: THREE.Scene
   camera: THREE.PerspectiveCamera
-  renderer: THREE.WebGLRenderer
+  renderer: THREE.WebGPURenderer
   controls: PointerLockControls
 
   // Player hierarchy

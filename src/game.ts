@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js'
 import type { BlockType, ChunkData, BlockPos } from './types'
 export type { BlockType }
@@ -92,9 +92,7 @@ import {
   getBloomRadius,
   getBloomThreshold,
 } from './graphics-settings'
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { bloom } from 'three/addons/tsl/display/BloomNode.js'
 import { syncTerrainFogFromSceneFog } from './terrain-fog'
 import { getKeyBinding, type KeyAction } from './key-settings'
 import { initMultiplayer, updateMultiplayer } from './multiplayer'
@@ -1472,9 +1470,11 @@ function createPOVHands(camera: THREE.PerspectiveCamera) {
 
 let scene: THREE.Scene
 let camera: THREE.PerspectiveCamera
-let renderer: THREE.WebGLRenderer
-let effectComposer: EffectComposer | null = null
-let bloomPass: UnrealBloomPass | null = null
+let renderer: THREE.WebGPURenderer
+let renderPipeline: THREE.RenderPipeline | null = null
+let scenePass: THREE.PassNode | null = null
+let scenePassColor: THREE.Node | null = null
+let bloomNode: ReturnType<typeof bloom> | null = null
 /** Container für alle platzierten Fackeln (Mesh + Licht). */
 let torchContainer: THREE.Group
 /** 3D crack overlay on the block face being mined; created in initSceneAndRenderer, shown when breakTarget is set. */
@@ -1494,43 +1494,6 @@ let player: THREE.Group
 
 /** Shadow frustum radius around player (better texel density, less flicker). */
 const SHADOW_RADIUS = 60
-
-/**
- * Smooth Hermite interpolation between 0 and 1. Used for bloom daylight transitions to avoid harsh edges.
- */
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
-  return t * t * (3 - 2 * t)
-}
-
-/**
- * Returns 0–1 factor for how much the sun is above the horizon; used to scale bloom by time of day.
- */
-function getBloomDaylight01(): number {
-  const dayTime = getDayTime()
-  const sunAngle = dayTime * Math.PI * 2
-  const sunHeight = new THREE.Vector3(Math.cos(sunAngle), Math.sin(sunAngle), 0.3).normalize().y
-
-  // Soft transition around the horizon to avoid a bloom spike during sunrise/sunset.
-  return smoothstep(-0.25, 0.25, sunHeight)
-}
-
-/**
- * Scale for bloom strength by time of day (1 at night, ~0.04 at noon) to avoid overpowering bloom in daylight.
- */
-function getBloomDayScale(): number {
-  const daylight01 = getBloomDaylight01()
-  return 1 - 0.96 * daylight01
-}
-
-/**
- * Bloom threshold is raised during day so only the brightest pixels bloom; at night uses settings value.
- */
-function getBloomThresholdForTimeOfDay(): number {
-  const daylight01 = getBloomDaylight01()
-  const base = getBloomThreshold()
-  return Math.max(base, base + (1 - base) * daylight01 * 0.85)
-}
 
 let ambientLight: THREE.AmbientLight
 let hemiLight: THREE.HemisphereLight
@@ -1694,9 +1657,9 @@ export async function initGame(
  */
 async function init(container?: HTMLElement): Promise<void> {
   await initMaterialsAndColormaps()
-  initSceneAndRenderer(container)
+  await initSceneAndRenderer(container)
   initLightsAndSky()
-  initPostProcessing()
+  initWebGPUPostProcessing()
   // Resolve spawn first so the "first spawn village" POI is placed around the actual spawn, not (0,0).
   const resolvedSpawn = resolveInitialSpawnXZ()
   setActivePois(createPoiRegistryForSpawn(resolvedSpawn))
@@ -1767,8 +1730,8 @@ async function initMaterialsAndColormaps(): Promise<void> {
 /**
  * Creates scene, camera, renderer, torch container, FPS overlay; wires terrain debug overlay and block-crack 3D overlay.
  */
-function initSceneAndRenderer(container?: HTMLElement): void {
-  const res = initSceneAndRendererSystem(container)
+async function initSceneAndRenderer(container?: HTMLElement): Promise<void> {
+  const res = await initSceneAndRendererSystem(container)
   scene = res.scene
   torchContainer = res.torchContainer
   camera = res.camera
@@ -1818,23 +1781,47 @@ function initLightsAndSky(): void {
 }
 
 /**
- * Sets up EffectComposer with RenderPass and UnrealBloomPass; bloom params read from graphics settings.
+ * Sets up WebGPU RenderPipeline with optional Bloom node; pipeline output is used in updateShadowAndRender.
  */
-function initPostProcessing(): void {
+function initWebGPUPostProcessing(): void {
   if (!scene || !camera || !renderer) return
-  const w = renderer.domElement.width
-  const h = renderer.domElement.height
-  const composer = new EffectComposer(renderer)
-  composer.addPass(new RenderPass(scene, camera))
-  const bloom = new UnrealBloomPass(
-    new THREE.Vector2(w, h),
-    getBloomStrength(),
-    getBloomRadius(),
-    getBloomThreshold(),
-  )
-  composer.addPass(bloom)
-  effectComposer = composer
-  bloomPass = bloom
+  const pass = (THREE as unknown as { TSL: { pass: (s: THREE.Scene, c: THREE.Camera) => THREE.PassNode } }).TSL
+    .pass
+  renderPipeline = new THREE.RenderPipeline(renderer)
+  scenePass = pass(scene, camera)
+  scenePassColor = scenePass.getTextureNode('output') as THREE.Node
+  if (getBloomEnabled() && scenePassColor) {
+    bloomNode = bloom(scenePassColor as never, getBloomStrength(), getBloomRadius(), getBloomThreshold())
+    renderPipeline.outputNode = (scenePassColor as THREE.Node & { add: (n: THREE.Node) => THREE.Node }).add(
+      bloomNode as never,
+    )
+  } else {
+    bloomNode = null
+    renderPipeline.outputNode = scenePassColor ?? renderPipeline.outputNode
+  }
+  renderPipeline.needsUpdate = true
+}
+
+/**
+ * Updates pipeline output node when bloom is toggled; call from applyGraphicsSettings.
+ */
+function updateWebGPUPostProcessingOutput(): void {
+  if (!renderPipeline || !scenePassColor) return
+  if (getBloomEnabled()) {
+    if (!bloomNode) {
+      bloomNode = bloom(scenePassColor as never, getBloomStrength(), getBloomRadius(), getBloomThreshold())
+    }
+    bloomNode.strength.value = getBloomStrength()
+    bloomNode.radius.value = getBloomRadius()
+    bloomNode.threshold.value = getBloomThreshold()
+    renderPipeline.outputNode = (scenePassColor as THREE.Node & { add: (n: THREE.Node) => THREE.Node }).add(
+      bloomNode as never,
+    )
+  } else {
+    bloomNode = null
+    renderPipeline.outputNode = scenePassColor
+  }
+  renderPipeline.needsUpdate = true
 }
 
 /**
@@ -2104,7 +2091,7 @@ function initControlsAndInput(): void {
   setInterval(saveGame, AUTOSAVE_INTERVAL_MS)
   window.addEventListener('beforeunload', () => saveGame())
 
-  animate()
+  if (renderer) renderer.setAnimationLoop(animate)
 }
 
 // ================= MOVEMENT CONSTANTS =================
@@ -3761,11 +3748,13 @@ function updateShadowAndRender(dt: number): void {
   }
 
   if (multiplayerEnabled) updateMultiplayer(dt)
-  if (getBloomEnabled() && effectComposer && bloomPass) {
-    bloomPass.strength = getBloomStrength() * getBloomDayScale()
-    bloomPass.radius = getBloomRadius()
-    bloomPass.threshold = getBloomThresholdForTimeOfDay()
-    effectComposer.render()
+  if (renderPipeline) {
+    if (bloomNode && getBloomEnabled()) {
+      bloomNode.strength.value = getBloomStrength()
+      bloomNode.radius.value = getBloomRadius()
+      bloomNode.threshold.value = getBloomThreshold()
+    }
+    renderPipeline.render()
   } else {
     renderer.render(scene, camera)
   }
@@ -3790,7 +3779,6 @@ function updateQuestReachAreas(): void {
  * Main game loop: runs per-frame updates (FPS/spawn, day/atmosphere, chunks, movement/collision, camera, drops, block break/place, multiplayer, shadow/render) and schedules next frame.
  */
 function animate(): void {
-  requestAnimationFrame(animate)
   const dt = Math.min(clock.getDelta(), 0.1)
   const time = performance.now() * 0.001
   updateFPSAndSpawn(time)
@@ -3819,8 +3807,6 @@ window.addEventListener('resize', () => {
   camera.aspect = w / h
   camera.updateProjectionMatrix()
   renderer.setSize(w, h)
-  if (effectComposer) effectComposer.setSize(w, h)
-  if (bloomPass) bloomPass.setSize(w, h)
 })
 
 // ================= GRAFIK-OPTIONEN (zur Laufzeit) =================
@@ -3851,9 +3837,5 @@ export function applyGraphicsSettings(): void {
   sunLight.shadow.camera.updateProjectionMatrix()
 
   applyTorchShadowSettingsToPlacedTorches(placedTorches)
-  if (bloomPass) {
-    bloomPass.strength = getBloomStrength() * getBloomDayScale()
-    bloomPass.radius = getBloomRadius()
-    bloomPass.threshold = getBloomThresholdForTimeOfDay()
-  }
+  updateWebGPUPostProcessingOutput()
 }

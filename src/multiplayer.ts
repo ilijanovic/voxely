@@ -2,7 +2,7 @@
  * Multiplayer client facade: networking transport abstraction, local state sync (position/rotation),
  * remote player interpolation, chat and connection status callbacks.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import {
   type ChatMessage,
   type ConnectionStatus,

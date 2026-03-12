@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { Biome, BlockPos, BlockType, ChunkData } from '../../types'
 import type { ChunkDataPayload } from '../../terrain-core'
 import { idToType, CARVED_ID } from '../../terrain-core'

@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { ChunkData } from '../../types'
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
 

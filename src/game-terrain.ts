@@ -2,7 +2,7 @@
  * Terrain sampling, biomes, spawn search, and tree generation for the main thread.
  * Uses chunk-runtime for height cache and block lookup; no THREE scene dependency.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import { createNoise2D, createNoise3D } from 'simplex-noise'
 import type { BlockType, TreeNoiseCaches } from './types'
 import type { Biome } from './types'

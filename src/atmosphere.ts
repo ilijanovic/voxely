@@ -2,7 +2,8 @@
  * Day/night cycle state and sky/fog/lighting updates.
  * Game passes scene, renderer, lights, and meshes; this module updates them each frame.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
+import type { SkyUniforms } from './game/init/lights-sky'
 
 const DAY_DURATION = 900
 const SUN_DISTANCE = 200
@@ -72,7 +73,7 @@ export interface AtmosphereContext {
   waterLevel: number
   waterBlockHeight: number
   scene: THREE.Scene
-  renderer: THREE.WebGLRenderer
+  renderer: THREE.WebGPURenderer
   sunLight: THREE.DirectionalLight
   sunMesh: THREE.Mesh
   moonMesh: THREE.Mesh
@@ -112,10 +113,11 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
         ctx.scene.fog.near = 2
         ctx.scene.fog.far = 35
       }
-      const skyMatUnderwater = ctx.sky.material as THREE.ShaderMaterial
-      skyMatUnderwater.uniforms.uTopColor.value.set(0x02040a)
-      skyMatUnderwater.uniforms.uHorizonColor.value.set(0x05070f)
-      skyMatUnderwater.uniforms.uBottomColor.value.set(0x0d2840)
+      const skyMat = Array.isArray(ctx.sky.material) ? ctx.sky.material[0] : ctx.sky.material
+      const skyUniforms = (skyMat as unknown as { uniforms: SkyUniforms }).uniforms
+      ;(skyUniforms.uTopColor.value as THREE.Color).set(0x02040a)
+      ;(skyUniforms.uHorizonColor.value as THREE.Color).set(0x05070f)
+      ;(skyUniforms.uBottomColor.value as THREE.Color).set(0x0d2840)
     }
   }
   if (!isUnderwater) {
@@ -180,8 +182,9 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     const nightAmount = Math.pow(Math.max(0, -_sunDirection.y), 1.8)
     ;(ctx.stars.material as THREE.PointsMaterial).opacity = nightAmount
 
-    const skyMat = ctx.sky.material as THREE.ShaderMaterial
-    skyMat.uniforms.uSunHeight.value = _sunDirection.y
+    const skyMat = Array.isArray(ctx.sky.material) ? ctx.sky.material[0] : ctx.sky.material
+    const skyUniforms = (skyMat as unknown as { uniforms: SkyUniforms }).uniforms
+    ;(skyUniforms.uSunHeight.value as number) = _sunDirection.y
 
     const precipSkyDarken = ctx.isSnowing ? 0.08 : 0
     _clearColorTemp
@@ -189,7 +192,7 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
       .lerp(_skyTopGolden, sunriseSet * 0.8)
       .lerp(_skyTopNight, Math.pow(night, 1.1))
     if (precipSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x3d4a5c), precipSkyDarken)
-    skyMat.uniforms.uTopColor.value.copy(_clearColorTemp)
+    ;(skyUniforms.uTopColor.value as THREE.Color).copy(_clearColorTemp)
 
     _clearColorTemp
       .copy(_skyHorizonDay)
@@ -197,14 +200,14 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
       .lerp(_skyHorizonDusk, Math.max(0, night - 0.2) * twilight)
       .lerp(_skyHorizonNight, Math.pow(night, 1.3))
     if (precipSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x5a6578), precipSkyDarken)
-    skyMat.uniforms.uHorizonColor.value.copy(_clearColorTemp)
+    ;(skyUniforms.uHorizonColor.value as THREE.Color).copy(_clearColorTemp)
 
     _clearColorTemp
       .copy(_skyBottomDay)
       .lerp(_skyBottomGolden, sunriseSet)
       .lerp(_skyBottomNight, Math.pow(night, 1.1))
     if (precipSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x4a5568), precipSkyDarken)
-    skyMat.uniforms.uBottomColor.value.copy(_clearColorTemp)
+    ;(skyUniforms.uBottomColor.value as THREE.Color).copy(_clearColorTemp)
 
     ctx.cloudMaterial.opacity = isPrecipitating ? 0.92 : 0.6 + daylight * 0.35
     ctx.cloudMaterial.color.set(0xffffff).lerp(_cloudGolden, sunriseSet).lerp(_cloudNight, night)

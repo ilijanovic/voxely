@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { BlockType } from '../../types'
 import type { Biome } from '../../game-terrain'
 import { CHUNK_SIZE, WATER_LEVEL, SPAWN_X, SPAWN_Z } from '../../constants'

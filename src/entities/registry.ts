@@ -1,4 +1,4 @@
-import type * as THREE from 'three'
+import type * as THREE from '@/three'
 import type { Entity } from './types'
 import { CHUNK_SIZE } from '../constants'
 

@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { Entity, AnimalKind, AnimalDef } from './types'
 import { addEntity, removeEntity, getEntitiesInChunk } from './registry'
 import { createAnimalMesh } from './meshes'

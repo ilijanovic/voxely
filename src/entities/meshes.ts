@@ -1,4 +1,4 @@
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import type { AnimalKind } from './types'
 
 const BLOCK = 1

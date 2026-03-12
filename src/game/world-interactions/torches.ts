@@ -1,7 +1,7 @@
 /**
  * Torch placement: mesh + point light, optional shadow; stored in torchContainer and placedTorches for save/load and shadow settings.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import {
   TORCH_LIGHT_DECAY,
   TORCH_LIGHT_DISTANCE,

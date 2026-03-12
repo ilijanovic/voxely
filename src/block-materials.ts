@@ -2,7 +2,7 @@
  * Block textures, materials, colormaps, and shared geometries.
  * Game holds grass/foliage colormap data and passes it into setGrassInstanceColors / setFoliageInstanceColors.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { BlockType, Biome, BlockPos } from './types'
 import {

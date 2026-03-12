@@ -1,4 +1,4 @@
-import type * as THREE from 'three'
+import type * as THREE from '@/three'
 
 /** State of a player used for network replication. */
 export type PlayerState = {

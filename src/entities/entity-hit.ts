@@ -1,7 +1,7 @@
 /**
  * Entity hit detection: ray–AABB test for melee attacks.
  */
-import * as THREE from 'three'
+import * as THREE from '@/three'
 import { getAllEntities } from './registry'
 import type { Entity } from './types'
 
