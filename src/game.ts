@@ -12,6 +12,9 @@ import {
   SPAWN_ABOVE_CAVE_DEBUG,
   WORLD_HEIGHT,
   ENTITY_ATTACK_DISTANCE,
+  HURT_FLASH_DURATION_SECONDS,
+  KNOCKBACK_HORIZONTAL_SPEED,
+  KNOCKBACK_VERTICAL_SPEED,
   DAMAGE_PER_SLASH,
   WEAPON_BASE_DAMAGE,
   MAX_LEVEL,
@@ -80,8 +83,10 @@ import { spawnEntitiesForChunk } from './entities/spawn'
 import { updateMovement } from './entities/movement'
 import { updateAI, FLEE_DURATION_AFTER_HIT } from './entities/ai'
 import { updateAnimation } from './entities/animation'
+import { updateHurtFlash } from './entities/hurt-flash.ts'
 import { removeEntity, getAllEntities } from './entities/registry'
 import { raycastEntities } from './entities/entity-hit'
+import { updateAllQuestNpcIcons } from './entities/quest-npc-icon'
 import {
   isSolidBlock as isBlockTypeSolid,
   isPlaceableBlock,
@@ -129,7 +134,7 @@ export { getEquipped, getEquipmentForSave } from './equipment'
 import { getFirstSkillForClass } from './player/skills'
 import { addExperience as addExperienceFn, getXpDropForArea } from './experience'
 import { getAreaAt } from './world-areas'
-import { getGold, setGold } from './gold'
+import { addGold, getGold, setGold } from './gold'
 import {
   getDefaultCharacterStats,
   getEffectiveStat,
@@ -253,17 +258,18 @@ export function getPlayerExperience(): number {
 
 /**
  * Turns in a completed quest and applies rewards (XP and items to inventory).
- * Call from Quest Log when player clicks "Turn in".
+ * Call from Quest Log when player clicks "Turn in". For quests with rewardChoices, pass the chosen index.
  * @returns true if quest was turned in, false otherwise
  */
-export function claimQuestReward(questId: string): boolean {
-  const result = turnInQuest(questId)
+export function claimQuestReward(questId: string, rewardChoiceIndex?: number): boolean {
+  const result = turnInQuest(questId, getPlayerClass(), rewardChoiceIndex)
   if (!result) return false
   if (result.xp > 0) {
     const next = addExperienceFn(playerLevel, playerExperience, result.xp)
     playerLevel = next.level
     playerExperience = next.experience
   }
+  if (result.gold > 0) addGold(result.gold)
   for (const { type, count } of result.items) {
     addItem(type as BlockType, count)
   }
@@ -275,6 +281,22 @@ export function claimQuestReward(questId: string): boolean {
  */
 export function refreshQuestCollectObjectives(): void {
   refreshCollectObjectives((item) => getTotalCountForBlockType(item))
+}
+
+/** Returns current player position for UI (e.g. location hints). Safe before init (returns 0,0,0). */
+export function getPlayerPosition(): { x: number; y: number; z: number } {
+  if (typeof player === 'undefined') return { x: 0, y: 0, z: 0 }
+  return {
+    x: player.position.x,
+    y: player.position.y,
+    z: player.position.z,
+  }
+}
+
+/** Returns player look yaw in radians (0 = North / -Z, π/2 = East / +X). For compass UI. */
+export function getPlayerYaw(): number {
+  if (typeof lastLookYaw === 'undefined') return 0
+  return lastLookYaw
 }
 
 /** Returns current player health (0..PLAYER_MAX_HEALTH) for UI. */
@@ -1387,6 +1409,12 @@ let multiplayerEnabled = false
 /** Callback when the player uses (right-clicks) a crafting table block; used to open the crafting UI. */
 let onCraftingTableUse: (() => void) | null = null
 
+/** Callback when the player right-clicks or uses (F) a quest NPC; receives the quest giver data (offered ids and optional prerequisites). */
+let onQuestNpcInteract: ((questGiver: {
+  offeredQuestIds: string[]
+  prerequisiteQuestIds?: string[]
+}) => void) | null = null
+
 /**
  * Entry point called by the Vue app with the canvas container (after mount). Initializes materials, scene, chunks, player, controls, then starts animate loop.
  * @param container - Optional DOM element for the WebGL canvas
@@ -1398,11 +1426,16 @@ export async function initGame(
     multiplayer?: boolean
     onHotbarChange?: (blocks: BlockType[], counts: number[]) => void
     onCraftingTableUse?: () => void
+    onQuestNpcInteract?: (questGiver: {
+      offeredQuestIds: string[]
+      prerequisiteQuestIds?: string[]
+    }) => void
   },
 ): Promise<void> {
   multiplayerEnabled = options?.multiplayer === true
   setOnHotbarChange(options?.onHotbarChange ?? null)
   onCraftingTableUse = options?.onCraftingTableUse ?? null
+  onQuestNpcInteract = options?.onQuestNpcInteract ?? null
   await init(container)
 }
 
@@ -2244,6 +2277,8 @@ function updateMovementAndCollision(dt: number, time: number): void {
     resolveVoxelCollisions(pos, v, d, hx, hz, height)
   })
   updateAnimation(time)
+  updateHurtFlash(time)
+  updateAllQuestNpcIcons(getAllEntities)
 }
 
 /**
@@ -2304,7 +2339,7 @@ function updateCameraAndViewMode(time: number, dt: number): void {
         rayOrigin.copy(camera.position)
         camera.getWorldDirection(rayDirection)
         const hit = raycastEntities(rayOrigin, rayDirection, ENTITY_ATTACK_DISTANCE)
-        if (hit && hit.entity.disposition !== 'friendly') {
+        if (hit && !hit.entity.questGiver && hit.entity.disposition !== 'friendly') {
           if (hit.entity.disposition === 'neutral') {
             hit.entity.disposition = 'aggro'
           }
@@ -2316,6 +2351,17 @@ function updateCameraAndViewMode(time: number, dt: number): void {
           }
           hit.entity.health -= damage
           hit.entity.fleeUntilTime = time + FLEE_DURATION_AFTER_HIT
+          if (hit.entity.health > 0) {
+            hit.entity.hurtUntilTime = time + HURT_FLASH_DURATION_SECONDS
+            const dx = hit.entity.position.x - player.position.x
+            const dz = hit.entity.position.z - player.position.z
+            const len = Math.sqrt(dx * dx + dz * dz)
+            if (len > 0) {
+              hit.entity.velocity.x += (dx / len) * KNOCKBACK_HORIZONTAL_SPEED
+              hit.entity.velocity.z += (dz / len) * KNOCKBACK_HORIZONTAL_SPEED
+            }
+            hit.entity.velocity.y += KNOCKBACK_VERTICAL_SPEED
+          }
           if (hit.entity.health <= 0) {
             const deadKind = hit.entity.kind
             const pos = { ...hit.entity.position }
@@ -2730,10 +2776,17 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     (rightMouseJustPressed && document.pointerLockElement === renderer.domElement) ||
     fKeyJustPressed
   if (placeRequested && camera) {
-    rightMouseJustPressed = false
-    fKeyJustPressed = false
     rayOrigin.copy(camera.position)
     camera.getWorldDirection(rayDirection)
+    const entityHit = raycastEntities(rayOrigin, rayDirection, PLACE_DISTANCE)
+    if (entityHit?.entity.questGiver && onQuestNpcInteract) {
+      rightMouseJustPressed = false
+      fKeyJustPressed = false
+      onQuestNpcInteract(entityHit.entity.questGiver)
+      return
+    }
+    rightMouseJustPressed = false
+    fKeyJustPressed = false
     raycaster.set(rayOrigin, rayDirection)
     raycaster.far = PLACE_DISTANCE
     const blockMeshesPlace = getRaycastMeshes()

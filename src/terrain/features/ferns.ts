@@ -1,5 +1,5 @@
 /**
- * Fern feature for Stage 4: places fern on grass/dirt in forest, jungle, meadow, grove, plains.
+ * Fern feature for Stage 4: places fern or large_fern on grass/dirt in forest, jungle, meadow, grove, plains.
  */
 import type { Biome, BlockType } from '../../types'
 import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
@@ -7,17 +7,42 @@ import { localKey, typeToId, idToType } from '../block-ids'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
 const FERN_NOISE_SEED = 819381
-const SURFACE_BLOCKS_FOR_FERN: BlockType[] = ['grass', 'grass_snow', 'grass_savanna', 'dirt']
+/** Seed for choosing large_fern vs fern; must differ from FERN_NOISE_SEED. */
+const LARGE_FERN_NOISE_SEED = 819382
+const SURFACE_BLOCKS_FOR_FERN: BlockType[] = [
+  'grass',
+  'grass_snow',
+  'grass_savanna',
+  'dirt',
+  'podzol',
+  'coarse_dirt',
+]
 
-function fernNoiseKey(wx: number, wz: number): string {
-  return `${wx},${wz}`
+/** Fraction of fern placements that become large_fern (0–1). */
+const LARGE_FERN_CHANCE = 0.12
+
+function fernNoiseKey(seed: number, wx: number, wz: number): string {
+  return `${seed},${wx},${wz}`
 }
 
 function sampleFernNoise(cache: Map<string, number>, wx: number, wz: number): number {
-  const k = fernNoiseKey(wx, wz)
+  const k = fernNoiseKey(FERN_NOISE_SEED, wx, wz)
   let v = cache.get(k)
   if (v === undefined) {
     let h = wx * 374761393 + wz * 668265263 + FERN_NOISE_SEED
+    h = (h ^ (h >> 13)) * 1274126177
+    h ^= h >> 16
+    v = (h >>> 0) / 0xffffffff
+    cache.set(k, v)
+  }
+  return v
+}
+
+function sampleLargeFernNoise(cache: Map<string, number>, wx: number, wz: number): number {
+  const k = fernNoiseKey(LARGE_FERN_NOISE_SEED, wx, wz)
+  let v = cache.get(k)
+  if (v === undefined) {
+    let h = wx * 374761393 + wz * 668265263 + LARGE_FERN_NOISE_SEED
     h = (h ^ (h >> 13)) * 1274126177
     h ^= h >> 16
     v = (h >>> 0) / 0xffffffff
@@ -44,6 +69,7 @@ const BIOME_FERN: Partial<Record<Biome, boolean>> = {
   windswept_hills: true,
   windswept_forest: true,
   cherry_grove: true,
+  old_growth_taiga: true,
 }
 
 export function createFernFeature(): FeatureFn {
@@ -70,12 +96,16 @@ export function createFernFeature(): FeatureFn {
         const threshold =
           biome === 'jungle'
             ? FERN_PLACE_THRESHOLD_JUNGLE
-            : biome === 'forest' || biome === 'windswept_forest'
+            : biome === 'forest' ||
+                biome === 'windswept_forest' ||
+                biome === 'old_growth_taiga'
               ? FERN_PLACE_THRESHOLD_FOREST
               : FERN_PLACE_THRESHOLD
         if (sampleFernNoise(noiseCache, wx, wz) < threshold) continue
 
-        voxelMap[keyAbove] = typeToId('fern')
+        const largeFernRoll = sampleLargeFernNoise(noiseCache, wx, wz)
+        const block: BlockType = largeFernRoll < LARGE_FERN_CHANCE ? 'large_fern' : 'fern'
+        voxelMap[keyAbove] = typeToId(block)
       }
     }
   }

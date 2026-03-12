@@ -163,14 +163,31 @@ const TALL_GRASS_SPAWN_CHANCE = 0.05
 const TALL_GRASS_SPAWN_CHANCE_WOODLAND = 0.12
 const TALL_GRASS_Y_OFFSET = -0.02
 
-/** Block types that use cross geometry (flowers, fern) – rendered with sharedTallGrassGeometry. */
+/** Block types that use cross geometry (flowers, fern, mushrooms) – rendered with sharedTallGrassGeometry. */
 const CROSS_GEOMETRY_BLOCK_TYPES: BlockType[] = [
   'dandelion',
   'poppy',
   'tulip_red',
+  'tulip_orange',
+  'tulip_white',
+  'tulip_pink',
   'oxeye_daisy',
+  'cornflower',
+  'azure_bluet',
+  'allium',
+  'lily_of_the_valley',
   'blue_orchid',
   'fern',
+  'large_fern',
+  'brown_mushroom',
+  'red_mushroom',
+  'lily_pad',
+  'seagrass',
+  'sea_pickle',
+  'vine',
+  'bamboo',
+  'sweet_berry_bush',
+  'pink_petals',
 ]
 
 function pseudoRandomFromBlockPos(seed: number, x: number, y: number, z: number): number {

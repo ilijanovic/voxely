@@ -7,6 +7,7 @@ import {
   idToType,
   localKey,
   getBlockHeightById,
+  isAirOrCarved,
   AIR_ID,
   CARVED_ID,
   ID_TO_TYPE,
@@ -26,6 +27,13 @@ describe('typeToId and idToType', () => {
   it('AIR_ID and CARVED_ID map to air', () => {
     expect(idToType(AIR_ID)).toBe('air')
     expect(idToType(CARVED_ID)).toBe('air')
+  })
+
+  it('isAirOrCarved returns true only for AIR_ID and CARVED_ID', () => {
+    expect(isAirOrCarved(AIR_ID)).toBe(true)
+    expect(isAirOrCarved(CARVED_ID)).toBe(true)
+    expect(isAirOrCarved(typeToId('stone'))).toBe(false)
+    expect(isAirOrCarved(1)).toBe(false)
   })
 
   it('idToType returns air for out-of-range id', () => {

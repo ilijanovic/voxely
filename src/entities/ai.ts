@@ -8,7 +8,7 @@ const WANDER_DURATION_MIN = 1
 const WANDER_DURATION_MAX = 4
 const FLEE_DIST_SQ = 8 * 8
 const CHASE_DIST_SQ = 12 * 12
-/** Seconds the pig flees after being damaged (Minecraft-like). */
+/** Seconds a flee-behaviour animal keeps fleeing after being damaged (Minecraft-like). */
 export const FLEE_DURATION_AFTER_HIT = 4
 
 /** Simple seeded RNG per entity for deterministic wander direction. */
@@ -32,6 +32,13 @@ export function updateAI(
   const entities = getAllEntities()
   for (const e of entities) {
     if (e.state === 'dead') continue
+    if (e.questGiver) {
+      e.state = 'idle'
+      e.stateTime = 0
+      e.velocity.x = 0
+      e.velocity.z = 0
+      continue
+    }
     const def = getDef(e.kind)
     e.stateTime += dt
 
@@ -56,10 +63,10 @@ export function updateAI(
     }
 
     const fleeingFromDamage =
-      e.kind === 'pig' &&
       e.fleeUntilTime != null &&
       time < e.fleeUntilTime &&
-      distSq < FLEE_DIST_SQ
+      distSq < FLEE_DIST_SQ &&
+      (def.behaviour === 'flee' || e.kind === 'pig')
     if (fleeingFromDamage) {
       e.state = 'flee'
       e.stateTime = 0

@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest'
 import {
   getPoiFlattenAt,
   getFixedVillageOriginsInChunk,
+  getFixedSpawnsInChunk,
   getFirstSpawnVillageHousePositions,
   FIRST_SPAWN_VILLAGE_CENTER,
   POI_DEFAULT_FLATTEN_RADIUS,
@@ -179,5 +180,45 @@ describe('getFixedVillageOriginsInChunk', () => {
     for (const pos of housePositions) {
       expect(oxOz).toContainEqual({ x: pos.x, z: pos.z })
     }
+  })
+})
+
+describe('getFixedSpawnsInChunk', () => {
+  const WORLD_SEED_FOR_TEST = 42
+
+  /**
+   * With worldSeed, NPC positions are global: only the single spawn at index 0 for each POI gets questOfferIds.
+   * Collect spawns from all chunks that overlap the first-spawn village NPC POIs and assert exactly one quest giver per POI.
+   */
+  it('with worldSeed yields exactly one quest giver per NPC POI across overlapping chunks', () => {
+    const npcPois = POI_REGISTRY.filter((p): p is WorldPoi & { type: 'npc' } => p.type === 'npc')
+    const questOfferIdsByPoi = npcPois
+      .filter((p) => p.questOfferIds != null && p.questOfferIds.length > 0)
+      .map((p) => p.questOfferIds!.slice(0))
+
+    const questGiverSpawnKeys = new Set<string>()
+    const minChunk = -2
+    const maxChunk = 2
+    for (let cx = minChunk; cx <= maxChunk; cx++) {
+      for (let cz = minChunk; cz <= maxChunk; cz++) {
+        const chunkKey = `${cx},${cz}`
+        const spawns = getFixedSpawnsInChunk(
+          POI_REGISTRY,
+          chunkKey,
+          cx,
+          cz,
+          undefined,
+          undefined,
+          WORLD_SEED_FOR_TEST,
+        )
+        for (const s of spawns) {
+          if (s.questOfferIds != null && s.questOfferIds.length > 0) {
+            questGiverSpawnKeys.add(`${s.x},${s.z}`)
+          }
+        }
+      }
+    }
+
+    expect(questGiverSpawnKeys.size).toBe(questOfferIdsByPoi.length)
   })
 })

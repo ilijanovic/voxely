@@ -1,64 +1,58 @@
 /**
  * Pure terrain sampling for the main thread: biome, height, surface block type.
- * Uses same constants/formulas as terrain/ (worker); duplicated for now (see plan Option A).
+ * Uses same constants and formulas as terrain/ (worker) via shared terrain/constants.
  * No THREE, no DOM. getResolvedBiome(x, z, getHeight) so game can pass its cached getHeight.
  */
 import { createNoise2D } from 'simplex-noise'
 import type { Biome, BlockType } from './types'
 import { WATER_LEVEL } from './constants'
 import {
+  BASE_HEIGHT,
+  CLIMATE_PARAM_SCALE,
+  CLIMATE_WARP_AMP,
+  CLIMATE_WARP_SCALE,
+  COAST_BLEND_BAND,
+  COLD_HIGHLAND_TEMP_MAX,
+  COLD_UPLAND_TEMP_MAX,
+  EROSION_AMPLITUDE,
+  EROSION_DETAIL_BOOST_MAX,
+  EROSION_JAGGEDNESS_START,
+  EROSION_SCALE,
+  FLAT_NOISE_SCALE,
+  HEIGHT_TRANSITION_AMPLITUDE,
+  HEIGHT_TRANSITION_SCALE,
+  HIGHLAND_GROVE_MAX,
+  HIGHLAND_MEADOW_MAX,
+  HIGHLAND_SNOWY_SLOPES_MAX,
+  HIGHLAND_VARIANT_SCALE,
+  MOUNTAIN_AMPLITUDE,
+  MOUNTAIN_BIOME_HEIGHT_BOOST,
+  MOUNTAIN_HEIGHT_SCALE,
+  MOUNTAIN_MASK_SCALE,
+  MOUNTAIN_THRESHOLD,
+  MOUNTAIN_TRANSITION_WIDTH,
+  OCEAN_CONTINENTALNESS_THRESHOLD,
+  PEAK_Y_MIN,
+  PEAK_Y_RANGE,
+  SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
+  SPAWN_ORIGIN_FOREST_HUMIDITY,
+  SPAWN_ORIGIN_FOREST_RADIUS_SQ,
+  SPAWN_ORIGIN_FOREST_TEMP,
+  SNOW_BIOME_HEIGHT_BOOST,
+  WEIRDNESS_RIDGE_AMP,
+  WEIRDNESS_SCALE,
+  WINDSWEPT_FOREST_HUMIDITY_MIN,
+} from './terrain/constants'
+import {
   getBiomeByMultiNoise,
   getLandBiomeBlendByClimate,
-  getLandBiomeByClimate,
 } from './terrain/biomes'
 import { BIOME_LAYERS, BIOME_TERRAIN, BIOME_VALUE } from './terrain/biomes'
 import { getSurfaceBlockFromRules } from './terrain/surface-rules'
 import { makeSeededRandom } from './terrain/utils'
 
-const BASE_HEIGHT = 64
-/**
- * Horizontal sampling scale for climate parameters (temperature/humidity/continentalness/erosion).
- * Vanilla Overworld uses the same xz_scale (0.25) for these dimensions; we use a shared scale to
- * match that relative behaviour. See docs/VANILLA_BIOME_REFERENCE.md §5.
- */
-const CLIMATE_PARAM_SCALE = 0.0012
-const OCEAN_CONTINENTALNESS_THRESHOLD = 0.36
-
-/** Radius (blocks) around world origin (0,0) where climate is biased toward forest so first POI/spawn is in forest. */
-const SPAWN_ORIGIN_FOREST_RADIUS = 64
-const SPAWN_ORIGIN_FOREST_RADIUS_SQ = SPAWN_ORIGIN_FOREST_RADIUS * SPAWN_ORIGIN_FOREST_RADIUS
-/** Continentalness to force land at origin (above ocean threshold). */
-const SPAWN_ORIGIN_FOREST_CONTINENTALNESS = 0.5
-/** Forest climate center (temp, humidity) from terrain/biomes/forest.ts. */
-const SPAWN_ORIGIN_FOREST_TEMP = 0.475
-const SPAWN_ORIGIN_FOREST_HUMIDITY = 0.7
-const EROSION_SCALE = CLIMATE_PARAM_SCALE
-const EROSION_AMPLITUDE = 7
-const EROSION_DETAIL_BOOST_MAX = 1.65
-const EROSION_JAGGEDNESS_START = 0.25 // erosionSigned <= -0.25 starts boosting
-const MOUNTAIN_MASK_SCALE = 0.003
-const MOUNTAIN_HEIGHT_SCALE = 0.008
-const MOUNTAIN_AMPLITUDE = 24
-const MOUNTAIN_THRESHOLD = 0.3
-/** Smooth transition width for mountain contribution (parity with terrain/index). */
-const MOUNTAIN_TRANSITION_WIDTH = 0.12
-const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1
-const SNOW_BIOME_HEIGHT_BOOST = 4.5
 const TEMP_SCALE = CLIMATE_PARAM_SCALE
 const HUMIDITY_SCALE = CLIMATE_PARAM_SCALE
-const WEIRDNESS_SCALE = 0.0016
-const WEIRDNESS_RIDGE_AMP = 6
-const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10
-const HIGHLAND_GROVE_MAX = WATER_LEVEL + 20
-const HIGHLAND_SNOWY_SLOPES_MAX = WATER_LEVEL + 30
-const COLD_HIGHLAND_TEMP_MAX = 0.42
-const COLD_UPLAND_TEMP_MAX = 0.5
-const HIGHLAND_VARIANT_SCALE = 0.004
-const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55
-const PEAK_Y_MIN = WATER_LEVEL + 30
-const PEAK_Y_RANGE = 24
-const HEIGHT_TRANSITION_SCALE = 0.0016
-const HEIGHT_TRANSITION_AMPLITUDE = 4.5
 
 export type GetHeightFn = (x: number, z: number) => number
 
@@ -102,11 +96,6 @@ export function createTerrainSampling(seed: number) {
   const flatNoise2D = createNoise(seed + 303)
   const weirdnessNoise2D = createNoise(seed + 909)
   const heightTransitionNoise2D = createNoise(seed + 4242)
-
-  /** Must match terrain/index.ts for worker/sync height parity. */
-  const COAST_BLEND_BAND = 0.09
-  const CLIMATE_WARP_SCALE = 0.0014
-  const CLIMATE_WARP_AMP = 42
 
   function getClimateWarpedPos(x: number, z: number): { xw: number; zw: number } {
     const wx = climateWarpNoise2D(x * CLIMATE_WARP_SCALE, z * CLIMATE_WARP_SCALE)
@@ -218,15 +207,6 @@ export function createTerrainSampling(seed: number) {
     }
   }
 
-  function getBiome(x: number, z: number): Biome {
-    let c = getContinentalness(x, z)
-    let temp = getTemperature(x, z)
-    let humidity = getHumidity(x, z)
-    const biased = applySpawnOriginForestBias(x, z, c, temp, humidity)
-    if (biased.c < OCEAN_CONTINENTALNESS_THRESHOLD) return 'ocean'
-    return getLandBiomeByClimate(biased.temp, biased.humidity)
-  }
-
   const _blendOut: { primary: Biome; secondary: Biome; t: number } = {
     primary: 'plains',
     secondary: 'plains',
@@ -278,6 +258,18 @@ export function createTerrainSampling(seed: number) {
     return _blendOut
   }
 
+  /**
+   * Base biome at (x,z). Uses smoothed climate and coast-blend logic to match worker getBaseBiomeAt.
+   */
+  function getBiome(x: number, z: number): Biome {
+    const blend = getBiomeBlend(x, z)
+    return blend.primary === 'ocean'
+      ? blend.t < 0.5
+        ? 'ocean'
+        : blend.secondary
+      : blend.primary
+  }
+
   function getMacroTerrain(x: number, z: number): number {
     const c = getContinentalness(x, z)
     const s = (a: number, b: number, v: number) => smoothstep01((v - a) / (b - a))
@@ -292,7 +284,7 @@ export function createTerrainSampling(seed: number) {
   function getLocalTerrain(x: number, z: number, biome: Biome): number {
     const params = BIOME_TERRAIN[biome]
     const n = detailNoise2D(x * params.detailFreq, z * params.detailFreq)
-    const flat = flatNoise2D(x * 0.01, z * 0.01)
+    const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = params.detailAmp * (params.flatness + (1 - params.flatness) * smooth)
     // Low erosion (more negative) => sharper, higher-frequency relief.
@@ -383,7 +375,7 @@ export function createTerrainSampling(seed: number) {
       (pA.mountainAllowed ? 1 : 0) * (1 - t) + (pB.mountainAllowed ? 1 : 0) * t
     const macro = getMacroTerrain(x, z)
     const n = detailNoise2D(x * detailFreq, z * detailFreq)
-    const flat = flatNoise2D(x * 0.01, z * 0.01)
+    const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = detailAmp * (flatness + (1 - flatness) * smooth)
     const erosionSigned = getErosionSigned(x, z)
@@ -444,7 +436,7 @@ export function createTerrainSampling(seed: number) {
     const h = getHeight(x, z)
     const hFuzzy = h + getHeightTransitionOffset(x, z)
     if (base !== 'mountain' && base !== 'snow') {
-      const temp = getTemperature(x, z)
+      const temp = getTemperatureSmoothed(x, z)
       if (temp <= COLD_HIGHLAND_TEMP_MAX) {
         if (hFuzzy >= HIGHLAND_SNOWY_SLOPES_MAX + 6) return 'frozen_peaks'
         if (hFuzzy >= HIGHLAND_SNOWY_SLOPES_MAX) return 'snowy_slopes'

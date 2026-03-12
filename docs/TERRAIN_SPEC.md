@@ -42,17 +42,17 @@ If you change `ChunkDataPayload`, update **all** sides and the contract tests in
 
 ### 2.1 CURRENT stage order (implemented)
 
-Terrain generation is a **multi-stage pipeline** (pure logic) under `src/terrain/`.
+Terrain generation is a **12-stage pipeline** (Minecraft-aligned, pure logic) under `src/terrain/`.
 
-- **Stage 1 — Heightmap + biome map**: `src/terrain/stages/heightmap-biome.ts`
-- **Stage 2 — Carving** (caves):
-  - base carve: `src/terrain/stages/carve-3d.ts`
-  - large caverns (“cheese”): `src/terrain/stages/carve-cheese.ts`
-  - tunnels (“spaghetti”): `src/terrain/stages/carve-spaghetti.ts`
-- **Stage 3 — Stratigraphy / layering**: `src/terrain/stages/stratigraphy.ts`
-- **Stage 4/5 — Features + template structures**:
-  - features: `src/terrain/features/**`
-  - structures: `src/terrain/stages/stage5-structures.ts`, `src/terrain/structures/**`
+- **1 empty** – No-op (`src/terrain/stages/noop.ts`).
+- **2 structures_starts** – Compute structure origins for this chunk; store in `ctx.structureOrigins` (`src/terrain/stages/structures-starts.ts`).
+- **3 structures_references** – No-op, reserved (`src/terrain/stages/noop.ts`).
+- **4 noise** – Heightmap only (`src/terrain/stages/noise.ts`).
+- **5 biomes** – Biome map from heightmap and climate (`src/terrain/stages/biomes.ts`).
+- **6 carvers** – Runs carve-3d, carve-cheese, carve-spaghetti in order (`src/terrain/stages/carvers.ts`; see `carve-3d.ts`, `carve-cheese.ts`, `carve-spaghetti.ts`).
+- **7 surface** – Stratigraphy / layering (`src/terrain/stages/surface.ts` → `stratigraphy.ts`).
+- **8 features** – Feature list (trees, ore, flowers, etc.) then paint template structures from `ctx.structureOrigins` (`src/terrain/stages/features.ts`, `paint-structures.ts`; features in `src/terrain/features/**`, templates in `src/terrain/structures/**`).
+- **9 initialize_light**, **10 light**, **11 spawn**, **12 full** – No-ops (`src/terrain/stages/noop.ts`).
 
 ### 2.2 TARGET: strict responsibilities per stage (design rule)
 

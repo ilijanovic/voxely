@@ -205,7 +205,7 @@ describe('matchRecipe3x3', () => {
     expect(match).not.toBeNull()
     expect(match!.result.type).toBe('oak_planks')
     expect(match!.result.count).toBe(4)
-    expect('indices' in match && match.indices).toEqual([4, 5, 7, 8])
+    expect('indices' in match! && match!.indices).toEqual([4, 5, 7, 8])
 
     const torchBottomRight = [null, null, null, null, null, null, null, 'stick', 'coal']
     expect(matchRecipe3x3(torchBottomRight)!.result.type).toBe('torch')

@@ -206,6 +206,19 @@ describe('updateAI', () => {
     expect(e.state).toBe('flee')
   })
 
+  it('sheep flees when recently damaged and player is close', () => {
+    const e = addEntity(
+      makeEntity({
+        id: 'sheep_hit',
+        kind: 'sheep',
+        position: { x: 10, y: 64, z: 10 },
+        fleeUntilTime: 100,
+      }),
+    )
+    updateAI({ x: 10, y: 64, z: 12 }, 0.1, 50)
+    expect(e.state).toBe('flee')
+  })
+
   it('wolf does not flee (only chases) when aggro', () => {
     const e = addEntity(
       makeEntity({

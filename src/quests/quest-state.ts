@@ -2,8 +2,9 @@
  * Runtime quest state: active quests, progress, accept/turn-in. Persisted in save.
  */
 import type { BlockType } from '../types'
-import type { ActiveQuest, Quest, QuestObjective } from './types'
-import { getQuestById, getAllQuestIds } from './quest-registry'
+import type { PlayerClass } from '../player/faction'
+import type { ActiveQuest, Quest, QuestObjective, QuestReward } from './types'
+import { getQuestById, getAllQuestIds, getQuestRewardForClass } from './quest-registry'
 import type { AnimalKind } from '../entities/types'
 
 let activeQuests: ActiveQuest[] = []
@@ -20,18 +21,36 @@ export function getActiveQuests(): ActiveQuest[] {
 }
 
 /**
- * Returns completed quest ids.
+ * Returns completed quest ids (already turned in).
  */
 export function getCompletedQuestIds(): string[] {
   return Array.from(completedQuestIds)
 }
 
 /**
+ * Returns quest ids that are active and have all objectives complete (ready to turn in).
+ */
+export function getQuestIdsReadyToTurnIn(): string[] {
+  return activeQuests
+    .filter((a) => {
+      const quest = getQuestById(a.questId)
+      return quest && isQuestComplete(quest, a.progress)
+    })
+    .map((a) => a.questId)
+}
+
+/**
  * Returns quest ids that are not active and not completed (available to accept).
+ * A quest is only available if all of its prerequisiteQuestIds are completed.
  */
 export function getAvailableQuestIds(): string[] {
   const active = new Set(activeQuests.map((a) => a.questId))
-  return getAllQuestIds().filter((id) => !active.has(id) && !completedQuestIds.has(id))
+  return getAllQuestIds().filter((id) => {
+    if (active.has(id) || completedQuestIds.has(id)) return false
+    const quest = getQuestById(id)
+    if (!quest?.prerequisiteQuestIds?.length) return true
+    return quest.prerequisiteQuestIds.every((prereq) => completedQuestIds.has(prereq))
+  })
 }
 
 /**
@@ -44,10 +63,26 @@ export function acceptQuest(questId: string): boolean {
   if (completedQuestIds.has(questId)) return false
   const quest = getQuestById(questId)
   if (!quest) return false
+  if (quest.prerequisiteQuestIds?.length) {
+    const prereqsMet = quest.prerequisiteQuestIds.every((prereq) => completedQuestIds.has(prereq))
+    if (!prereqsMet) return false
+  }
   activeQuests.push({
     questId,
     progress: quest.objectives.map(() => 0),
   })
+  return true
+}
+
+/**
+ * Abandons an active quest. Removes it from active quests without granting rewards or marking it completed.
+ * The quest becomes available again at its giver (e.g. exclamation mark).
+ * @returns true if the quest was active and removed, false otherwise.
+ */
+export function abortQuest(questId: string): boolean {
+  const idx = activeQuests.findIndex((a) => a.questId === questId)
+  if (idx < 0) return false
+  activeQuests.splice(idx, 1)
   return true
 }
 
@@ -65,26 +100,46 @@ function getObjectiveCount(obj: QuestObjective): number {
 
 /**
  * Turns in a completed quest: grants rewards and moves to completed.
- * Caller must apply XP (e.g. via experience.addExperience) and items to inventory.
- * @returns Reward (xp, items) if turned in, null if not complete or not found.
+ * Uses class-specific reward when playerClass is given and quest has rewardByClass.
+ * When quest has rewardChoices, pass rewardChoiceIndex to grant that choice; otherwise the default reward is used.
+ * Caller must apply XP (e.g. via experience.addExperience), gold, and items to inventory.
+ * @returns Reward (xp, gold, items) if turned in, null if not complete or not found.
  */
-export function turnInQuest(questId: string): QuestRewardResult | null {
+export function turnInQuest(
+  questId: string,
+  playerClass: PlayerClass | null = null,
+  rewardChoiceIndex?: number,
+): QuestRewardResult | null {
   const idx = activeQuests.findIndex((a) => a.questId === questId)
   if (idx < 0) return null
   const quest = getQuestById(questId)
   if (!quest) return null
   const progress = activeQuests[idx].progress
   if (!isQuestComplete(quest, progress)) return null
+  let reward: QuestReward
+  if (
+    quest.rewardChoices != null &&
+    quest.rewardChoices.length > 0 &&
+    rewardChoiceIndex != null &&
+    rewardChoiceIndex >= 0 &&
+    rewardChoiceIndex < quest.rewardChoices.length
+  ) {
+    reward = quest.rewardChoices[rewardChoiceIndex]
+  } else {
+    reward = getQuestRewardForClass(quest, playerClass)
+  }
   activeQuests.splice(idx, 1)
   completedQuestIds.add(questId)
   return {
-    xp: quest.reward.xp ?? 0,
-    items: quest.reward.items ?? [],
+    xp: reward.xp ?? 0,
+    gold: reward.gold ?? 0,
+    items: reward.items ?? [],
   }
 }
 
 export interface QuestRewardResult {
   xp: number
+  gold: number
   items: Array<{ type: BlockType; count: number }>
 }
 

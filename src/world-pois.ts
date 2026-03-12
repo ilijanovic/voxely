@@ -100,6 +100,10 @@ export interface PlacedNpc {
   count?: number
   /** If set, NPCs are only placed when biome at checkAt is not in avoidBiomes. */
   placementCondition?: PlacementCondition
+  /** When set, the first spawned NPC from this POI offers these quest ids (quest giver). */
+  questOfferIds?: string[]
+  /** When set, this NPC only offers quests when all of these quest ids are completed. */
+  prerequisiteQuestIds?: string[]
 }
 
 /** Mob spawn area: kinds spawn within radius (deterministic per chunk). */
@@ -177,6 +181,16 @@ export const POI_REGISTRY: WorldPoi[] = [
     z: FIRST_SPAWN_VILLAGE_CENTER.z,
     radius: 16,
     count: 7,
+    questOfferIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
+  },
+  {
+    type: 'npc',
+    x: FIRST_SPAWN_VILLAGE_CENTER.x + FIRST_SPAWN_VILLAGE_HOUSE_SPACING_X,
+    z: FIRST_SPAWN_VILLAGE_CENTER.z + FIRST_SPAWN_VILLAGE_HOUSE_SPACING_Z,
+    radius: 8,
+    count: 1,
+    questOfferIds: ['second_npc_planks', 'second_npc_stones', 'second_npc_sticks', 'sheep_slayer', 'wool_gatherer', 'hunt_pigs', 'wolf_pelts'],
+    prerequisiteQuestIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
   },
 ]
 
@@ -307,6 +321,10 @@ export interface FixedSpawn {
   kind: AnimalKind
   x: number
   z: number
+  /** When set, this NPC is a quest giver offering these quest ids (only first spawn per POI gets it). */
+  questOfferIds?: string[]
+  /** When set, this quest giver only offers quests when all of these quest ids are completed. */
+  prerequisiteQuestIds?: string[]
 }
 
 /** Deterministic RNG from string seed. */
@@ -324,6 +342,7 @@ function makeSeededRng(seed: string): () => number {
  * Returns fixed NPC and mob spawns that belong to the given chunk.
  * Caller must resolve Y with getColumnSurfaceY(x, z) and create entities.
  * When placementCondition is set, spawns are skipped if avoidBiomes match or (when getHeight provided) surface at checkAt is below minSurfaceY.
+ * When worldSeed is provided, NPC positions for radius+count POIs are generated with a global seed so that exactly one NPC per POI gets questOfferIds (the globally first, i=0).
  */
 export function getFixedSpawnsInChunk(
   pois: WorldPoi[],
@@ -332,6 +351,7 @@ export function getFixedSpawnsInChunk(
   chunkZ: number,
   getResolvedBiome?: (x: number, z: number) => Biome,
   getHeight?: (x: number, z: number) => number,
+  worldSeed?: number,
 ): FixedSpawn[] {
   const worldX = chunkX * CHUNK_SIZE
   const worldZ = chunkZ * CHUNK_SIZE
@@ -358,21 +378,51 @@ export function getFixedSpawnsInChunk(
           continue
       }
       if (poi.radius != null && poi.count != null && poi.count > 0) {
-        const rng = makeSeededRng(`${chunkKey}-npc-${poi.x}-${poi.z}`)
+        const npcSeed =
+          worldSeed != null
+            ? `npc-${worldSeed}-${poi.x}-${poi.z}`
+            : `${chunkKey}-npc-${poi.x}-${poi.z}`
+        const rng = makeSeededRng(npcSeed)
         for (let i = 0; i < poi.count; i++) {
           const dx = (rng() * 2 - 1) * poi.radius
           const dz = (rng() * 2 - 1) * poi.radius
           const x = Math.floor(poi.x + dx)
           const z = Math.floor(poi.z + dz)
           if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
-            out.push({ kind: 'villager', x, z })
+            const questOfferIds =
+              i === 0 && poi.questOfferIds != null && poi.questOfferIds.length > 0
+                ? poi.questOfferIds
+                : undefined
+            const prerequisiteQuestIds =
+              questOfferIds != null && poi.prerequisiteQuestIds != null && poi.prerequisiteQuestIds.length > 0
+                ? poi.prerequisiteQuestIds
+                : undefined
+            out.push({
+              kind: 'villager',
+              x,
+              z,
+              ...(questOfferIds != null ? { questOfferIds } : {}),
+              ...(prerequisiteQuestIds != null ? { prerequisiteQuestIds } : {}),
+            })
           }
         }
       } else {
         const x = Math.floor(poi.x)
         const z = Math.floor(poi.z)
         if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
-          out.push({ kind: 'villager', x, z })
+          const questOfferIds =
+            poi.questOfferIds != null && poi.questOfferIds.length > 0 ? poi.questOfferIds : undefined
+          const prerequisiteQuestIds =
+            poi.prerequisiteQuestIds != null && poi.prerequisiteQuestIds.length > 0
+              ? poi.prerequisiteQuestIds
+              : undefined
+          out.push({
+            kind: 'villager',
+            x,
+            z,
+            ...(questOfferIds != null ? { questOfferIds } : {}),
+            ...(prerequisiteQuestIds != null ? { prerequisiteQuestIds } : {}),
+          })
         }
       }
       continue

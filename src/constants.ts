@@ -123,6 +123,14 @@ export const SNOW_GROWTH_CANDIDATES_PER_INTERVAL = 24
 
 /** Max distance for melee attack vs entities (same as block break reach). */
 export const ENTITY_ATTACK_DISTANCE = 5
+/** Duration in seconds for the red hurt flash on entities when hit (Minecraft-style). */
+export const HURT_FLASH_DURATION_SECONDS = 0.22
+/** Red color (hex) used to tint entity mesh during hurt flash. */
+export const HURT_FLASH_RED = 0xcc0000
+/** Horizontal knockback speed (blocks/sec) applied to entities when hit (Minecraft-style push-back). */
+export const KNOCKBACK_HORIZONTAL_SPEED = 5
+/** Vertical knockback speed (blocks/sec) applied when hit (short upward pop). */
+export const KNOCKBACK_VERTICAL_SPEED = 2.5
 /** Damage applied per successful weapon slash to an entity (default when weapon type unknown). */
 export const DAMAGE_PER_SLASH = 2
 /** Base damage per weapon type (e.g. sword). Used for melee damage calculation. */
@@ -180,8 +188,17 @@ export const MULTIPLAYER_SERVER_URL = 'http://localhost:3000'
 
 /** Max player level (WoW Classic–style). */
 export const MAX_LEVEL = 60
+/** How long the level-up overlay is shown (ms). Non-blocking; does not interrupt gameplay. */
+export const LEVEL_UP_DISPLAY_MS = 2500
 
 /** Maximum player health (Minecraft-style hearts). */
 export const PLAYER_MAX_HEALTH = 20
 /** Maximum player hunger/food level (Minecraft-style). */
 export const PLAYER_MAX_HUNGER = 20
+
+/** Quest NPC icon: yellow exclamation (quest available). */
+export const QUEST_ICON_COLOR_AVAILABLE = '#ffcc00'
+/** Quest NPC icon: gray exclamation (quest in progress). */
+export const QUEST_ICON_COLOR_IN_PROGRESS = '#888888'
+/** Quest NPC icon: yellow question mark (turn-in ready). */
+export const QUEST_ICON_COLOR_TURN_IN = '#ffcc00'

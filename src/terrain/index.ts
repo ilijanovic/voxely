@@ -1,6 +1,7 @@
 /**
  * Pure terrain/biome/tree logic for Web Worker chunk generation.
- * Pipeline-based: Stage 1 (heightmap + biome), Stage 2 (carve 3D + cheese + spaghetti), Stage 3 (stratigraphy), Stage 4 (features), Stage 5 (template structures).
+ * 12-stage pipeline (Minecraft-aligned): empty, structures_starts, structures_references,
+ * noise, biomes, carvers, surface, features, initialize_light, light, spawn, full.
  */
 import { createNoise2D, createNoise3D } from 'simplex-noise'
 import type { Biome, BlockType } from '../types'
@@ -19,6 +20,43 @@ import {
   getVillageHouseSizeFromSeed,
 } from './structures/templates/village'
 import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from '../constants'
+import {
+  BASE_HEIGHT,
+  CLIMATE_PARAM_SCALE,
+  CLIMATE_WARP_AMP,
+  CLIMATE_WARP_SCALE,
+  COAST_BLEND_BAND,
+  COLD_HIGHLAND_TEMP_MAX,
+  COLD_UPLAND_TEMP_MAX,
+  EROSION_AMPLITUDE,
+  EROSION_DETAIL_BOOST_MAX,
+  EROSION_JAGGEDNESS_START,
+  EROSION_SCALE,
+  FLAT_NOISE_SCALE,
+  HEIGHT_TRANSITION_AMPLITUDE,
+  HEIGHT_TRANSITION_SCALE,
+  HIGHLAND_GROVE_MAX,
+  HIGHLAND_MEADOW_MAX,
+  HIGHLAND_SNOWY_SLOPES_MAX,
+  HIGHLAND_VARIANT_SCALE,
+  MOUNTAIN_AMPLITUDE,
+  MOUNTAIN_BIOME_HEIGHT_BOOST,
+  MOUNTAIN_HEIGHT_SCALE,
+  MOUNTAIN_MASK_SCALE,
+  MOUNTAIN_THRESHOLD,
+  MOUNTAIN_TRANSITION_WIDTH,
+  OCEAN_CONTINENTALNESS_THRESHOLD,
+  PEAK_Y_MIN,
+  PEAK_Y_RANGE,
+  SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
+  SPAWN_ORIGIN_FOREST_HUMIDITY,
+  SPAWN_ORIGIN_FOREST_RADIUS_SQ,
+  SPAWN_ORIGIN_FOREST_TEMP,
+  SNOW_BIOME_HEIGHT_BOOST,
+  WEIRDNESS_RIDGE_AMP,
+  WEIRDNESS_SCALE,
+  WINDSWEPT_FOREST_HUMIDITY_MIN,
+} from './constants'
 import { getSurfaceBlockFromRules } from './surface-rules'
 import {
   SNOW_LAYER_FLAT_SLOPE_MAX,
@@ -34,18 +72,35 @@ import {
 import { makeSeededRandom, clamp } from './utils'
 import { runPipeline, createChunkContext } from './pipeline'
 import type { ChunkContext } from './pipeline-types'
-import { createStage1 } from './stages/heightmap-biome'
-import { createStage2 } from './stages/carve-3d'
-import { createStage2Cheese } from './stages/carve-cheese'
-import { createStage2Spaghetti } from './stages/carve-spaghetti'
-import { createStage3 } from './stages/stratigraphy'
-import { createStage4 } from './stages/structures'
-import { createStage5Structures } from './stages/stage5-structures'
+import { createNoopStage } from './stages/noop'
+import { createStageStructuresStarts } from './stages/structures-starts'
+import { createStageNoise } from './stages/noise'
+import { createStageBiomes } from './stages/biomes'
+import { createStageCarvers } from './stages/carvers'
+import { createStageSurface } from './stages/surface'
+import { createStageFeatures } from './stages/features'
 import { createTreeFeature } from './features/trees'
 import { createFernFeature } from './features/ferns'
 import { createFlowersFeature } from './features/flowers'
 import { createGroundFeature } from './features/ground'
-import { localKey, typeToId, idToType, AIR_ID } from './block-ids'
+import { createDeadBushFeature, createCactusFeature } from './features/desert-decor'
+import {
+  createSugarCaneFeature,
+  createKelpFeature,
+  createLilyPadFeature,
+  createSeagrassFeature,
+  createSeaPickleFeature,
+} from './features/shore-vegetation'
+import { createMushroomFeature } from './features/mushrooms'
+import {
+  createBambooFeature,
+  createVineFeature,
+  createSweetBerryBushFeature,
+  createPumpkinFeature,
+  createMelonFeature,
+  createPinkPetalsFeature,
+} from './features/extra-vegetation'
+import { localKey, typeToId, idToType, AIR_ID, isAirOrCarved } from './block-ids'
 import {
   FOREST_DENSITY_SCALE,
   FOREST_DENSITY_THRESHOLD,
@@ -137,7 +192,7 @@ export interface ChunkGeneratorOptions {
   pois?: WorldPoi[]
 }
 
-/** Temple structure side length in blocks; must match stage5-structures. */
+/** Temple structure side length in blocks; must match paint-structures / stage5-structures. */
 const TEMPLE_SIZE = 6
 
 export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptions) {
@@ -168,55 +223,11 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   const cheeseNoise3D = createNoise3D(makeSeededRandom(seed + 401))
   const heightTransitionNoise2D = createNoise2D(makeSeededRandom(seed + 4242))
 
-  /**
-   * Horizontal sampling scale for climate parameters (temperature/humidity/continentalness/erosion).
-   * Vanilla Minecraft samples these dimensions at the same xz_scale in the Overworld noise router.
-   * Our generator is simplex-noise-on-blocks, so we keep a tuned value but share it across params
-   * to match vanilla's relative behaviour (erosion shouldn't be drastically higher-frequency).
-   */
-  const CLIMATE_PARAM_SCALE = 0.0012
   const TEMP_SCALE = CLIMATE_PARAM_SCALE
   const HUMIDITY_SCALE = CLIMATE_PARAM_SCALE
-  const BASE_HEIGHT = 64
   const CONTINENTAL_SCALE = CLIMATE_PARAM_SCALE
-  const OCEAN_CONTINENTALNESS_THRESHOLD = 0.36
-  /** Width of ocean/land blend in continentalness space; wider band softens coast height edges. */
-  const COAST_BLEND_BAND = 0.09
-  /** Radius (blocks) around world origin (0,0) where climate is biased toward forest; must match terrain-sampling. */
-  const SPAWN_ORIGIN_FOREST_RADIUS = 64
-  const SPAWN_ORIGIN_FOREST_RADIUS_SQ = SPAWN_ORIGIN_FOREST_RADIUS * SPAWN_ORIGIN_FOREST_RADIUS
-  const SPAWN_ORIGIN_FOREST_CONTINENTALNESS = 0.5
-  const SPAWN_ORIGIN_FOREST_TEMP = 0.475
-  const SPAWN_ORIGIN_FOREST_HUMIDITY = 0.7
   /** Base land biome from climate only so worker and main thread agree. Multi-noise still used for peak variants. */
   const USE_MULTI_NOISE_BASE_SELECTION = false
-  const CLIMATE_WARP_SCALE = 0.0014
-  const CLIMATE_WARP_AMP = 42
-  const EROSION_SCALE = CLIMATE_PARAM_SCALE
-  const EROSION_AMPLITUDE = 7
-  const EROSION_DETAIL_BOOST_MAX = 1.65
-  const EROSION_JAGGEDNESS_START = 0.25
-  const MOUNTAIN_MASK_SCALE = 0.003
-  const MOUNTAIN_HEIGHT_SCALE = 0.008
-  const MOUNTAIN_AMPLITUDE = 24
-  const MOUNTAIN_THRESHOLD = 0.3
-  /** Width of smooth transition from no mountain to full mountain contribution (avoids hard cliffs). */
-  const MOUNTAIN_TRANSITION_WIDTH = 0.12
-  const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1
-  const SNOW_BIOME_HEIGHT_BOOST = 4.5
-  const WEIRDNESS_SCALE = 0.0016
-  const WEIRDNESS_RIDGE_AMP = 6
-  const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10
-  const HIGHLAND_GROVE_MAX = WATER_LEVEL + 20
-  const HIGHLAND_SNOWY_SLOPES_MAX = WATER_LEVEL + 30
-  const COLD_HIGHLAND_TEMP_MAX = 0.42
-  const COLD_UPLAND_TEMP_MAX = 0.5
-  const HIGHLAND_VARIANT_SCALE = 0.004
-  const HEIGHT_TRANSITION_SCALE = 0.0016
-  const HEIGHT_TRANSITION_AMPLITUDE = 4.5
-  const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55
-  const PEAK_Y_MIN = WATER_LEVEL + 30
-  const PEAK_Y_RANGE = 24
 
   const SNOW_BIOMES: Biome[] = ['snow', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks', 'grove']
   /** 3D noise caves: higher = less carving. Tuned for our pipeline; vanilla reference: docs/VANILLA_BIOME_REFERENCE.md §6. */
@@ -438,6 +449,11 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     )
   }
 
+  /**
+   * Terrain height at (x,z). Height is computed from the biome blend at (x,z), not from the
+   * base parameter; the signature accepts base for API compatibility with getHeightForBase(base, x, z)
+   * call sites. Blending uses BIOME_TERRAIN[primary/secondary] for smooth transitions.
+   */
   function getHeightForBase(_base: Biome, x: number, z: number): number {
     const blend = getBiomeBlendAt(x, z)
     const pA = BIOME_TERRAIN[blend.primary]
@@ -453,7 +469,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const macro = getMacroTerrain(x, z)
 
     const n = detailNoise2D(x * detailFreq, z * detailFreq)
-    const flat = flatNoise2D(x * 0.01, z * 0.01)
+    const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = detailAmp * (flatness + (1 - flatness) * smooth)
     const erosionSigned = getErosionSigned(x, z)
@@ -776,34 +792,38 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   /**
    * Returns whether (wx, wz) lies inside any village or temple structure footprint
    * that will be placed in this chunk, so we can skip placing trees there.
+   * Uses ctx.structureOrigins when set (by structures_starts stage); otherwise falls back to cache.
    */
   function isInStructureFootprint(
     ctx: import('./pipeline-types').ChunkContext,
     wx: number,
     wz: number,
   ): boolean {
-    const key = `${ctx.chunkX},${ctx.chunkZ}`
-    let origins = structureOriginsCache.get(key)
+    let origins = ctx.structureOrigins
     if (origins === undefined) {
-      const procedural = getStructureOriginsInChunk(
-        seed,
-        ctx.chunkX,
-        ctx.chunkZ,
-        getHeight,
-        getResolvedBiome,
-      )
-      const fixed =
-        pois.length > 0
-          ? getFixedVillageOriginsInChunk(
-              pois,
-              ctx.chunkX,
-              ctx.chunkZ,
-              getHeight,
-              getResolvedBiome,
-            )
-          : []
-      origins = [...procedural, ...fixed]
-      structureOriginsCache.set(key, origins)
+      const key = `${ctx.chunkX},${ctx.chunkZ}`
+      origins = structureOriginsCache.get(key)
+      if (origins === undefined) {
+        const procedural = getStructureOriginsInChunk(
+          seed,
+          ctx.chunkX,
+          ctx.chunkZ,
+          getHeight,
+          getResolvedBiome,
+        )
+        const fixed =
+          pois.length > 0
+            ? getFixedVillageOriginsInChunk(
+                pois,
+                ctx.chunkX,
+                ctx.chunkZ,
+                getHeight,
+                getResolvedBiome,
+              )
+            : []
+        origins = [...procedural, ...fixed]
+        structureOriginsCache.set(key, origins)
+      }
     }
     for (const origin of origins) {
       if (origin.type === 'village') {
@@ -1020,38 +1040,46 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     return { wood, leaves }
   }
 
-  const stage1 = createStage1({
-    getBaseBiomeAt,
-    getHeightForBase,
-    getResolvedBiomeFromHeight,
+  const stageEmpty = createNoopStage('empty')
+  const stageStructuresStarts = createStageStructuresStarts({
+    seed,
     getHeight,
+    getResolvedBiome,
+    pois,
+  })
+  const stageStructuresReferences = createNoopStage('structures_references')
+  const stageNoise = createStageNoise({ getHeight })
+  const stageBiomes = createStageBiomes({
+    getBaseBiomeAt,
+    getResolvedBiomeFromHeight,
     getPoiBiomeOverride: getPoiOverride,
   })
-
-  const stage2 = createStage2({
-    caveNoise3D,
-    carveThreshold: CAVE_THRESHOLD,
-    minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
-    getHeightAt: getHeight,
-  })
-  /** Cheese caves: vanilla cave_cheese uses constant 0.27 and xz_scale 1.0; we use threshold 0.27 (aligned) and scale 0.03 (vanilla 1.0 would be very dense; we keep lower for larger caverns). See docs/VANILLA_BIOME_REFERENCE.md §6. */
+  /** Cheese caves: vanilla cave_cheese uses constant 0.27 and xz_scale 1.0; we use threshold 0.27 (aligned) and scale 0.03. See docs/VANILLA_BIOME_REFERENCE.md §6. */
   const CHEESE_SCALE = 0.03
   const CHEESE_THRESHOLD = 0.27
-  const stage2Cheese = createStage2Cheese({
-    cheeseNoise3D,
-    scale: CHEESE_SCALE,
-    threshold: CHEESE_THRESHOLD,
-    minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
-    getHeightAt: getHeight,
-  })
-  const stage2Spaghetti = createStage2Spaghetti({
-    seed,
-    radius: 1.5,
-    cellSize: 48,
-    steps: 32,
-    maxY: WATER_LEVEL + 48,
-    minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
-    getHeightAt: getHeight,
+  const stageCarvers = createStageCarvers({
+    carve3d: {
+      caveNoise3D,
+      carveThreshold: CAVE_THRESHOLD,
+      minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+      getHeightAt: getHeight,
+    },
+    cheese: {
+      cheeseNoise3D,
+      scale: CHEESE_SCALE,
+      threshold: CHEESE_THRESHOLD,
+      minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+      getHeightAt: getHeight,
+    },
+    spaghetti: {
+      seed,
+      radius: 1.5,
+      cellSize: 48,
+      steps: 32,
+      maxY: WATER_LEVEL + 48,
+      minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+      getHeightAt: getHeight,
+    },
   })
 
   function getSurfaceBlock(ctx: ChunkContext, lx: number, lz: number): BlockType {
@@ -1143,21 +1171,55 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     })
   }
 
-  const stage3 = createStage3({ getSurfaceBlock })
+  const stageSurface = createStageSurface({ getSurfaceBlock })
 
   const treeFeature = createTreeFeature({ shouldPlaceTree, getTreeBlocks })
   const fernFeature = createFernFeature()
   const flowersFeature = createFlowersFeature()
   const groundFeature = createGroundFeature()
-  const stage4 = createStage4([treeFeature, fernFeature, flowersFeature, groundFeature])
-  const stage5 = createStage5Structures({
-    seed,
-    getHeight,
-    getResolvedBiome,
-    pois,
+  const stageFeatures = createStageFeatures({
+    features: [
+      treeFeature,
+      fernFeature,
+      flowersFeature,
+      groundFeature,
+      createDeadBushFeature(),
+      createCactusFeature(),
+      createSugarCaneFeature(),
+      createKelpFeature(),
+      createLilyPadFeature(),
+      createSeagrassFeature(),
+      createSeaPickleFeature(),
+      createMushroomFeature(),
+      createBambooFeature(),
+      createVineFeature(),
+      createSweetBerryBushFeature(),
+      createPumpkinFeature(),
+      createMelonFeature(),
+      createPinkPetalsFeature(),
+    ],
+    paintStructuresDeps: { seed, getHeight, getResolvedBiome, pois },
   })
 
-  const stages = [stage1, stage2, stage2Cheese, stage2Spaghetti, stage3, stage4, stage5]
+  const stageInitializeLight = createNoopStage('initialize_light')
+  const stageLight = createNoopStage('light')
+  const stageSpawn = createNoopStage('spawn')
+  const stageFull = createNoopStage('full')
+
+  const stages = [
+    stageEmpty,
+    stageStructuresStarts,
+    stageStructuresReferences,
+    stageNoise,
+    stageBiomes,
+    stageCarvers,
+    stageSurface,
+    stageFeatures,
+    stageInitializeLight,
+    stageLight,
+    stageSpawn,
+    stageFull,
+  ]
 
   function generateChunkData(
     chunkX: number,
@@ -1194,7 +1256,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
             if (topY + 1 >= WORLD_HEIGHT) continue
             const surfaceLk = localKey(lx, topY, lz)
             const aboveLk = localKey(lx, topY + 1, lz)
-            if (ctx.voxelMap[aboveLk] !== 0) continue
+            if (!isAirOrCarved(ctx.voxelMap[aboveLk])) continue
             const surfaceType = idToType(ctx.voxelMap[surfaceLk])
             if (surfaceType !== 'grass_snow' && surfaceType !== 'snow') continue
             const biome = ctx.biomeMap[lx][lz]

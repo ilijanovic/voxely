@@ -2,6 +2,7 @@
  * Types for the terrain generation pipeline: context and stage signatures.
  */
 import type { Biome, BlockType } from '../types'
+import type { StructureOrigin } from './structures/origins'
 
 export interface ChunkContext {
   chunkX: number
@@ -14,8 +15,10 @@ export interface ChunkContext {
   biomeMap: Biome[][]
   /** Flat voxel buffer: block id per local key. 0 = air. */
   voxelMap: Uint8Array
-  /** User block modifications (place/destroy); applied after Stage 4. */
+  /** User block modifications (place/destroy); applied after features stage. */
   blockMods: Array<{ bx: number; by: number; bz: number; value: BlockType | 'air' }>
+  /** Structure origins for this chunk; set by structures_starts stage, used by features stage. */
+  structureOrigins?: StructureOrigin[]
 }
 
 /** A pipeline stage: reads/writes context. */

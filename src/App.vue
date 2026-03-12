@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import {
   initGame,
   setBlockCrackElement,
@@ -11,6 +11,7 @@ import {
   getPlayerMaxHunger,
   getPlayerFaction,
   getPlayerClass,
+  getPlayerYaw,
   getEquipped,
   getSkillCooldownRemaining,
   claimQuestReward,
@@ -31,10 +32,12 @@ import {
   getAvailableQuestIds,
   getCompletedQuestIds,
   acceptQuest,
+  abortQuest,
 } from './quests/quest-state'
+import { getQuestById } from './quests/quest-registry'
 import { getLevelProgress } from './experience'
 import { getGold, setOnGoldChange } from './gold'
-import { MAX_LEVEL } from './constants'
+import { MAX_LEVEL, LEVEL_UP_DISPLAY_MS } from './constants'
 import { getKeyBinding } from './key-settings'
 import { subscribeConnection } from './multiplayer'
 import type { ConnectionStatus } from './multiplayer/types'
@@ -78,6 +81,12 @@ const craftingTableOpen = ref(false)
 const chatOpen = ref(false)
 const pauseMenuOpen = ref(false)
 const questLogOpen = ref(false)
+/** When opening quest log from a quest NPC, preselect this quest id (first turn-in or first available). */
+const questLogInitialSelectedId = ref<string | null>(null)
+/** True when the log was opened by interacting with a quest giver (player can turn in here). */
+const questLogAtQuestGiver = ref(false)
+/** When set, quest log shows only this NPC's offered quests; when null (e.g. opened with Q), personal list only. */
+const questLogOfferedIds = ref<string[] | null>(null)
 const mapOpen = ref(false)
 const connectionStatus = ref<ConnectionStatus>({ connected: false, playerCount: 0 })
 const hintVisible = ref(true)
@@ -165,6 +174,9 @@ function onKeyDown(e: KeyboardEvent) {
       if (!questLogOpen.value) {
         document.exitPointerLock()
         refreshQuestList()
+        questLogInitialSelectedId.value = null
+        questLogAtQuestGiver.value = false
+        questLogOfferedIds.value = null
         questLogOpen.value = true
       }
     }
@@ -256,7 +268,14 @@ const playerClassRef = ref('')
 /** First skill cooldown for HUD (polled). */
 const skillCooldownRef = ref(0)
 const skillNameRef = ref('')
+/** Player look yaw in radians (0 = North). For compass needle rotation. */
+const playerYawRef = ref(0)
+/** Previous level from last poll; used to detect level-up without interrupting gameplay. */
+const previousLevelRef = ref<number | null>(null)
+/** When set, show a non-blocking "Level X!" overlay; cleared after LEVEL_UP_DISPLAY_MS. */
+const levelUpDisplayRef = ref<number | null>(null)
 let levelXpInterval: ReturnType<typeof setInterval> | null = null
+let levelUpHideTimeout: ReturnType<typeof setTimeout> | null = null
 
 /** Quest log data (updated when opening and after accept/turn-in). */
 const questListRef = ref({
@@ -274,6 +293,29 @@ function refreshQuestList() {
   }
 }
 
+/** Quest log props filtered by context: at NPC (questLogOfferedIds set) vs personal (Q). */
+const questLogActiveQuests = computed(() => {
+  const list = questListRef.value.activeQuests
+  const offered = questLogOfferedIds.value
+  if (offered == null) return list
+  const set = new Set(offered)
+  return list.filter((a) => set.has(a.questId))
+})
+const questLogAvailableQuestIds = computed(() => {
+  const list = questListRef.value.availableQuestIds
+  const offered = questLogOfferedIds.value
+  if (offered == null) return []
+  const set = new Set(offered)
+  return list.filter((id) => set.has(id))
+})
+const questLogCompletedQuestIds = computed(() => {
+  const list = questListRef.value.completedQuestIds
+  const offered = questLogOfferedIds.value
+  if (offered == null) return list
+  const set = new Set(offered)
+  return list.filter((id) => set.has(id))
+})
+
 /** Called by game when hotbar selection or slot counts change; keeps hotbarState in sync for HUD. */
 function onHotbarChange(blocks: BlockType[], counts: number[]) {
   hotbarState.value = { blocks: [...blocks], counts: [...counts] }
@@ -286,10 +328,44 @@ watch(gameMode, async (mode) => {
   await nextTick()
   const crackEl = document.getElementById('block-crack')
   setBlockCrackElement(crackEl)
+  function openQuestLogFromNpc(questGiver: {
+    offeredQuestIds: string[]
+    prerequisiteQuestIds?: string[]
+  }) {
+    refreshQuestList()
+    questLogOfferedIds.value = [...questGiver.offeredQuestIds]
+    const active = getActiveQuests()
+    const available = getAvailableQuestIds()
+    const offeredQuestIds = questGiver.offeredQuestIds
+    const prereqsMet =
+      questGiver.prerequisiteQuestIds == null ||
+      questGiver.prerequisiteQuestIds.length === 0 ||
+      questGiver.prerequisiteQuestIds.every((id) =>
+        getCompletedQuestIds().includes(id),
+      )
+    const readyToTurnInId = offeredQuestIds.find((id) => {
+      const a = active.find((q) => q.questId === id)
+      if (!a) return false
+      const quest = getQuestById(id)
+      if (!quest) return false
+      return quest.objectives.every((obj, i) => {
+        const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
+        return a.progress[i] >= need
+      })
+    })
+    const availableId =
+      prereqsMet ? offeredQuestIds.find((id) => available.includes(id)) : undefined
+    questLogInitialSelectedId.value = readyToTurnInId ?? availableId ?? null
+    questLogAtQuestGiver.value = true
+    document.exitPointerLock()
+    questLogOpen.value = true
+  }
+
   const opts = {
     multiplayer: mode === 'multiplayer',
     onHotbarChange,
     onCraftingTableUse: openCraftingTableMenu,
+    onQuestNpcInteract: openQuestLogFromNpc,
   }
   if (canvasContainer.value) {
     initGame(canvasContainer.value, opts)
@@ -322,10 +398,20 @@ watch(gameMode, async (mode) => {
     playerGoldRef.value = getGold()
   })
   playerGoldRef.value = getGold()
+  previousLevelRef.value = null
   if (levelXpInterval) clearInterval(levelXpInterval)
   levelXpInterval = setInterval(() => {
     const lvl = getPlayerLevel()
     const xp = getPlayerExperience()
+    if (previousLevelRef.value !== null && lvl > previousLevelRef.value) {
+      levelUpDisplayRef.value = lvl
+      if (levelUpHideTimeout) clearTimeout(levelUpHideTimeout)
+      levelUpHideTimeout = setTimeout(() => {
+        levelUpDisplayRef.value = null
+        levelUpHideTimeout = null
+      }, LEVEL_UP_DISPLAY_MS)
+    }
+    previousLevelRef.value = lvl
     playerLevelRef.value = lvl
     xpProgressRef.value = getLevelProgress(lvl, xp)
     playerHealthRef.value = getPlayerHealth()
@@ -338,6 +424,7 @@ watch(gameMode, async (mode) => {
     const firstSkill = getFirstSkillForClass(getPlayerClass())
     skillNameRef.value = firstSkill?.name ?? ''
     skillCooldownRef.value = firstSkill ? getSkillCooldownRemaining(firstSkill.id) : 0
+    playerYawRef.value = getPlayerYaw()
   }, 400)
   unsubscribeConnection = subscribeConnection((status) => {
     connectionStatus.value = status
@@ -353,6 +440,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   if (hintTimeout) clearTimeout(hintTimeout)
+  if (levelUpHideTimeout) clearTimeout(levelUpHideTimeout)
   if (levelXpInterval) clearInterval(levelXpInterval)
   setOnGoldChange(null)
   unsubscribeConnection?.()
@@ -408,6 +496,22 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Compass (top centre): N, E, S, W with needle showing current heading (0 = North). -->
+      <div
+        aria-label="Compass: North, East, South, West"
+        class="hud-panel fixed left-1/2 top-3 z-10 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border-2 border-amber-800/60 bg-stone-900/90 text-[var(--ui-text)] pointer-events-none"
+      >
+        <span class="compass-label compass-n">N</span>
+        <span class="compass-label compass-e">E</span>
+        <span class="compass-label compass-s">S</span>
+        <span class="compass-label compass-w">W</span>
+        <span
+          class="compass-needle"
+          :style="{ transform: `rotate(${(playerYawRef * 180) / Math.PI}deg)` }"
+          aria-hidden="true"
+        />
+      </div>
+
       <!-- FPS (top right, left of inventory button) -->
       <div
         id="fps"
@@ -445,6 +549,18 @@ onUnmounted(() => {
         >
           Click to start · WASD = Move · Space = Jump · Mouse = Look · V = Third-person · T = Chat ·
           1–9 / Scroll = Block · ESC / O = Pause / Options
+        </div>
+      </Transition>
+
+      <!-- Level-up overlay: non-blocking, no pointer capture, auto-hides so gameplay (e.g. combat) is uninterrupted -->
+      <Transition name="level-up">
+        <div
+          v-if="levelUpDisplayRef !== null"
+          aria-live="polite"
+          aria-atomic="true"
+          class="level-up-banner fixed left-1/2 top-1/3 z-20 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+        >
+          <span class="level-up-text">Level {{ levelUpDisplayRef }}!</span>
         </div>
       </Transition>
 
@@ -613,11 +729,15 @@ onUnmounted(() => {
       <Transition name="modal">
         <QuestLog
           v-if="questLogOpen"
-          :active-quests="questListRef.activeQuests"
-          :available-quest-ids="questListRef.availableQuestIds"
-          :completed-quest-ids="questListRef.completedQuestIds"
+          :active-quests="questLogActiveQuests"
+          :available-quest-ids="questLogAvailableQuestIds"
+          :completed-quest-ids="questLogCompletedQuestIds"
+          :initial-selected-quest-id="questLogInitialSelectedId"
+          :at-quest-giver="questLogAtQuestGiver"
+          :player-class="getPlayerClass()"
           :on-accept="(id) => { const ok = acceptQuest(id); if (ok) refreshQuestList(); return ok }"
-          :on-turn-in="(id) => { const ok = claimQuestReward(id); if (ok) refreshQuestList(); return ok }"
+          :on-turn-in="(id, rewardChoiceIndex) => { const ok = claimQuestReward(id, rewardChoiceIndex); if (ok) refreshQuestList(); return ok }"
+          :on-abort="(id) => { const ok = abortQuest(id); if (ok) refreshQuestList(); return ok }"
           @close="questLogOpen = false"
         />
       </Transition>
@@ -631,6 +751,50 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Compass: N/E/S/W at cardinal positions, needle rotates with player yaw (0 = North). */
+.compass-label {
+  position: absolute;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ui-text);
+  opacity: 0.95;
+}
+.compass-n {
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.compass-e {
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.compass-s {
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.compass-w {
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.compass-needle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin-left: -4px;
+  margin-top: -10px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 10px solid rgba(255, 200, 100, 0.9);
+  transform-origin: 4px 10px;
+  pointer-events: none;
+}
+
 .crosshair {
   width: 20px;
   height: 20px;
@@ -663,6 +827,51 @@ onUnmounted(() => {
 .hint-fade-enter-from,
 .hint-fade-leave-to {
   opacity: 0;
+}
+
+/* Level-up: pop in, hold, then fade out; does not block input */
+.level-up-banner {
+  font-family: var(--ui-font);
+  text-align: center;
+}
+.level-up-text {
+  display: inline-block;
+  padding: 0.5rem 1.25rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fef3c7;
+  text-shadow:
+    0 0 12px rgba(251, 191, 36, 0.9),
+    0 0 24px rgba(245, 158, 11, 0.5),
+    0 2px 4px rgba(0, 0, 0, 0.8);
+  background: linear-gradient(180deg, rgba(120, 53, 15, 0.85) 0%, rgba(69, 26, 3, 0.9) 100%);
+  border: 2px solid rgba(251, 191, 36, 0.6);
+  border-radius: var(--ui-radius-lg);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+.level-up-enter-active {
+  animation: level-up-pop 0.45s ease-out;
+}
+.level-up-leave-active {
+  transition: opacity 0.5s ease-out;
+}
+.level-up-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1.05);
+}
+@keyframes level-up-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 .modal-enter-active,

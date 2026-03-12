@@ -4,7 +4,14 @@ import { localKey, typeToId, idToType } from '../block-ids'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
 /** Ground features (tall_grass, grass_path, hay_block) only on these surface blocks. */
-const SURFACE_BLOCKS_FOR_GROUND: BlockType[] = ['grass', 'grass_snow', 'grass_savanna', 'dirt']
+const SURFACE_BLOCKS_FOR_GROUND: BlockType[] = [
+  'grass',
+  'grass_snow',
+  'grass_savanna',
+  'dirt',
+  'podzol',
+  'coarse_dirt',
+]
 
 function groundNoiseKey(wx: number, wz: number): string {
   return `${wx},${wz}`
@@ -50,6 +57,8 @@ const BIOME_GROUND_FEATURES: Partial<Record<Biome, GroundFeatureConfig[]>> = {
   windswept_forest: [{ block: 'tall_grass', minThreshold: 0.3, maxThreshold: 0.8 }],
   cherry_grove: [{ block: 'tall_grass', minThreshold: 0.35, maxThreshold: 0.9 }],
   grove: [{ block: 'tall_grass', minThreshold: 0.35, maxThreshold: 0.8 }],
+  /** Vanilla Old Growth Spruce Taiga: short grass on podzol. */
+  old_growth_taiga: [{ block: 'tall_grass', minThreshold: 0.3, maxThreshold: 0.8 }],
   snow: [],
   snowy_slopes: [],
   frozen_peaks: [],

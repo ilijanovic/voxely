@@ -62,12 +62,20 @@ flowchart TB
 
 ## World generation flow
 
-World generation is a **multi-stage pipeline** (pure logic in `src/terrain/`, no THREE/DOM):
+World generation is a **12-stage pipeline** (Minecraft-aligned, pure logic in `src/terrain/`, no THREE/DOM):
 
-1. **Stage 1 – Heightmap + biome map**: Climate noise and height determine which biome each column belongs to; height can override to variants (e.g. snowy_slopes, frozen_peaks).
-2. **Stage 2 – Carving**: 3D noise carves caves (base, cheese, spaghetti).
-3. **Stage 3 – Stratigraphy**: Layers (stone, dirt, etc.) and surface material; water fill below water level.
-4. **Stage 4/5 – Features and structures**: Trees, flowers, ore, ground cover, desert decor, shore vegetation; template structures (villages, temples).
+1. **empty** – Initial chunk state (no-op).
+2. **structures_starts** – Compute structure origins for this chunk; store in context.
+3. **structures_references** – Refs to neighboring structure chunks (no-op, reserved).
+4. **noise** – Terrain shape: fill heightmap from height sampling.
+5. **biomes** – Biome per column from heightmap and climate (and POI overrides).
+6. **carvers** – Caves: 3D noise, cheese, spaghetti carving.
+7. **surface** – Stratigraphy: layers (stone, dirt, etc.) and surface material; water below water level.
+8. **features** – Trees, flowers, ore, ground cover, desert decor, shore vegetation; then paint template structures (villages, temples) from context.
+9. **initialize_light** – Prepare lighting (no-op).
+10. **light** – Compute light (no-op).
+11. **spawn** – Spawn mobs (no-op; spawn stays on main thread).
+12. **full** – Generation complete (no-op).
 
 The pipeline produces a **ChunkDataPayload** (voxel buffer, heightmap, optional geometry). The main thread applies payloads into meshes and stores chunk data for block lookups. Player block changes are **overrides** on top of generated terrain.
 
@@ -95,9 +103,9 @@ For a breakdown of block type categories—solid, plant, crop, fluid—see [BLOC
 
 ## Entities (mobs)
 
-Entities spawn when a **chunk is loaded**. For each animal kind (e.g. sheep, pig, wolf), the spawn logic uses a **seeded RNG** per chunk and kind, then for each candidate position calls the world API’s **`getBiome(x,z)`**. Only positions whose biome is in that kind’s **`spawnBiomes`** get an entity (e.g. sheep: plains, forest, jungle, meadow; wolf: forest, jungle, mountain, snow, grove). Spawn height is taken from the world API’s **`getColumnSurfaceY(x,z)`** (or `getSurfaceY`; both denote the same surface height). So biomes directly control where mobs appear. Despawn happens when the chunk is unloaded.
+Entities spawn when a **chunk is loaded**. Natural (non-zone, non-village) animal spawn uses **Minecraft-style** rules: one **representative biome per chunk** (chunk center), a **per-biome creature spawn probability** (e.g. 0.1 for most land, 0 for ocean, 0.07 for snowy biomes), and a **weighted creature pick** so each iteration chooses which animal and group size to spawn. Only positions whose biome is in that kind’s **`spawnBiomes`** and whose surface block is valid (grass, grass_snow, grass_savanna, sand) get an entity. Spawn height is **`getColumnSurfaceY(x,z)`**. Zone spawns (e.g. sheep ring) and village/fixed POI spawns are unchanged and take precedence per (chunk, kind). Despawn happens when the chunk is unloaded.
 
-Hostile mobs and spawn rules (e.g. light level) are not implemented yet; they are design targets in [GAMEPLAY_LLM.md](./GAMEPLAY_LLM.md). Code: [src/entities/spawn.ts](../src/entities/spawn.ts) (`ANIMAL_DEFS`, `spawnEntitiesForChunk`).
+Hostile mobs and spawn rules (e.g. light level) are not implemented yet; they are design targets in [GAMEPLAY_LLM.md](./GAMEPLAY_LLM.md). Code: [src/entities/spawn.ts](../src/entities/spawn.ts) (`ANIMAL_DEFS`, `spawnEntitiesForChunk`), [src/entities/spawn-constants.ts](../src/entities/spawn-constants.ts) (per-biome probability, surface blocks).
 
 ---
 

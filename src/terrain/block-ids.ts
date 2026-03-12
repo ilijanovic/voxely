@@ -44,15 +44,37 @@ const TERRAIN_BLOCK_TYPES: (BlockType | 'air')[] = [
   'sandstone',
   'dead_bush',
   'cactus',
+  'cactus_flower',
   // Feature blocks (flowers, ground cover) – order fixed for deterministic ids
   'dandelion',
   'poppy',
   'tulip_red',
+  'tulip_orange',
+  'tulip_white',
+  'tulip_pink',
   'oxeye_daisy',
+  'cornflower',
+  'azure_bluet',
+  'allium',
+  'lily_of_the_valley',
   'blue_orchid',
   'tall_grass',
   'grass_path',
   'fern',
+  'large_fern',
+  'brown_mushroom',
+  'red_mushroom',
+  'lily_pad',
+  'sugar_cane',
+  'kelp',
+  'seagrass',
+  'sea_pickle',
+  'vine',
+  'bamboo',
+  'sweet_berry_bush',
+  'pumpkin',
+  'melon',
+  'pink_petals',
   'hay_block',
   'ice',
   'packed_ice',
@@ -106,6 +128,11 @@ export function idToType(id: number): BlockType | 'air' {
   if (id === 0 || id === CARVED_ID) return 'air'
   const t = TERRAIN_BLOCK_TYPES[id]
   return t ?? 'air'
+}
+
+/** Returns true if the voxel id represents air (AIR_ID or CARVED_ID). Use for placement checks. */
+export function isAirOrCarved(id: number): boolean {
+  return id === AIR_ID || id === CARVED_ID
 }
 
 /** First terrain block id for water (water_source). Used for height and fluid logic. */

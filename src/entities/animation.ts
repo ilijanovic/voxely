@@ -8,9 +8,10 @@ const WALK_LEG_FREQ = 12
 const LEG_SWING_ANGLE = 0.35
 
 /**
- * Applies a simple walk cycle to pig legs (alternating front-left/back-right with front-right/back-left).
+ * Applies a simple walk cycle to quadruped legs (alternating front-left/back-right with front-right/back-left).
+ * Used for pig and sheep (meshes with userData.legIndex on legs).
  */
-function updatePigLegs(mesh: THREE.Group, moving: boolean, time: number): void {
+function updateQuadrupedLegs(mesh: THREE.Group, moving: boolean, time: number): void {
   const angle = moving ? Math.sin(time * WALK_LEG_FREQ) * LEG_SWING_ANGLE : 0
   mesh.traverse((obj) => {
     if (obj instanceof THREE.Mesh && (obj as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex !== undefined) {
@@ -36,6 +37,6 @@ export function updateAnimation(time: number): void {
       e.state === 'wander' || e.state === 'walk' || e.state === 'flee' || e.state === 'chase'
     const amp = moving ? BOB_AMPLITUDE_WALK : BOB_AMPLITUDE
     mesh.position.y += Math.sin(time * BOB_FREQ) * amp
-    if (e.kind === 'pig') updatePigLegs(mesh, moving, time)
+    if (e.kind === 'pig' || e.kind === 'sheep') updateQuadrupedLegs(mesh, moving, time)
   }
 }

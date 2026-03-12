@@ -10,6 +10,15 @@ const PIG_SNOUT = 0xe8a090
 /** Pig eyes (dark). */
 const PIG_EYE = 0x1a1a1a
 
+/** Sheep wool (off-white). */
+const SHEEP_WOOL = 0xf5f5f5
+/** Sheep face (pale cream). */
+const SHEEP_HEAD = 0xf5e6d3
+/** Sheep legs/hooves (light brown). */
+const SHEEP_LEG = 0x8b7355
+/** Sheep eyes (dark). */
+const SHEEP_EYE = 0x1a1a1a
+
 /** Shared geometries per part (reused across all animals). */
 const boxBody = new THREE.BoxGeometry(0.6 * BLOCK, 0.5 * BLOCK, 0.4 * BLOCK)
 const boxHead = new THREE.BoxGeometry(0.35 * BLOCK, 0.35 * BLOCK, 0.35 * BLOCK)
@@ -19,11 +28,14 @@ const boxEar = new THREE.BoxGeometry(0.12 * BLOCK, 0.08 * BLOCK, 0.06 * BLOCK)
 const boxPigSnout = new THREE.BoxGeometry(0.22 * BLOCK, 0.18 * BLOCK, 0.4 * BLOCK)
 /** Pig eyes: small dark patches on the front of the head. */
 const boxPigEye = new THREE.BoxGeometry(0.06 * BLOCK, 0.05 * BLOCK, 0.02 * BLOCK)
+/** Wolf snout: slimmer and shorter than pig snout for a canine muzzle. */
+const boxWolfSnout = new THREE.BoxGeometry(0.14 * BLOCK, 0.12 * BLOCK, 0.28 * BLOCK)
 
 // ─── Shared materials (lazy-init, reused across all instances) ───────────────
 const _refSheepBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refSheepHead = { current: null as THREE.MeshStandardMaterial | null }
 const _refSheepLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refSheepEye = { current: null as THREE.MeshStandardMaterial | null }
 const _refPigBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refPigHead = { current: null as THREE.MeshStandardMaterial | null }
 const _refPigSnout = { current: null as THREE.MeshStandardMaterial | null }
@@ -33,6 +45,9 @@ const _refPigEye = { current: null as THREE.MeshStandardMaterial | null }
 const _refWolfBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refWolfHead = { current: null as THREE.MeshStandardMaterial | null }
 const _refWolfLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refWolfSnout = { current: null as THREE.MeshStandardMaterial | null }
+const _refWolfEar = { current: null as THREE.MeshStandardMaterial | null }
+const _refWolfEye = { current: null as THREE.MeshStandardMaterial | null }
 const _refVillagerHead = { current: null as THREE.MeshStandardMaterial | null }
 const _refVillagerBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refVillagerLeg = { current: null as THREE.MeshStandardMaterial | null }
@@ -61,42 +76,75 @@ function getMat(
   return ref.current
 }
 
-/** Sheep: white body, pink head, short legs. */
+/** Sheep: woolly body, cream face, eyes, droopy ears, light leg color. Legs use legIndex for walk cycle. */
 function createSheepMesh(): THREE.Group {
   const group = new THREE.Group()
-  const matBody = getMat(_refSheepBody, 0xf5f5f5)
-  const matHead = getMat(_refSheepHead, 0xffccbb)
-  const matLeg = getMat(_refSheepLeg, 0x2a2a2a)
+  const matBody = getMat(_refSheepBody, SHEEP_WOOL)
+  const matHead = getMat(_refSheepHead, SHEEP_HEAD)
+  const matLeg = getMat(_refSheepLeg, SHEEP_LEG)
+  const matEar = getMat(_refSheepHead, SHEEP_HEAD)
+  const matEye = getMat(_refSheepEye, SHEEP_EYE)
 
   const body = new THREE.Mesh(boxBody, matBody)
-  body.position.y = 0.25
+  body.position.y = 0.26
+  body.scale.set(1.08, 0.95, 1.05)
   body.castShadow = true
   body.receiveShadow = true
 
   const head = new THREE.Mesh(boxHead, matHead)
-  head.position.set(0, 0.45, 0.28)
+  head.position.set(0, 0.46, 0.3)
   head.castShadow = true
   head.receiveShadow = true
 
+  const eyeL = new THREE.Mesh(boxPigEye, matEye)
+  eyeL.position.set(-0.1, 0.48, 0.47)
+  eyeL.castShadow = true
+  eyeL.receiveShadow = true
+  const eyeR = new THREE.Mesh(boxPigEye, matEye)
+  eyeR.position.set(0.1, 0.48, 0.47)
+  eyeR.castShadow = true
+  eyeR.receiveShadow = true
+
+  const earL = new THREE.Mesh(boxEar, matEar)
+  earL.position.set(-0.2, 0.58, 0.26)
+  earL.rotation.z = Math.PI / 6
+  earL.rotation.x = -0.15
+  earL.castShadow = true
+  earL.receiveShadow = true
+  const earR = new THREE.Mesh(boxEar, matEar)
+  earR.position.set(0.2, 0.58, 0.26)
+  earR.rotation.z = -Math.PI / 6
+  earR.rotation.x = -0.15
+  earR.castShadow = true
+  earR.receiveShadow = true
+
   const leg1 = new THREE.Mesh(boxLeg, matLeg)
   leg1.position.set(-0.2, 0.125, 0.15)
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
   leg1.castShadow = true
   leg1.receiveShadow = true
   const leg2 = new THREE.Mesh(boxLeg, matLeg)
   leg2.position.set(0.2, 0.125, 0.15)
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
   leg2.castShadow = true
   leg2.receiveShadow = true
   const leg3 = new THREE.Mesh(boxLeg, matLeg)
   leg3.position.set(-0.2, 0.125, -0.15)
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
   leg3.castShadow = true
   leg3.receiveShadow = true
   const leg4 = new THREE.Mesh(boxLeg, matLeg)
   leg4.position.set(0.2, 0.125, -0.15)
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
   leg4.castShadow = true
   leg4.receiveShadow = true
 
   group.add(body)
   group.add(head)
+  group.add(eyeL)
+  group.add(eyeR)
+  group.add(earL)
+  group.add(earR)
   group.add(leg1)
   group.add(leg2)
   group.add(leg3)
@@ -189,12 +237,15 @@ function createPigMesh(): THREE.Group {
   return group
 }
 
-/** Wolf: grey body, darker legs and head, slightly larger. */
+/** Wolf: grey body, darker legs and head, snout, pointed ears, and eyes. */
 function createWolfMesh(): THREE.Group {
   const group = new THREE.Group()
   const matBody = getMat(_refWolfBody, 0x6b6b6b)
   const matHead = getMat(_refWolfHead, 0x4a4a4a)
   const matLeg = getMat(_refWolfLeg, 0x3a3a3a)
+  const matSnout = getMat(_refWolfSnout, 0x5a5a5a)
+  const matEar = getMat(_refWolfEar, 0x4a4a4a)
+  const matEye = getMat(_refWolfEye, PIG_EYE)
 
   const body = new THREE.Mesh(boxBody, matBody)
   body.position.y = 0.28
@@ -207,6 +258,33 @@ function createWolfMesh(): THREE.Group {
   head.scale.setScalar(1.05)
   head.castShadow = true
   head.receiveShadow = true
+
+  const snout = new THREE.Mesh(boxWolfSnout, matSnout)
+  snout.position.set(0, 0.48, 0.52)
+  snout.castShadow = true
+  snout.receiveShadow = true
+
+  const eyeL = new THREE.Mesh(boxPigEye, matEye)
+  eyeL.position.set(-0.1, 0.52, 0.47)
+  eyeL.castShadow = true
+  eyeL.receiveShadow = true
+  const eyeR = new THREE.Mesh(boxPigEye, matEye)
+  eyeR.position.set(0.1, 0.52, 0.47)
+  eyeR.castShadow = true
+  eyeR.receiveShadow = true
+
+  const earL = new THREE.Mesh(boxEar, matEar)
+  earL.position.set(-0.2, 0.68, 0.28)
+  earL.rotation.x = -Math.PI / 3
+  earL.rotation.z = 0.15
+  earL.castShadow = true
+  earL.receiveShadow = true
+  const earR = new THREE.Mesh(boxEar, matEar)
+  earR.position.set(0.2, 0.68, 0.28)
+  earR.rotation.x = -Math.PI / 3
+  earR.rotation.z = -0.15
+  earR.castShadow = true
+  earR.receiveShadow = true
 
   const leg1 = new THREE.Mesh(boxLeg, matLeg)
   leg1.position.set(-0.22, 0.14, 0.18)
@@ -231,6 +309,11 @@ function createWolfMesh(): THREE.Group {
 
   group.add(body)
   group.add(head)
+  group.add(snout)
+  group.add(eyeL)
+  group.add(eyeR)
+  group.add(earL)
+  group.add(earR)
   group.add(leg1)
   group.add(leg2)
   group.add(leg3)

@@ -1,6 +1,8 @@
 /**
- * Stage 1: Heightmap and biome selection. Fills context.heightmap and context.biomeMap
- * from 2D temperature/humidity and height-based resolution.
+ * Alternative combined stage: heightmap and biome in one pass.
+ * Fills context.heightmap and context.biomeMap from 2D temperature/humidity and height-based resolution.
+ * The current pipeline uses separate createStageNoise and createStageBiomes instead; this module
+ * is kept for a possible single-pass variant or tests.
  */
 import type { Biome } from '../../types'
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'

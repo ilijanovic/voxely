@@ -241,33 +241,30 @@ function writeQuadIndexed(
       break
   }
 
-  // Indices: (a,b,c) and (a,c,d)
+  // Indices: (a,b,d) and (b,c,d) to match Three.js BoxGeometry vertex order for UV parity.
   const base = vtxCursor >>> 0
   index[idxCursor] = base
   index[idxCursor + 1] = base + 1
-  index[idxCursor + 2] = base + 2
-  index[idxCursor + 3] = base
+  index[idxCursor + 2] = base + 3
+  index[idxCursor + 3] = base + 1
   index[idxCursor + 4] = base + 2
   index[idxCursor + 5] = base + 3
 
-  // World-aligned UVs: keep texture phase continuous across greedy-merged quads.
-  // Mapping per face:
-  //  ±X: u=z, v=y
-  //  ±Z: u=x, v=y
-  //  ±Y: u=x, v=z
+  // World-aligned UVs so the texture repeats per block on merged (greedy) quads; RepeatWrapping uses u,v as world units.
+  // Vertex order and index (a,b,d),(b,c,d) match BoxGeometry so refresh (instanced BoxGeometry) does not rotate textures.
   const p0 = base * 3
   const n0 = base * 3
   const t0 = base * 2
 
   const uvFor = (px: number, py: number, pz: number): { u: number; v: number } => {
     switch (face) {
-      case 0: // +X
+      case 0: // +X: plane (y,z)
       case 1: // -X
         return { u: pz, v: py }
-      case 4: // +Z
+      case 4: // +Z: plane (x,y)
       case 5: // -Z
         return { u: px, v: py }
-      case 2: // +Y
+      case 2: // +Y: plane (x,z)
       case 3: // -Y
         return { u: px, v: pz }
     }
