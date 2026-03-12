@@ -33,6 +33,8 @@ const props = withDefaults(
     canEquip?: (itemType: BlockType, slot: EquipmentSlot, playerClass: PlayerClass) => boolean
     /** Move items between slots (fromIndex, toIndex, optional amount for split). */
     onMove: (fromIndex: number, toIndex: number, amount?: number) => void
+    /** Shift+click: move stack to other area (hotbar <-> main, or crafting grid -> inventory). */
+    onShiftClick?: (index: number) => void
     /** Perform one craft from 2×2 grid; returns true if crafted. */
     onCraftOne: () => boolean
     /** Equip one item from inventory slot into equipment slot. */
@@ -177,6 +179,26 @@ function isSplitModifierOrRight(e: MouseEvent): boolean {
   return e.button === 2 || (e.button === 0 && (e.ctrlKey || e.metaKey))
 }
 
+/** Shift+left-click: move full stack to other area (Minecraft-style). */
+function handleShiftClick(e: MouseEvent, index: number) {
+  if (e.button !== 0 || !e.shiftKey || e.ctrlKey || e.metaKey) return
+  const slot = getSlot(index)
+  if (slot.count <= 0 || !slot.type) return
+  props.onShiftClick?.(index)
+}
+
+function handleSlotMouseDown(e: MouseEvent, index: number) {
+  if (isSplitModifierOrRight(e)) {
+    handleSplitOne(e, index)
+    return
+  }
+  if (e.button === 0 && e.shiftKey) {
+    e.preventDefault()
+    e.stopPropagation()
+    handleShiftClick(e, index)
+  }
+}
+
 function handleCraftResultClick() {
   if (craftResult.value && props.onCraftOne()) {
     // Crafted; UI will update via slots prop
@@ -286,7 +308,7 @@ function handleCraftResultClick() {
                 @dragend="handleDragEnd"
                 @dragover="handleDragOver"
                 @drop="handleDrop($event, CRAFTING_START + idx - 1)"
-                @mousedown="(e) => isSplitModifierOrRight(e) && handleSplitOne(e, CRAFTING_START + idx - 1)"
+                @mousedown="(e) => handleSlotMouseDown(e, CRAFTING_START + idx - 1)"
                 @contextmenu.prevent
               >
                 <template v-if="getSlot(CRAFTING_START + idx - 1).type">
@@ -345,7 +367,7 @@ function handleCraftResultClick() {
             @dragend="handleDragEnd"
             @dragover="handleDragOver"
             @drop="handleDrop($event, MAIN_START + i - 1)"
-            @mousedown="(e) => isSplitModifierOrRight(e) && handleSplitOne(e, MAIN_START + i - 1)"
+            @mousedown="(e) => handleSlotMouseDown(e, MAIN_START + i - 1)"
             @contextmenu.prevent
           >
             <template v-if="getSlot(MAIN_START + i - 1).type">
@@ -381,7 +403,7 @@ function handleCraftResultClick() {
             @dragend="handleDragEnd"
             @dragover="handleDragOver"
             @drop="handleDrop($event, HOTBAR_START + i - 1)"
-            @mousedown="(e) => isSplitModifierOrRight(e) && handleSplitOne(e, HOTBAR_START + i - 1)"
+            @mousedown="(e) => handleSlotMouseDown(e, HOTBAR_START + i - 1)"
             @contextmenu.prevent
           >
             <span
@@ -408,7 +430,7 @@ function handleCraftResultClick() {
       </div>
 
       <div class="absolute right-2 top-2 flex flex-col items-end gap-1">
-        <span class="text-[10px] text-white/50">Right-click or Ctrl+click (Cmd+click): move one · ESC to close</span>
+        <span class="text-[10px] text-white/50">Shift+click: move stack · Right-click or Ctrl+click: move one · ESC to close</span>
         <button
           type="button"
           class="rounded-[var(--ui-radius-sm)] border px-2 py-1 text-xs text-[var(--ui-text)] hover:bg-[var(--ui-border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ui-accent)] focus-visible:outline-offset-2"

@@ -30,38 +30,42 @@ const SANDSTONE = 'sandstone'
 const SANDSTONE_STAIRS = 'sandstone_stairs'
 const DOOR_CLOSED = 'door_closed'
 
-/** All 2×2 recipes. Order may affect which match is chosen when multiple match (first wins). */
+/** All 2×2 recipes. Order matters: more specific (larger) patterns first so they match before subsets (e.g. crafting_table before stick). */
 const RECIPES_2X2: Recipe2x2[] = [
   {
     kind: 'shapeless',
     ingredients: [{ type: WOOD, count: 1 }],
     result: { type: OAK_PLANKS, count: 4 },
   },
-  {
-    kind: 'shaped_2x2',
-    pattern: [OAK_PLANKS, OAK_PLANKS, null, null],
-    result: { type: STICK, count: 4 },
-  },
-  {
-    kind: 'shaped_2x2',
-    pattern: [OAK_PLANKS, null, OAK_PLANKS, null],
-    result: { type: STICK, count: 4 },
-  },
+  /** 4 planks -> crafting table (must be before stick so full grid matches this). */
   {
     kind: 'shaped_2x2',
     pattern: [OAK_PLANKS, OAK_PLANKS, OAK_PLANKS, OAK_PLANKS],
     result: { type: CRAFTING_TABLE, count: 1 },
   },
+  /** Sword: 2 planks + stick (before stick-only). */
   {
     kind: 'shaped_2x2',
     pattern: [OAK_PLANKS, OAK_PLANKS, STICK, null],
     result: { type: WOOD_SWORD, count: 1 },
   },
-  /** Shovel: 1 plank top, 1 stick bottom (inventory 2×2). */
+  /** Shovel: 1 plank + 1 stick (inventory 2×2). */
   {
     kind: 'shaped_2x2',
     pattern: [OAK_PLANKS, null, STICK, null],
     result: { type: WOOD_SHOVEL, count: 1 },
+  },
+  /** Sticks: 2 planks vertical (Vanilla); sliding matches any column. */
+  {
+    kind: 'shaped_2x2',
+    pattern: [OAK_PLANKS, null, OAK_PLANKS, null],
+    result: { type: STICK, count: 4 },
+  },
+  /** Sticks: 2 planks horizontal. */
+  {
+    kind: 'shaped_2x2',
+    pattern: [OAK_PLANKS, OAK_PLANKS, null, null],
+    result: { type: STICK, count: 4 },
   },
   {
     kind: 'shapeless',
@@ -70,78 +74,9 @@ const RECIPES_2X2: Recipe2x2[] = [
   },
 ]
 
-/** All 3×3 recipes (crafting table block UI). Pattern is 9 elements row-major. */
+/** All 3×3 recipes (crafting table block UI). Order matters: more specific (larger) patterns first. Matching uses trim + sliding (Vanilla-style). */
 const RECIPES_3X3: ShapedRecipe3x3[] = [
-  {
-    kind: 'shaped_3x3',
-    pattern: [
-      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
-      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
-      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
-    ],
-    result: { type: CRAFTING_TABLE, count: 1 },
-  },
-  // Sticks: 2 planks top row (also craftable in 2×2 inventory)
-  {
-    kind: 'shaped_3x3',
-    pattern: [
-      OAK_PLANKS, OAK_PLANKS, null,
-      null, null, null,
-      null, null, null,
-    ],
-    result: { type: STICK, count: 4 },
-  },
-  // Sticks: 2 planks left column (vertical variant)
-  {
-    kind: 'shaped_3x3',
-    pattern: [
-      OAK_PLANKS, null, null,
-      OAK_PLANKS, null, null,
-      null, null, null,
-    ],
-    result: { type: STICK, count: 4 },
-  },
-  // Wooden sword: 2 planks top row, 1 stick middle left (also craftable in 2×2 inventory)
-  {
-    kind: 'shaped_3x3',
-    pattern: [
-      OAK_PLANKS, OAK_PLANKS, null,
-      null, STICK, null,
-      null, null, null,
-    ],
-    result: { type: WOOD_SWORD, count: 1 },
-  },
-  // Wooden shovel: 1 plank top center, 1 stick middle, 1 stick bottom center
-  {
-    kind: 'shaped_3x3',
-    pattern: [
-      null, OAK_PLANKS, null,
-      null, STICK, null,
-      null, STICK, null,
-    ],
-    result: { type: WOOD_SHOVEL, count: 1 },
-  },
-  // Wooden pickaxe: 3 planks top row, 2 sticks middle column
-  {
-    kind: 'shaped_3x3',
-    pattern: [
-      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
-      null, STICK, null,
-      null, STICK, null,
-    ],
-    result: { type: WOOD_PICKAXE, count: 1 },
-  },
-  // Wooden axe: 2 planks top row, 1 plank middle left, 2 sticks
-  {
-    kind: 'shaped_3x3',
-    pattern: [
-      OAK_PLANKS, OAK_PLANKS, null,
-      OAK_PLANKS, STICK, null,
-      null, STICK, null,
-    ],
-    result: { type: WOOD_AXE, count: 1 },
-  },
-  // --- Stairs (Minecraft-like): 6 blocks in a stair pattern -> 4 stairs ---
+  // --- Stairs and larger patterns first (so they match before stick subset) ---
   // Oak stairs
   {
     kind: 'shaped_3x3',
@@ -252,38 +187,273 @@ const RECIPES_3X3: ShapedRecipe3x3[] = [
     ],
     result: { type: DOOR_CLOSED, count: 3 },
   },
+  // --- Tools (before stick so multi-plank grids match tools first) ---
+  /** Wooden pickaxe: 3 planks top + 2 sticks (sliding). */
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
+      null, STICK, null,
+      null, STICK, null,
+    ],
+    result: { type: WOOD_PICKAXE, count: 1 },
+  },
+  /** Wooden axe: mirror allowed (left/right). */
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      OAK_PLANKS, OAK_PLANKS, null,
+      OAK_PLANKS, STICK, null,
+      null, STICK, null,
+    ],
+    result: { type: WOOD_AXE, count: 1 },
+    mirror: true,
+  },
+  /** Wooden sword: 2 planks + stick (sliding). */
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      OAK_PLANKS, OAK_PLANKS, null,
+      null, STICK, null,
+      null, null, null,
+    ],
+    result: { type: WOOD_SWORD, count: 1 },
+  },
+  /** Wooden shovel: 1 plank + 2 sticks vertical. */
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      null, OAK_PLANKS, null,
+      null, STICK, null,
+      null, STICK, null,
+    ],
+    result: { type: WOOD_SHOVEL, count: 1 },
+  },
+  /** Sticks: 2 planks horizontal (any row) – last so subset of planks matches tools first. */
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      OAK_PLANKS, OAK_PLANKS, null,
+      null, null, null,
+      null, null, null,
+    ],
+    result: { type: STICK, count: 4 },
+  },
+  /** Sticks: 2 planks vertical (any column). */
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      OAK_PLANKS, null, null,
+      OAK_PLANKS, null, null,
+      null, null, null,
+    ],
+    result: { type: STICK, count: 4 },
+  },
 ]
 
+const COLS_2X2 = 2
+const ROWS_2X2 = 2
+const COLS_3X3 = 3
+const ROWS_3X3 = 3
+
 /**
- * Checks if the grid matches the shaped pattern (exact 4 slots).
+ * Trims a 2×2 pattern to its minimal bounding box (remove empty outer rows/columns).
+ * Returns trimmed row-major array and width/height (1 or 2).
  */
-function matchShaped(
-  grid: (BlockType | null)[],
+function trimPattern2x2(
   pattern: (BlockType | null)[],
-): boolean {
-  if (grid.length !== 4 || pattern.length !== 4) return false
-  for (let i = 0; i < 4; i++) {
-    const g = grid[i] ?? null
-    const p = pattern[i]
-    if (g !== p) return false
+): { trimmed: (BlockType | null)[]; width: number; height: number } {
+  if (pattern.length < 4) return { trimmed: [], width: 0, height: 0 }
+  let minR = ROWS_2X2
+  let maxR = -1
+  let minC = COLS_2X2
+  let maxC = -1
+  for (let r = 0; r < ROWS_2X2; r++) {
+    for (let c = 0; c < COLS_2X2; c++) {
+      if (pattern[r * COLS_2X2 + c] != null) {
+        minR = Math.min(minR, r)
+        maxR = Math.max(maxR, r)
+        minC = Math.min(minC, c)
+        maxC = Math.max(maxC, c)
+      }
+    }
   }
-  return true
+  if (maxR < minR || maxC < minC) return { trimmed: [], width: 0, height: 0 }
+  const w = maxC - minC + 1
+  const h = maxR - minR + 1
+  const trimmed: (BlockType | null)[] = []
+  for (let r = minR; r <= maxR; r++) {
+    for (let c = minC; c <= maxC; c++) {
+      trimmed.push(pattern[r * COLS_2X2 + c] ?? null)
+    }
+  }
+  return { trimmed, width: w, height: h }
 }
 
 /**
- * Checks if the 3×3 grid matches the shaped pattern (9 slots).
+ * Trims a 3×3 pattern to its minimal bounding box.
  */
-function matchShaped3x3(
+function trimPattern3x3(
+  pattern: (BlockType | null)[],
+): { trimmed: (BlockType | null)[]; width: number; height: number } {
+  if (pattern.length < 9) return { trimmed: [], width: 0, height: 0 }
+  let minR = ROWS_3X3
+  let maxR = -1
+  let minC = COLS_3X3
+  let maxC = -1
+  for (let r = 0; r < ROWS_3X3; r++) {
+    for (let c = 0; c < COLS_3X3; c++) {
+      if (pattern[r * COLS_3X3 + c] != null) {
+        minR = Math.min(minR, r)
+        maxR = Math.max(maxR, r)
+        minC = Math.min(minC, c)
+        maxC = Math.max(maxC, c)
+      }
+    }
+  }
+  if (maxR < minR || maxC < minC) return { trimmed: [], width: 0, height: 0 }
+  const w = maxC - minC + 1
+  const h = maxR - minR + 1
+  const trimmed: (BlockType | null)[] = []
+  for (let r = minR; r <= maxR; r++) {
+    for (let c = minC; c <= maxC; c++) {
+      trimmed.push(pattern[r * COLS_3X3 + c] ?? null)
+    }
+  }
+  return { trimmed, width: w, height: h }
+}
+
+/** Mirrors a 2×2 pattern horizontally (swap columns). */
+function mirrorPattern2x2(pattern: (BlockType | null)[]): (BlockType | null)[] {
+  if (pattern.length < 4) return []
+  return [
+    pattern[1] ?? null,
+    pattern[0] ?? null,
+    pattern[3] ?? null,
+    pattern[2] ?? null,
+  ]
+}
+
+/** Mirrors a 3×3 pattern horizontally (swap columns). */
+function mirrorPattern3x3(pattern: (BlockType | null)[]): (BlockType | null)[] {
+  if (pattern.length < 9) return []
+  return [
+    pattern[2] ?? null,
+    pattern[1] ?? null,
+    pattern[0] ?? null,
+    pattern[5] ?? null,
+    pattern[4] ?? null,
+    pattern[3] ?? null,
+    pattern[8] ?? null,
+    pattern[7] ?? null,
+    pattern[6] ?? null,
+  ]
+}
+
+/**
+ * Tries to match a trimmed pattern at offset (sr, sc) in the 2×2 grid.
+ * Returns consumed slot indices (0–3) if match, null otherwise.
+ */
+function matchTrimmedIn2x2(
+  grid: (BlockType | null)[],
+  trimmed: (BlockType | null)[],
+  width: number,
+  height: number,
+  startR: number,
+  startC: number,
+): number[] | null {
+  const consumed: number[] = []
+  let ti = 0
+  for (let r = startR; r < startR + height; r++) {
+    for (let c = startC; c < startC + width; c++) {
+      const gridIdx = r * COLS_2X2 + c
+      const g = grid[gridIdx] ?? null
+      const p = trimmed[ti]
+      ti++
+      if (p === null) continue
+      if (g !== p) return null
+      consumed.push(gridIdx)
+    }
+  }
+  return consumed
+}
+
+/**
+ * Tries to match a trimmed pattern at offset (sr, sc) in the 3×3 grid.
+ * Returns consumed slot indices (0–8) if match, null otherwise.
+ */
+function matchTrimmedIn3x3(
+  grid: (BlockType | null)[],
+  trimmed: (BlockType | null)[],
+  width: number,
+  height: number,
+  startR: number,
+  startC: number,
+): number[] | null {
+  const consumed: number[] = []
+  let ti = 0
+  for (let r = startR; r < startR + height; r++) {
+    for (let c = startC; c < startC + width; c++) {
+      const gridIdx = r * COLS_3X3 + c
+      const g = grid[gridIdx] ?? null
+      const p = trimmed[ti]
+      ti++
+      if (p === null) continue
+      if (g !== p) return null
+      consumed.push(gridIdx)
+    }
+  }
+  return consumed
+}
+
+/**
+ * Matches a shaped 2×2 recipe against the grid with trim + sliding (and optional mirror).
+ * Returns consumed slot indices (0–3) if a match is found, null otherwise.
+ */
+function matchShaped2x2WithSliding(
   grid: (BlockType | null)[],
   pattern: (BlockType | null)[],
-): boolean {
-  if (grid.length < 9 || pattern.length !== 9) return false
-  for (let i = 0; i < 9; i++) {
-    const g = grid[i] ?? null
-    const p = pattern[i]
-    if (g !== p) return false
+  mirror: boolean,
+): number[] | null {
+  if (grid.length < 4 || pattern.length < 4) return null
+  const patternsToTry: (BlockType | null)[][] = [pattern]
+  if (mirror) patternsToTry.push(mirrorPattern2x2(pattern))
+  for (const p of patternsToTry) {
+    const { trimmed, width, height } = trimPattern2x2(p)
+    if (trimmed.length === 0) continue
+    for (let sr = 0; sr <= ROWS_2X2 - height; sr++) {
+      for (let sc = 0; sc <= COLS_2X2 - width; sc++) {
+        const consumed = matchTrimmedIn2x2(grid, trimmed, width, height, sr, sc)
+        if (consumed) return consumed
+      }
+    }
   }
-  return true
+  return null
+}
+
+/**
+ * Matches a shaped 3×3 recipe against the grid with trim + sliding (and optional mirror).
+ * Returns consumed slot indices (0–8) if a match is found, null otherwise.
+ */
+function matchShaped3x3WithSliding(
+  grid: (BlockType | null)[],
+  pattern: (BlockType | null)[],
+  mirror: boolean,
+): number[] | null {
+  if (grid.length < 9 || pattern.length < 9) return null
+  const patternsToTry: (BlockType | null)[][] = [pattern]
+  if (mirror) patternsToTry.push(mirrorPattern3x3(pattern))
+  for (const p of patternsToTry) {
+    const { trimmed, width, height } = trimPattern3x3(p)
+    if (trimmed.length === 0) continue
+    for (let sr = 0; sr <= ROWS_3X3 - height; sr++) {
+      for (let sc = 0; sc <= COLS_3X3 - width; sc++) {
+        const consumed = matchTrimmedIn3x3(grid, trimmed, width, height, sr, sc)
+        if (consumed) return consumed
+      }
+    }
+  }
+  return null
 }
 
 /**
@@ -315,12 +485,14 @@ function matchShapeless(
 export interface Match2x2 {
   recipe: Recipe2x2
   result: RecipeResult
+  /** For shaped recipes: grid slot indices (0–3) to consume. Set when matching with sliding. */
+  shapedConsumedIndices?: number[]
 }
 
 /**
- * Matches the 2×2 crafting grid against registered recipes.
+ * Matches the 2×2 crafting grid against registered recipes (trim + sliding for shaped; Vanilla-style).
  * @param grid - 4 elements row-major (indices 0–3), each is type or null (count assumed 1+ when non-null).
- * @returns Recipe and result if a recipe matches, null otherwise.
+ * @returns Recipe and result if a recipe matches, null otherwise. Shaped matches include shapedConsumedIndices.
  */
 export function matchRecipe2x2(grid: (BlockType | null)[]): Match2x2 | null {
   if (grid.length < 4) return null
@@ -332,7 +504,8 @@ export function matchRecipe2x2(grid: (BlockType | null)[]): Match2x2 | null {
   ]
   for (const recipe of RECIPES_2X2) {
     if (recipe.kind === 'shaped_2x2') {
-      if (matchShaped(g, recipe.pattern)) return { recipe, result: recipe.result }
+      const consumed = matchShaped2x2WithSliding(g, recipe.pattern, recipe.mirror ?? false)
+      if (consumed) return { recipe, result: recipe.result, shapedConsumedIndices: consumed }
     } else {
       if (matchShapeless(g, recipe.ingredients))
         return { recipe, result: recipe.result }
@@ -343,18 +516,28 @@ export function matchRecipe2x2(grid: (BlockType | null)[]): Match2x2 | null {
 
 /**
  * Returns amount to consume from each of the 4 crafting slots for one craft of the given recipe.
- * Grid is 4 slots row-major; each slot is { type, count }. Returns [a0, a1, a2, a3].
+ * For shaped recipes, pass shapedConsumedIndices from the match when using sliding (Vanilla-style).
+ * @param recipe - The matched recipe
+ * @param grid - 4 slots row-major; each slot is { type, count }. Returns [a0, a1, a2, a3].
+ * @param shapedConsumedIndices - Optional; from Match2x2.shapedConsumedIndices when matching used sliding.
  */
 export function getConsumeAmountsForCraft(
   recipe: Recipe2x2,
   grid: Array<{ type: BlockType | null; count: number }>,
+  shapedConsumedIndices?: number[],
 ): number[] {
   const amounts = [0, 0, 0, 0]
   if (grid.length < 4) return amounts
 
   if (recipe.kind === 'shaped_2x2') {
-    for (let i = 0; i < 4; i++) {
-      if (recipe.pattern[i] != null) amounts[i] = 1
+    if (shapedConsumedIndices && shapedConsumedIndices.length > 0) {
+      for (const i of shapedConsumedIndices) {
+        if (i >= 0 && i < 4) amounts[i] = 1
+      }
+    } else {
+      for (let i = 0; i < 4; i++) {
+        if (recipe.pattern[i] != null) amounts[i] = 1
+      }
     }
     return amounts
   }
@@ -379,6 +562,8 @@ export function getConsumeAmountsForCraft(
 export interface Match3x3Shaped {
   recipe: ShapedRecipe3x3
   result: RecipeResult
+  /** Grid slot indices (0–8) to consume. Set when matching with sliding. */
+  consumedSlotIndices?: number[]
 }
 
 /** Match from a 2×2 quadrant of the 3×3 grid (inventory recipes work at crafting table in any 2×2). */
@@ -403,42 +588,69 @@ const QUADRANT_2X2_INDICES: readonly (readonly [number, number, number, number])
 ]
 
 /**
- * Matches the 3×3 crafting grid: first tries 3×3 recipes, then each 2×2 quadrant against 2×2 recipes.
+ * Returns consumed slot count for a 2×2 match (for "best match" tie-breaking).
+ */
+function consumedCount2x2(m: Match2x2): number {
+  if (m.shapedConsumedIndices) return m.shapedConsumedIndices.length
+  if (m.recipe.kind === 'shapeless') {
+    return m.recipe.ingredients.reduce((s, i) => s + i.count, 0)
+  }
+  return 4
+}
+
+/**
+ * Matches the 3×3 crafting grid: tries all 3×3 recipes and all 2×2 quadrants, then returns the match that consumes the most slots (Vanilla-style: prefer more specific recipe).
  * @param grid - 9 elements row-major (indices 0–8).
- * @returns Recipe and result if a recipe matches, null otherwise.
+ * @returns Recipe and result if a recipe matches, null otherwise. Shaped 3×3 matches include consumedSlotIndices.
  */
 export function matchRecipe3x3(grid: (BlockType | null)[]): Match3x3 | null {
   if (grid.length < 9) return null
   const g = grid.slice(0, 9).map((t) => t ?? null)
+  let best: Match3x3 | null = null
+  let bestCount = 0
   for (const recipe of RECIPES_3X3) {
-    if (matchShaped3x3(g, recipe.pattern)) return { recipe, result: recipe.result }
+    const consumed = matchShaped3x3WithSliding(g, recipe.pattern, recipe.mirror ?? false)
+    if (consumed && consumed.length > bestCount) {
+      best = { recipe, result: recipe.result, consumedSlotIndices: consumed }
+      bestCount = consumed.length
+    }
   }
   for (const indices of QUADRANT_2X2_INDICES) {
     const subGrid2x2 = indices.map((i) => g[i])
     const match2x2 = matchRecipe2x2(subGrid2x2)
-    if (match2x2)
-      return {
-        recipe2x2: match2x2.recipe,
-        result: match2x2.result,
-        indices,
+    if (match2x2) {
+      const count = consumedCount2x2(match2x2)
+      if (count > bestCount) {
+        best = { recipe2x2: match2x2.recipe, result: match2x2.result, indices }
+        bestCount = count
       }
+    }
   }
-  return null
+  return best
 }
 
 /**
  * Returns amount to consume from each of the 9 crafting table slots for one craft (3×3 recipe only).
+ * When sliding was used, pass consumedSlotIndices from the match.
  * @param recipe - The matched 3×3 recipe
  * @param grid - 9 slots row-major; each slot is { type, count }. Returns [a0..a8].
+ * @param consumedSlotIndices - Optional; from Match3x3Shaped.consumedSlotIndices when matching used sliding.
  */
 export function getConsumeAmountsForCraft3x3(
   recipe: ShapedRecipe3x3,
   grid: Array<{ type: BlockType | null; count: number }>,
+  consumedSlotIndices?: number[],
 ): number[] {
   const amounts = [0, 0, 0, 0, 0, 0, 0, 0, 0]
   if (grid.length < 9) return amounts
-  for (let i = 0; i < 9; i++) {
-    if (recipe.pattern[i] != null) amounts[i] = 1
+  if (consumedSlotIndices && consumedSlotIndices.length > 0) {
+    for (const i of consumedSlotIndices) {
+      if (i >= 0 && i < 9) amounts[i] = 1
+    }
+  } else {
+    for (let i = 0; i < 9; i++) {
+      if (recipe.pattern[i] != null) amounts[i] = 1
+    }
   }
   return amounts
 }
@@ -456,7 +668,7 @@ export function getConsumeAmountsForCraft3x3FromMatch(
   const amounts = [0, 0, 0, 0, 0, 0, 0, 0, 0]
   if (grid.length < 9) return amounts
   if ('recipe' in match) {
-    return getConsumeAmountsForCraft3x3(match.recipe, grid)
+    return getConsumeAmountsForCraft3x3(match.recipe, grid, match.consumedSlotIndices)
   }
   const indices = match.indices
   const subGrid2x2 = indices.map((i) => grid[i])

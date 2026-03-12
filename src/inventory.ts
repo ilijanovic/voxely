@@ -142,6 +142,37 @@ export function getFirstEmptyPersistentSlot(): number {
   return -1
 }
 
+/**
+ * Returns how many items of the given type and amount would fit in persistent slots (hotbar + main)
+ * without modifying state. Used to avoid consuming ingredients when the craft result would not fit.
+ */
+export function getAddableCount(type: BlockType, amount: number): number {
+  let remaining = amount
+  const tryStack = (start: number, end: number): void => {
+    for (let i = start; i < end && remaining > 0; i++) {
+      const s = slots[i]
+      if (s.type === type && s.count < MAX_STACK_SIZE) {
+        const add = Math.min(remaining, MAX_STACK_SIZE - s.count)
+        remaining -= add
+      }
+    }
+  }
+  const tryEmpty = (start: number, end: number): void => {
+    for (let i = start; i < end && remaining > 0; i++) {
+      const s = slots[i]
+      if (s.count <= 0) {
+        const add = Math.min(remaining, MAX_STACK_SIZE)
+        remaining -= add
+      }
+    }
+  }
+  tryStack(HOTBAR_START, HOTBAR_START + HOTBAR_SLOTS)
+  tryStack(MAIN_INVENTORY_START, MAIN_INVENTORY_START + MAIN_INVENTORY_SLOTS)
+  tryEmpty(HOTBAR_START, HOTBAR_START + HOTBAR_SLOTS)
+  tryEmpty(MAIN_INVENTORY_START, MAIN_INVENTORY_START + MAIN_INVENTORY_SLOTS)
+  return amount - remaining
+}
+
 /** Adds item to inventory: stack in hotbar first, then main, then first empty in hotbar then main. */
 export function addItem(type: BlockType, amount: number): void {
   let remaining = amount
@@ -409,6 +440,7 @@ export function returnCraftingTableToInventory(): void {
 
 /**
  * If the 2×2 crafting grid matches a recipe, consumes one set of ingredients and adds the result to inventory.
+ * Does not consume ingredients if the result would not fit (Minecraft-style: no item loss).
  * @returns true if a craft was performed.
  */
 export function craftOne(): boolean {
@@ -416,7 +448,12 @@ export function craftOne(): boolean {
   const gridTypes = gridSlots.map((s) => s.type)
   const matched = matchRecipe2x2(gridTypes)
   if (!matched) return false
-  const amounts = getConsumeAmountsForCraft(matched.recipe, gridSlots)
+  if (getAddableCount(matched.result.type, matched.result.count) < matched.result.count) return false
+  const amounts = getConsumeAmountsForCraft(
+    matched.recipe,
+    gridSlots,
+    matched.shapedConsumedIndices,
+  )
   for (let i = 0; i < CRAFTING_GRID_2X2; i++) {
     if (amounts[i] > 0) consumeFromSlot(CRAFTING_START + i, amounts[i])
   }
@@ -426,12 +463,14 @@ export function craftOne(): boolean {
 
 /**
  * If the 3×3 crafting table grid matches a recipe, consumes one set of ingredients and adds the result to inventory.
+ * Does not consume ingredients if the result would not fit (Minecraft-style: no item loss).
  * @returns true if a craft was performed.
  */
 export function craftOne3x3(): boolean {
   const gridTypes = craftingTableSlots.map((s) => s.type)
   const matched = matchRecipe3x3(gridTypes)
   if (!matched) return false
+  if (getAddableCount(matched.result.type, matched.result.count) < matched.result.count) return false
   const amounts = getConsumeAmountsForCraft3x3FromMatch(matched, craftingTableSlots)
   for (let i = 0; i < CRAFTING_GRID_3X3; i++) {
     if (amounts[i] > 0) {

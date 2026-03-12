@@ -121,20 +121,55 @@ function closeCraftingTable() {
   craftingTableOpen.value = false
 }
 
+const HOTBAR_END = 8
+const MAIN_START = 9
+const MAIN_END = 35
+const TABLE_START = 36
+const TABLE_END = 44
+
 /**
  * Handles move for the crafting table UI. Virtual indices: 0–35 = inventory, 36–44 = table (3×3).
  */
 function handleCraftingTableMove(fromIndex: number, toIndex: number, amount?: number) {
-  const TABLE_START = 36
-  const invEnd = 35
-  if (fromIndex >= 0 && fromIndex <= invEnd && toIndex >= 0 && toIndex <= invEnd) {
+  if (fromIndex >= 0 && fromIndex <= MAIN_END && toIndex >= 0 && toIndex <= MAIN_END) {
     moveSlots(fromIndex, toIndex, amount)
-  } else if (fromIndex >= 0 && fromIndex <= invEnd && toIndex >= TABLE_START && toIndex <= TABLE_START + 8) {
+  } else if (fromIndex >= 0 && fromIndex <= MAIN_END && toIndex >= TABLE_START && toIndex <= TABLE_START + 8) {
     moveToCraftingTable(fromIndex, toIndex - TABLE_START, amount)
-  } else if (fromIndex >= TABLE_START && fromIndex <= TABLE_START + 8 && toIndex >= 0 && toIndex <= invEnd) {
+  } else if (fromIndex >= TABLE_START && fromIndex <= TABLE_START + 8 && toIndex >= 0 && toIndex <= MAIN_END) {
     moveFromCraftingTable(fromIndex - TABLE_START, toIndex, amount)
   } else if (fromIndex >= TABLE_START && fromIndex <= TABLE_START + 8 && toIndex >= TABLE_START && toIndex <= TABLE_START + 8) {
     moveWithinCraftingTable(fromIndex - TABLE_START, toIndex - TABLE_START, amount)
+  }
+}
+
+/** Shift+click in inventory: move stack to hotbar <-> main, or crafting grid -> inventory. */
+function handleInventoryShiftClick(fromIndex: number) {
+  if (fromIndex >= 0 && fromIndex <= HOTBAR_END) {
+    for (let to = MAIN_START; to <= MAIN_END; to++) {
+      if (moveSlots(fromIndex, to)) return
+    }
+  } else if (fromIndex >= MAIN_START && fromIndex <= MAIN_END) {
+    for (let to = 0; to <= HOTBAR_END; to++) {
+      if (moveSlots(fromIndex, to)) return
+    }
+  } else if (fromIndex >= 36 && fromIndex <= 39) {
+    for (let to = 0; to <= MAIN_END; to++) {
+      if (moveSlots(fromIndex, to)) return
+    }
+  }
+}
+
+/** Shift+click in crafting table UI: move stack between inventory (0–35) and table (36–44). */
+function handleCraftingTableShiftClick(virtualIndex: number) {
+  if (virtualIndex >= 0 && virtualIndex <= MAIN_END) {
+    for (let tableIdx = 0; tableIdx < 9; tableIdx++) {
+      if (moveToCraftingTable(virtualIndex, tableIdx)) return
+    }
+  } else if (virtualIndex >= TABLE_START && virtualIndex <= TABLE_END) {
+    const fromTableIdx = virtualIndex - TABLE_START
+    for (let to = 0; to <= MAIN_END; to++) {
+      if (moveFromCraftingTable(fromTableIdx, to)) return
+    }
   }
 }
 
@@ -701,6 +736,7 @@ onUnmounted(() => {
           :player-class="getPlayerClass()"
           :can-equip="canEquip"
           :on-move="(from: number, to: number, amount?: number) => moveSlots(from, to, amount)"
+          :on-shift-click="handleInventoryShiftClick"
           :on-craft-one="craftOne"
           :on-equip-from-inventory="(invIndex: number, equipSlot: EquipmentSlot) => tryEquipFromInventory(invIndex, equipSlot, getPlayerClass())"
           :on-unequip="tryUnequipToInventory"
@@ -715,6 +751,7 @@ onUnmounted(() => {
           :inventory-slots="inventorySlots.slice(0, 36)"
           :crafting-table-slots="craftingTableSlots"
           :on-move="handleCraftingTableMove"
+          :on-shift-click="handleCraftingTableShiftClick"
           :on-craft-one="craftOne3x3"
           @close="closeCraftingTable"
         />

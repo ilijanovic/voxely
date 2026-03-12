@@ -229,6 +229,20 @@ describe('matchRecipe3x3', () => {
     expect(match!.result.type).toBe('oak_stairs')
     expect(match!.result.count).toBe(4)
   })
+
+  it('matches wood_axe in mirrored position (Vanilla mirror)', () => {
+    const grid = [null, 'oak_planks', 'oak_planks', null, 'stick', 'oak_planks', null, 'stick', null]
+    const match = matchRecipe3x3(grid)
+    expect(match).not.toBeNull()
+    expect(match!.result.type).toBe('wood_axe')
+    expect(match!.result.count).toBe(1)
+  })
+
+  it('does not match when ingredients are insufficient (e.g. one plank and one stick only)', () => {
+    const grid = ['oak_planks', null, null, null, 'stick', null, null, null, null]
+    const match = matchRecipe3x3(grid)
+    expect(match).toBeNull()
+  })
 })
 
 describe('getConsumeAmountsForCraft3x3', () => {

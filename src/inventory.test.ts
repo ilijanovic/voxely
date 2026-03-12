@@ -8,20 +8,30 @@ import {
   getHotbarSlots,
   getMainInventorySlots,
   getCraftingSlots,
+  getCraftingTableSlots,
   getAllSlots,
   addItem,
+  getAddableCount,
   consumeFromSlot,
   moveSlots,
   clearCraftingGrid,
   craftOne,
+  craftOne3x3,
   getPersistentSlots,
   setPersistentSlots,
+  setCraftingTableSlot,
   initDefaultInventory,
   INVENTORY_SLOT_COUNT,
   MAIN_INVENTORY_START,
   CRAFTING_START,
 } from './inventory'
-import { HOTBAR_SLOTS, MAIN_INVENTORY_SLOTS, CRAFTING_GRID_2X2, MAX_STACK_SIZE } from './constants'
+import {
+  HOTBAR_SLOTS,
+  MAIN_INVENTORY_SLOTS,
+  CRAFTING_GRID_2X2,
+  MAX_STACK_SIZE,
+  TOTAL_PERSISTENT_SLOTS,
+} from './constants'
 
 describe('inventory', () => {
   beforeEach(() => {
@@ -66,6 +76,29 @@ describe('inventory', () => {
 
     it('getAllSlots returns INVENTORY_SLOT_COUNT slots', () => {
       expect(getAllSlots()).toHaveLength(INVENTORY_SLOT_COUNT)
+    })
+  })
+
+  describe('getAddableCount', () => {
+    it('returns 0 when all persistent slots are full with other types', () => {
+      for (let i = 0; i < TOTAL_PERSISTENT_SLOTS; i++) {
+        setSlot(i, 'dirt', MAX_STACK_SIZE)
+      }
+      expect(getAddableCount('oak_planks', 1)).toBe(0)
+    })
+
+    it('returns amount when there is room to stack or empty slots', () => {
+      setSlot(0, 'oak_planks', MAX_STACK_SIZE - 5)
+      expect(getAddableCount('oak_planks', 10)).toBe(10)
+      expect(getAddableCount('oak_planks', 100)).toBe(100)
+    })
+
+    it('returns less than requested when room is limited', () => {
+      for (let i = 0; i < TOTAL_PERSISTENT_SLOTS; i++) {
+        setSlot(i, 'dirt', MAX_STACK_SIZE)
+      }
+      setSlot(0, 'oak_planks', MAX_STACK_SIZE - 3)
+      expect(getAddableCount('oak_planks', 10)).toBe(3)
     })
   })
 
@@ -169,6 +202,33 @@ describe('inventory', () => {
       const main = getMainInventorySlots()
       const craftingTable = main.find((s) => s.type === 'crafting_table')
       expect(craftingTable?.count).toBe(1)
+    })
+
+    it('returns false and leaves ingredients when inventory has no room for result (2×2)', () => {
+      for (let i = 0; i < TOTAL_PERSISTENT_SLOTS; i++) {
+        setSlot(i, 'dirt', MAX_STACK_SIZE)
+      }
+      setSlot(CRAFTING_START, 'oak_planks', 1)
+      setSlot(CRAFTING_START + 1, 'oak_planks', 1)
+      setSlot(CRAFTING_START + 2, 'oak_planks', 1)
+      setSlot(CRAFTING_START + 3, 'oak_planks', 1)
+      expect(craftOne()).toBe(false)
+      expect(getSlot(CRAFTING_START)).toEqual({ type: 'oak_planks', count: 1 })
+      expect(getSlot(CRAFTING_START + 3)).toEqual({ type: 'oak_planks', count: 1 })
+    })
+  })
+
+  describe('craftOne3x3', () => {
+    it('returns false and leaves 3×3 grid unchanged when inventory has no room for result', () => {
+      for (let i = 0; i < TOTAL_PERSISTENT_SLOTS; i++) {
+        setSlot(i, 'dirt', MAX_STACK_SIZE)
+      }
+      setCraftingTableSlot(0, 'oak_planks', 1)
+      setCraftingTableSlot(1, 'oak_planks', 1)
+      expect(craftOne3x3()).toBe(false)
+      const table = getCraftingTableSlots()
+      expect(table[0]).toEqual({ type: 'oak_planks', count: 1 })
+      expect(table[1]).toEqual({ type: 'oak_planks', count: 1 })
     })
   })
 
