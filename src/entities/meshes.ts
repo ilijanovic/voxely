@@ -408,6 +408,15 @@ function createVillagerMesh(variant?: number): THREE.Group {
 const _refZombieBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refZombieHead = { current: null as THREE.MeshStandardMaterial | null }
 const _refZombieLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refCowBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refCowHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refCowLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refChickenBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refChickenHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refChickenLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refHorseBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refHorseHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refHorseLeg = { current: null as THREE.MeshStandardMaterial | null }
 
 /** Zombie: simple humanoid (green skin, upright). Used for hostile mob spawn at night. */
 const ZOMBIE_GREEN = 0x3d5c34
@@ -444,10 +453,160 @@ function createZombieMesh(): THREE.Group {
   return group
 }
 
+/** Cow: blocky cattle (white/dark patches), four legs. Minecraft-style spawn in plains/forest/savanna/jungle/meadow. */
+function createCowMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refCowBody, 0xe8e4d8)
+  const matHead = getMat(_refCowHead, 0x4a4a4a)
+  const matLeg = getMat(_refCowLeg, 0x3a3a3a)
+  const body = new THREE.Mesh(boxBody, matBody)
+  body.position.y = 0.32
+  body.scale.set(1.15, 1.05, 1.2)
+  body.castShadow = true
+  body.receiveShadow = true
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 0.5, 0.35)
+  head.scale.setScalar(1.05)
+  head.castShadow = true
+  head.receiveShadow = true
+  const leg1 = new THREE.Mesh(boxLeg, matLeg)
+  leg1.position.set(-0.22, 0.14, 0.18)
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+  const leg2 = new THREE.Mesh(boxLeg, matLeg)
+  leg2.position.set(0.22, 0.14, 0.18)
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+  const leg3 = new THREE.Mesh(boxLeg, matLeg)
+  leg3.position.set(-0.22, 0.14, -0.18)
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+  const leg4 = new THREE.Mesh(boxLeg, matLeg)
+  leg4.position.set(0.22, 0.14, -0.18)
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+  group.add(body)
+  group.add(head)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(1.2, 1.15, 1.2)
+  return group
+}
+
+/** Chicken: small body, head, beak. Four small legs for walk cycle. */
+function createChickenMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refChickenBody, 0xf5f5f5)
+  const matHead = getMat(_refChickenHead, 0xffcc66)
+  const matLeg = getMat(_refChickenLeg, 0xcc6633)
+  const boxSmall = new THREE.BoxGeometry(0.25 * BLOCK, 0.2 * BLOCK, 0.25 * BLOCK)
+  const body = new THREE.Mesh(boxSmall, matBody)
+  body.position.y = 0.18
+  body.scale.set(1.2, 1, 1.2)
+  body.castShadow = true
+  body.receiveShadow = true
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 0.38, 0.18)
+  head.scale.set(0.5, 0.5, 0.5)
+  head.castShadow = true
+  head.receiveShadow = true
+  const leg1 = new THREE.Mesh(boxLeg, matLeg)
+  leg1.position.set(-0.08, 0.06, 0.06)
+  leg1.scale.set(0.6, 0.8, 0.6)
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+  const leg2 = new THREE.Mesh(boxLeg, matLeg)
+  leg2.position.set(0.08, 0.06, 0.06)
+  leg2.scale.set(0.6, 0.8, 0.6)
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+  const leg3 = new THREE.Mesh(boxLeg, matLeg)
+  leg3.position.set(-0.08, 0.06, -0.06)
+  leg3.scale.set(0.6, 0.8, 0.6)
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+  const leg4 = new THREE.Mesh(boxLeg, matLeg)
+  leg4.position.set(0.08, 0.06, -0.06)
+  leg4.scale.set(0.6, 0.8, 0.6)
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+  group.add(body)
+  group.add(head)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(0.85, 0.9, 0.85)
+  return group
+}
+
+/** Horse: taller body, elongated head, four legs. Minecraft-style spawn in plains/savanna. */
+function createHorseMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refHorseBody, 0x8b6914)
+  const matHead = getMat(_refHorseHead, 0x6b4a0a)
+  const matLeg = getMat(_refHorseLeg, 0x2a2a2a)
+  const body = new THREE.Mesh(boxBody, matBody)
+  body.position.y = 0.5
+  body.scale.set(1.1, 1.2, 1.3)
+  body.castShadow = true
+  body.receiveShadow = true
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 0.72, 0.38)
+  head.scale.set(0.9, 1.1, 1.2)
+  head.castShadow = true
+  head.receiveShadow = true
+  const leg1 = new THREE.Mesh(boxLeg, matLeg)
+  leg1.position.set(-0.2, 0.2, 0.2)
+  leg1.scale.y = 1.4
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+  const leg2 = new THREE.Mesh(boxLeg, matLeg)
+  leg2.position.set(0.2, 0.2, 0.2)
+  leg2.scale.y = 1.4
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+  const leg3 = new THREE.Mesh(boxLeg, matLeg)
+  leg3.position.set(-0.2, 0.2, -0.2)
+  leg3.scale.y = 1.4
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+  const leg4 = new THREE.Mesh(boxLeg, matLeg)
+  leg4.position.set(0.2, 0.2, -0.2)
+  leg4.scale.y = 1.4
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+  group.add(body)
+  group.add(head)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(1.15, 1.25, 1.15)
+  return group
+}
+
 /** Registry of mesh factories per animal kind. Add a new entry when adding a new AnimalKind. */
 export const ANIMAL_MESH_FACTORY: Record<AnimalKind, () => THREE.Group> = {
   sheep: createSheepMesh,
   pig: createPigMesh,
+  cow: createCowMesh,
+  chicken: createChickenMesh,
+  horse: createHorseMesh,
   wolf: createWolfMesh,
   villager: createVillagerMesh,
   zombie: createZombieMesh,

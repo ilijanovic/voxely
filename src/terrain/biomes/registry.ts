@@ -80,19 +80,25 @@ const BASE_LAND_BIOMES: Biome[] = [
  * Rarity weight per base land biome for climate-based selection (Minecraft-style).
  * Higher = more common (larger effective Voronoi region). Used as divisor for distSq.
  * Missing entries use DEFAULT_BIOME_RARITY_WEIGHT (1).
+ *
+ * Tuned to roughly match vanilla: plains/forest dominate temperate land, desert/savanna/snow/mountain
+ * are medium common, jungle/badlands/mushroom_fields/mangrove_swamp/old_growth_taiga are rare.
  */
 const BIOME_RARITY_WEIGHT: Partial<Record<Biome, number>> = {
-  plains: 2,
-  forest: 2,
-  desert: 1,
-  savanna: 1,
+  // Very common base biomes
+  plains: 3,
+  forest: 2.5,
+  // Common warm / cold land
+  desert: 1.3,
+  savanna: 1.2,
   mountain: 1,
   snow: 0.8,
-  jungle: 0.4,
-  mangrove_swamp: 0.5,
-  old_growth_taiga: 0.5,
-  badlands: 0.3,
-  mushroom_fields: 0.2,
+  // Rare warm/wet or special biomes
+  jungle: 0.3,
+  mangrove_swamp: 0.35,
+  old_growth_taiga: 0.4,
+  badlands: 0.2,
+  mushroom_fields: 0.1,
 }
 
 const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [

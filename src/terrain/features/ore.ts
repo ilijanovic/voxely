@@ -2,6 +2,7 @@
  * Ore feature for Stage 8: replaces stone with coal, iron, gold, diamond ore.
  * Vanilla Minecraft 1.18–style: 3D density noise, triangular Y distribution, vein blobs.
  */
+import type { Biome } from '../../types'
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
 import { BIOME_REGISTRY } from '../biomes'
@@ -92,7 +93,24 @@ function placeVein(
 }
 
 /**
+ * Resolves effective Y range and density threshold for an ore at a column (biome-specific overrides).
+ */
+function getEffectiveOreParams(
+  cfg: OreConfig,
+  biome: Biome,
+): { minY: number; maxY: number; peakY: number; densityThreshold: number } {
+  const yOverride = cfg.biomeYOverride?.[biome]
+  const minY = yOverride?.minY ?? cfg.minY
+  const maxY = yOverride?.maxY ?? cfg.maxY
+  const peakY = yOverride?.peakY ?? cfg.peakY
+  const mult = cfg.biomeThresholdMultiplier?.[biome]
+  const densityThreshold = mult != null ? cfg.densityThreshold * mult : cfg.densityThreshold
+  return { minY, maxY, peakY, densityThreshold }
+}
+
+/**
  * Creates the ore feature. Runs after surface; replaces stone with ores using 3D density and triangular Y.
+ * Uses biome-specific modifiers (Vanilla 1.20: more gold in badlands, more iron/coal in mountains).
  */
 export function createOreFeature(deps: OreFeatureDeps): FeatureFn {
   const { oreDensityNoise3D } = deps
@@ -107,7 +125,8 @@ export function createOreFeature(deps: OreFeatureDeps): FeatureFn {
           const biome = biomeMap[lx][lz]
           const subsurfaceDepth = BIOME_REGISTRY[biome].blocks.subsurfaceDepth
           const stoneTop = topY - subsurfaceDepth
-          for (let ly = Math.max(1, cfg.minY); ly < stoneTop && ly <= cfg.maxY && ly < WORLD_HEIGHT; ly++) {
+          const { minY, maxY, peakY, densityThreshold } = getEffectiveOreParams(cfg, biome)
+          for (let ly = Math.max(1, minY); ly < stoneTop && ly <= maxY && ly < WORLD_HEIGHT; ly++) {
             const lk = localKey(lx, ly, lz)
             if (idToType(voxelMap[lk]) !== 'stone') continue
             const wx = worldX + lx
@@ -117,8 +136,8 @@ export function createOreFeature(deps: OreFeatureDeps): FeatureFn {
               ly * cfg.noiseScale,
               wz * cfg.noiseScale,
             )
-            const tri = triangularWeight(ly, cfg.minY, cfg.maxY, cfg.peakY)
-            if (density * tri > cfg.densityThreshold) veinCenters.push([lx, ly, lz])
+            const tri = triangularWeight(ly, minY, maxY, peakY)
+            if (density * tri > densityThreshold) veinCenters.push([lx, ly, lz])
           }
         }
       }

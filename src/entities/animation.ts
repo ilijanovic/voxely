@@ -37,6 +37,7 @@ export function updateAnimation(time: number): void {
       e.state === 'wander' || e.state === 'walk' || e.state === 'flee' || e.state === 'chase'
     const amp = moving ? BOB_AMPLITUDE_WALK : BOB_AMPLITUDE
     mesh.position.y += Math.sin(time * BOB_FREQ) * amp
-    if (e.kind === 'pig' || e.kind === 'sheep') updateQuadrupedLegs(mesh, moving, time)
+    if (e.kind === 'pig' || e.kind === 'sheep' || e.kind === 'cow' || e.kind === 'chicken' || e.kind === 'horse')
+      updateQuadrupedLegs(mesh, moving, time)
   }
 }

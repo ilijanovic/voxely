@@ -282,7 +282,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'torch',
     displayName: 'Torch',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: true,
     occludes: false,
@@ -290,7 +290,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'wall_torch_east',
     displayName: 'Wall Torch (East)',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: false,
     occludes: false,
@@ -298,7 +298,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'wall_torch_west',
     displayName: 'Wall Torch (West)',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: false,
     occludes: false,
@@ -306,7 +306,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'wall_torch_south',
     displayName: 'Wall Torch (South)',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: false,
     occludes: false,
@@ -314,7 +314,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'wall_torch_north',
     displayName: 'Wall Torch (North)',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: false,
     occludes: false,

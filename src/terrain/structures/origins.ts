@@ -5,11 +5,18 @@
 import type { Biome } from '../../types'
 import { CHUNK_SIZE } from '../../constants'
 
-const STRUCTURE_GRID_STEP = 128
+/** Distance in blocks between structure candidate cells (Minecraft-style grid). Larger = sparser structures. */
+const STRUCTURE_GRID_STEP = 160
+/** Radius in blocks around a candidate where a structure can overlap a chunk. */
 const STRUCTURE_RADIUS = 24
 const FLATNESS_CHECK_RADIUS = 2
 const MAX_HEIGHT_DEVIATION = 2
-const STRUCTURE_PLACE_CHANCE = 0.28
+/**
+ * Chance per grid cell that a structure is placed (0..1). Lower = fewer structures.
+ * Tuned so average spacing between villages/temples is on the order of ~400 blocks,
+ * closer to vanilla village/temple frequency.
+ */
+const STRUCTURE_PLACE_CHANCE = 0.16
 
 export type StructureType = 'village' | 'temple'
 

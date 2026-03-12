@@ -66,7 +66,7 @@ export function updateAI(
       e.fleeUntilTime != null &&
       time < e.fleeUntilTime &&
       distSq < FLEE_DIST_SQ &&
-      (def.behaviour === 'flee' || e.kind === 'pig')
+      (def.behaviour === 'flee' || e.kind === 'pig' || e.kind === 'cow' || e.kind === 'chicken')
     if (fleeingFromDamage) {
       e.state = 'flee'
       e.stateTime = 0

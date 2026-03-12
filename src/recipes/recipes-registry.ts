@@ -477,7 +477,16 @@ export function matchRecipe3x3(grid: (BlockType | null)[]): Match3x3 | null {
   for (const indices of QUADRANT_2X2_INDICES) {
     const subGrid2x2 = indices.map((i) => g[i])
     const match2x2 = matchRecipe2x2(subGrid2x2)
-    if (match2x2)
+    if (!match2x2) continue
+    const inQuadrant = (i: number) => i === indices[0] || i === indices[1] || i === indices[2] || i === indices[3]
+    let onlyQuadrantFilled = true
+    for (let i = 0; i < 9; i++) {
+      if (!inQuadrant(i) && g[i] != null) {
+        onlyQuadrantFilled = false
+        break
+      }
+    }
+    if (onlyQuadrantFilled)
       return {
         recipe2x2: match2x2.recipe,
         result: match2x2.result,

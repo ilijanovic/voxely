@@ -494,6 +494,8 @@ export function applyChunkPayload(
     for (const layer of payload.geometryLayers) {
       const blockType = idToType(layer.blockTypeId) as BlockType
       if (blockType === 'air') continue
+      // Torches use a custom mesh + light; skip voxel geometry for torch blocks.
+      if (blockType === 'torch' || isWallTorchBlockType(blockType)) continue
       // Keep instancing path for blocks that rely on per-instance colormap tint.
       if (
         blockType === 'grass' ||

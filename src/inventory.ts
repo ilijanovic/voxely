@@ -481,6 +481,7 @@ export function ensureSwordInHotbar(): void {
 export function initDefaultInventory(): void {
   const defaultHotbar: { type: BlockType; count: number }[] = [
     { type: DEFAULT_START_WEAPON as BlockType, count: 1 },
+    { type: 'torch', count: 8 },
     { type: 'grass', count: 1 },
     { type: 'dirt', count: 1 },
     { type: 'stone', count: 1 },
@@ -488,7 +489,6 @@ export function initDefaultInventory(): void {
     { type: 'oak_fence', count: 8 },
     { type: 'sand', count: 1 },
     { type: 'wood', count: 1 },
-    { type: 'torch', count: 5 },
   ]
   for (let i = 0; i < HOTBAR_SLOTS; i++) {
     const d = defaultHotbar[i]
@@ -497,6 +497,8 @@ export function initDefaultInventory(): void {
   for (let i = MAIN_INVENTORY_START; i < MAIN_INVENTORY_START + MAIN_INVENTORY_SLOTS; i++) {
     slots[i] = emptySlot()
   }
+  // Give fences also into main inventory so they are visible in the I-inventory grid.
+  slots[MAIN_INVENTORY_START] = { type: 'oak_fence', count: 64 }
   ensureSwordInHotbar()
   notify()
 }
