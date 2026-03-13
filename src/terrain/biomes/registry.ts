@@ -62,7 +62,7 @@ export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
  * Base land biomes that have climate bounds.
  * Ocean is selected by continentalness in terrain sampling/generation, not by climate.
  */
-const BASE_LAND_BIOMES: Biome[] = [
+export const BASE_LAND_BIOMES: Biome[] = [
   'desert',
   'plains',
   'savanna',
@@ -99,6 +99,14 @@ const BIOME_RARITY_WEIGHT: Partial<Record<Biome, number>> = {
   old_growth_taiga: 0.4,
   badlands: 0.2,
   mushroom_fields: 0.1,
+}
+
+/**
+ * Returns the rarity weight for a biome used in selection heuristics.
+ * Higher means more common (larger effective region) by dividing the distance metric.
+ */
+function getBiomeRarityWeight(biome: Biome, def: BiomeDefinition): number {
+  return def.rarityWeight ?? BIOME_RARITY_WEIGHT[biome] ?? DEFAULT_BIOME_RARITY_WEIGHT
 }
 
 const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [
@@ -146,7 +154,7 @@ export function getLandBiomeByClimate(temp: number, humidity: number): Biome {
     const def = BIOME_REGISTRY[b]
     if (!def.climate) continue
     const rawD = distSq(temp, humidity, def.climate)
-    const weight = def.rarityWeight ?? BIOME_RARITY_WEIGHT[b] ?? DEFAULT_BIOME_RARITY_WEIGHT
+    const weight = getBiomeRarityWeight(b, def)
     const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       bestD = d
@@ -184,7 +192,7 @@ export function getLandBiomeBlendByClimate(temp: number, humidity: number): Land
     const def = BIOME_REGISTRY[b]
     if (!def.climate) continue
     const rawD = distSq(temp, humidity, def.climate)
-    const weight = def.rarityWeight ?? BIOME_RARITY_WEIGHT[b] ?? DEFAULT_BIOME_RARITY_WEIGHT
+    const weight = getBiomeRarityWeight(b, def)
     const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       second = best
@@ -221,7 +229,9 @@ export function getLandBiomeByMultiNoise(point: MultiNoise6Point): Biome {
   for (const b of BASE_LAND_BIOMES) {
     const def = BIOME_REGISTRY[b]
     if (!def.multiNoise) continue
-    const d = distSqMultiNoise(point, def.multiNoise)
+    const rawD = distSqMultiNoise(point, def.multiNoise)
+    const weight = getBiomeRarityWeight(b, def)
+    const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       bestD = d
       best = b
@@ -243,7 +253,9 @@ export function getLandBiomeBlendByMultiNoise(point: MultiNoise6Point): LandBiom
   for (const b of BASE_LAND_BIOMES) {
     const def = BIOME_REGISTRY[b]
     if (!def.multiNoise) continue
-    const d = distSqMultiNoise(point, def.multiNoise)
+    const rawD = distSqMultiNoise(point, def.multiNoise)
+    const weight = getBiomeRarityWeight(b, def)
+    const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       second = best
       secondD = bestD
@@ -272,7 +284,9 @@ export function getBiomeByMultiNoise(point: MultiNoise6Point): Biome {
   let bestD = Infinity
   for (const [b, def] of Object.entries(BIOME_REGISTRY) as Array<[Biome, BiomeDefinition]>) {
     if (!def.multiNoise) continue
-    const d = distSqMultiNoise(point, def.multiNoise)
+    const rawD = distSqMultiNoise(point, def.multiNoise)
+    const weight = getBiomeRarityWeight(b, def)
+    const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       bestD = d
       best = b

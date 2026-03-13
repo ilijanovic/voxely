@@ -78,11 +78,12 @@ import {
   getBloomStrength,
   getBloomRadius,
   getBloomThreshold,
+  getFogNoiseEnabled,
 } from './graphics-settings'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
-import { syncTerrainFogFromSceneFog } from './terrain-fog'
+import { syncTerrainFogFromSceneFog, updateTerrainFogNoise } from './terrain-fog'
 import { getKeyBinding, type KeyAction } from './key-settings'
 import { initMultiplayer, updateMultiplayer, addSystemMessage } from './multiplayer'
 import { setWorldApi } from './world-api'
@@ -195,10 +196,10 @@ import {
   blockKeyNumeric,
   localKey,
   decodeLocalKey,
-  blockKeyString,
   invalidateColumnHeight,
   getBlockAt,
   getBlockModsForChunk,
+  setBlockModification,
 } from './chunk-runtime'
 import { isWaterBlock, getWaterLevel, computeWaterSpread } from './game/fluid/water-flow'
 import { isOccludingBlock as isBlockTypeOccluding } from './block-registry'
@@ -595,12 +596,12 @@ function loadGame(): boolean {
   }
 
   for (const { x, y, z } of data.removedBlocks ?? []) {
-    blockModifications.set(blockKeyString(x, y, z), 'air')
+    setBlockModification(x, y, z, 'air')
     invalidateColumnHeight(x, z)
   }
   for (const b of data.placedBlocks ?? []) {
     if (VALID_BLOCK_TYPES.has(b.type)) {
-      blockModifications.set(blockKeyString(b.x, b.y, b.z), b.type as BlockType)
+      setBlockModification(b.x, b.y, b.z, b.type as BlockType)
       invalidateColumnHeight(b.x, b.z)
     }
   }
@@ -971,7 +972,7 @@ function applyBlockChangeToLoadedChunk(params: {
       // Pop off: remove torch mesh + torch block, drop item.
       const ctx = getChunkSyncCtx()
       removeTorchAt({ bx: tx, by: ty, bz: tz, torchContainer: ctx.torchContainer, placedTorches: ctx.placedTorches })
-      blockModifications.set(blockKeyString(tx, ty, tz), 'air')
+      setBlockModification(tx, ty, tz, 'air')
       applyBlockChangeToLoadedChunk({
         bx: tx,
         by: ty,
@@ -1044,7 +1045,7 @@ function breakBlock(
   // Only fill with water when this column is under ocean/lake (surface below water level), not when digging on land.
   const surfaceUnderwater = getHeight(worldX, worldZ) < WATER_LEVEL
   if (shouldFillBrokenBlockWithWater(worldY) && surfaceUnderwater) {
-    blockModifications.set(blockKeyString(worldX, worldY, worldZ), 'water_source')
+    setBlockModification(worldX, worldY, worldZ, 'water_source')
     applyBlockChangeToLoadedChunk({
       bx: worldX,
       by: worldY,
@@ -1113,7 +1114,7 @@ function placeTorch(
   const support = getBlockAt(supportX, supportY, supportZ)
   if (!canSupportTorch(support, preferredNormal)) return false
 
-  blockModifications.set(blockKeyString(bx, by, bz), torchBlockType)
+  setBlockModification(bx, by, bz, torchBlockType)
   applyBlockChangeToLoadedChunk({ bx, by, bz, next: torchBlockType })
 
   // Also place the custom mesh/light immediately (chunk refresh will keep it in sync).
@@ -2079,6 +2080,14 @@ const waterHorizontalSpeedFactor = 0.51 // ~Minecraft surface speed vs walk
 /** Max vertical speed in water (clamp for smoother feel). */
 const waterVerticalSpeedCap = 2.8
 
+// Fly (Creative-like): world units per second, frame-rate independent
+/** Double-tap jump window for toggling fly. */
+const DOUBLE_TAP_JUMP_WINDOW_MS = 260
+const flySpeed = 7.2
+const flySpeedSprint = 10.8
+const flyUpSpeed = 6.5
+const flyDownSpeed = 6.5
+
 // ================= PHYSICS (all per-second for frame-rate independence) =================
 
 let velocityY = 0
@@ -2086,6 +2095,10 @@ let velocityX = 0
 let velocityZ = 0
 /** Set each frame from resolveVoxelCollisions result; used for jump (Space) and next-frame friction/air control. */
 let playerGrounded = false
+/** When true, movement uses Creative-like fly controls (no gravity; collision still applies). */
+let isFlying = false
+/** Last non-repeat jump keydown time; used for double-tap fly toggle. */
+let lastJumpPressTime = 0
 /** When DEBUG_COLLISION is true: skip this many frames before logging again (avoids console flood). */
 let debugCollisionLogCooldown = 0
 /** Gesetzt bei Space keydown; wird zu Beginn des nächsten Frames ausgewertet, damit der Sprung sofort in der Physik ankommt. */
@@ -2206,7 +2219,24 @@ document.addEventListener('keydown', (e) => {
   if (code === getKeyBinding('jump')) {
     if (!e.repeat) {
       jumpRequested = true
-      if (playerGrounded && !isPlayerInWater()) velocityY = jumpForce
+      const inWater = isPlayerInWater()
+      const now = performance.now()
+      const withinDoubleTapWindow =
+        lastJumpPressTime > 0 && now - lastJumpPressTime < DOUBLE_TAP_JUMP_WINDOW_MS
+
+      // Creative-like fly toggle: only when in air (not grounded) and not in water.
+      if (!inWater && !playerGrounded && withinDoubleTapWindow) {
+        isFlying = !isFlying
+        if (isFlying) {
+          // Stop falling immediately and avoid an instant upward impulse.
+          velocityY = 0
+          jumpRequested = false
+        }
+      } else if (!isFlying && playerGrounded && !inWater) {
+        velocityY = jumpForce
+      }
+
+      lastJumpPressTime = now
     }
     e.preventDefault()
     return
@@ -2416,6 +2446,7 @@ function isPlayerInWater(): boolean {
 function updateMovementAndCollision(dt: number, time: number): void {
   const inWater = isPlayerInWater()
   isSprinting = moveState.forward && !sneakKeyHeld && (sprintKeyHeld || doubleTapSprint)
+  const isFlyingThisFrame = isFlying && !inWater
   let speed = sneakKeyHeld ? sneakSpeed : isSprinting ? sprintSpeed : moveSpeed
   let backSpeed = sneakKeyHeld ? sneakSpeed : moveSpeed
   let maxSpeed = sneakKeyHeld
@@ -2427,6 +2458,11 @@ function updateMovementAndCollision(dt: number, time: number): void {
     speed *= waterHorizontalSpeedFactor
     backSpeed *= waterHorizontalSpeedFactor
     maxSpeed *= waterHorizontalSpeedFactor
+  }
+  if (isFlyingThisFrame) {
+    speed = isSprinting ? flySpeedSprint : flySpeed
+    backSpeed = speed
+    maxSpeed = speed
   }
 
   // POV-FOV: beim Sprint etwas zoomen (größeres FOV = schnellerer Eindruck)
@@ -2499,7 +2535,7 @@ function updateMovementAndCollision(dt: number, time: number): void {
       }
     }
   } else {
-    if (jumpRequested && playerGrounded) {
+    if (!isFlyingThisFrame && jumpRequested && playerGrounded) {
       velocityY = jumpForce
       jumpRequested = false
     }
@@ -2507,26 +2543,34 @@ function updateMovementAndCollision(dt: number, time: number): void {
 
   const onGround = playerGrounded
 
-  if (onGround) {
+  if (isFlyingThisFrame) {
     velocityX = wishX
     velocityZ = wishZ
-    if (wishX === 0 && wishZ === 0) {
-      velocityX *= Math.pow(groundFriction, dt)
-      velocityZ *= Math.pow(groundFriction, dt)
-    }
+    if (jumpRequested) velocityY = flyUpSpeed
+    else if (sneakKeyHeld) velocityY = -flyDownSpeed
+    else velocityY = 0
   } else {
-    velocityX += wishX * airControl * dt
-    velocityZ += wishZ * airControl * dt
-    const len = Math.sqrt(velocityX * velocityX + velocityZ * velocityZ)
-    if (len > maxSpeed) {
-      const s = maxSpeed / len
-      velocityX *= s
-      velocityZ *= s
+    if (onGround) {
+      velocityX = wishX
+      velocityZ = wishZ
+      if (wishX === 0 && wishZ === 0) {
+        velocityX *= Math.pow(groundFriction, dt)
+        velocityZ *= Math.pow(groundFriction, dt)
+      }
+    } else {
+      velocityX += wishX * airControl * dt
+      velocityZ += wishZ * airControl * dt
+      const len = Math.sqrt(velocityX * velocityX + velocityZ * velocityZ)
+      if (len > maxSpeed) {
+        const s = maxSpeed / len
+        velocityX *= s
+        velocityZ *= s
+      }
     }
   }
 
   // Apply gravity only when not grounded and not in water (water has its own vertical behaviour)
-  if (!playerGrounded && !inWater) {
+  if (!isFlyingThisFrame && !playerGrounded && !inWater) {
     velocityY += gravity * dt
     if (velocityY < terminalVelocity) velocityY = terminalVelocity
   }
@@ -2938,12 +2982,9 @@ function runBlockTick(time: number): void {
       next: `wheat_${stage + 1}` as BlockType,
     })
   }
-  for (const { keyStr, bx, next } of changes) {
-    blockModifications.set(keyStr, next)
-    const parts = keyStr.split(',')
-    const by = Number(parts[1])
-    const bz2 = Number(parts[2])
-    applyBlockChangeToLoadedChunk({ bx, by, bz: bz2, next })
+  for (const { bx, by, bz, next } of changes) {
+    setBlockModification(bx, by, bz, next)
+    applyBlockChangeToLoadedChunk({ bx, by, bz, next })
   }
 }
 
@@ -3007,8 +3048,7 @@ function runWaterFlowTick(time: number): void {
   })
 
   for (const { bx, by, bz, value } of changes) {
-    const keyStr = blockKeyString(bx, by, bz)
-    blockModifications.set(keyStr, value)
+    setBlockModification(bx, by, bz, value)
     applyBlockChangeToLoadedChunk({ bx, by, bz, next: value })
   }
 }
@@ -3054,8 +3094,7 @@ function runWaterSpreadFromNeighbors(bx: number, by: number, bz: number): void {
   })
 
   for (const { bx: cx, by: cy, bz: cz, value } of changes) {
-    const keyStr = blockKeyString(cx, cy, cz)
-    blockModifications.set(keyStr, value)
+    setBlockModification(cx, cy, cz, value)
     applyBlockChangeToLoadedChunk({ bx: cx, by: cy, bz: cz, next: value })
   }
 }
@@ -3250,10 +3289,10 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
           const below = getBlockAt(useBx, useBy - 1, useBz)
           const isDoor = (t: string | null) => t === 'door_closed' || t === 'door_open'
           const otherBy = isDoor(above) ? useBy + 1 : isDoor(below) ? useBy - 1 : null
-          blockModifications.set(blockKeyString(useBx, useBy, useBz), next)
+          setBlockModification(useBx, useBy, useBz, next)
           applyBlockChangeToLoadedChunk({ bx: useBx, by: useBy, bz: useBz, next })
           if (otherBy !== null) {
-            blockModifications.set(blockKeyString(useBx, otherBy, useBz), next)
+            setBlockModification(useBx, otherBy, useBz, next)
             applyBlockChangeToLoadedChunk({ bx: useBx, by: otherBy, bz: useBz, next })
           }
         } else if (useBlock === 'crafting_table') {
@@ -3304,7 +3343,6 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             const py = player.position.y
             const pz = player.position.z
             const at = getBlockAt(adjX, adjY, adjZ)
-            const keyStr = blockKeyString(adjX, adjY, adjZ)
             const blockOverlapsEntity = blockCellOverlapsAnyEntity(adjX, adjY, adjZ)
 
             /**
@@ -3392,8 +3430,8 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                   torchContainer: ctx.torchContainer,
                   placedTorches: ctx.placedTorches,
                 })
-                blockModifications.set(blockKeyString(adjX, adjY, adjZ), 'door_closed')
-                blockModifications.set(blockKeyString(adjX, adjY + 1, adjZ), 'door_closed')
+                setBlockModification(adjX, adjY, adjZ, 'door_closed')
+                setBlockModification(adjX, adjY + 1, adjZ, 'door_closed')
                 applyBlockChangeToLoadedChunk({
                   bx: adjX,
                   by: adjY,
@@ -3445,7 +3483,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                 torchContainer: ctx.torchContainer,
                 placedTorches: ctx.placedTorches,
               })
-              blockModifications.set(keyStr, blockToPlace)
+              setBlockModification(adjX, adjY, adjZ, blockToPlace)
               applyBlockChangeToLoadedChunk({
                 bx: adjX,
                 by: adjY,
@@ -3576,6 +3614,9 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
  * Updates shadow camera to player, recomputes chunk frustum visibility when camera or chunks changed, applies bloom params from time of day, then renders (with or without post-processing).
  */
 function updateShadowAndRender(dt: number): void {
+  if (getFogNoiseEnabled()) {
+    updateTerrainFogNoise(camera)
+  }
   updateShadowCameraForPlayer(sunLight, player.position, getSunDirection(), SUN_DISTANCE)
 
   if (!camera.matrixWorld.equals(_lastCameraMatrixWorld)) {

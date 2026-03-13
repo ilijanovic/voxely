@@ -27,7 +27,7 @@ export const CONTINENTALNESS_VANILLA_MAX = 1
 export const OCEAN_CONTINENTALNESS_THRESHOLD = -0.19
 
 /** Width of ocean/land blend in continentalness space; wider band softens coast height edges. */
-export const COAST_BLEND_BAND = 0.1
+export const COAST_BLEND_BAND = 0.12
 
 /** Radius (blocks) around world origin (0,0) where climate is biased toward forest. */
 export const SPAWN_ORIGIN_FOREST_RADIUS = 64
@@ -51,24 +51,24 @@ export const CLIMATE_WARP_AMP = 42
 /** Erosion noise and terrain jaggedness. */
 export const EROSION_SCALE = CLIMATE_PARAM_SCALE
 export const EROSION_AMPLITUDE = 7
-export const EROSION_DETAIL_BOOST_MAX = 1.65
+export const EROSION_DETAIL_BOOST_MAX = 1.5
 /** Erosion signed <= this starts boosting detail (jaggedness). */
 export const EROSION_JAGGEDNESS_START = 0.25
 
 /** Mountain mask and height contribution. */
-export const MOUNTAIN_MASK_SCALE = 0.003
+export const MOUNTAIN_MASK_SCALE = 0.0022
 export const MOUNTAIN_HEIGHT_SCALE = 0.008
-export const MOUNTAIN_AMPLITUDE = 24
-export const MOUNTAIN_THRESHOLD = 0.3
+export const MOUNTAIN_AMPLITUDE = 28
+export const MOUNTAIN_THRESHOLD = 0.38
 /** Width of smooth transition from no mountain to full mountain contribution. */
-export const MOUNTAIN_TRANSITION_WIDTH = 0.12
-export const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.1
-export const SNOW_BIOME_HEIGHT_BOOST = 4.5
+export const MOUNTAIN_TRANSITION_WIDTH = 0.18
+export const MOUNTAIN_BIOME_HEIGHT_BOOST = 1.8
+export const SNOW_BIOME_HEIGHT_BOOST = 3.2
 
 /** Weirdness dimension for ridges. Vanilla uses [-2, 2]; we scale raw noise by this. */
 export const WEIRDNESS_SCALE = 0.0016
 export const WEIRDNESS_VANILLA_RANGE_SCALE = 2
-export const WEIRDNESS_RIDGE_AMP = 6
+export const WEIRDNESS_RIDGE_AMP = 4.5
 
 /** Highland band thresholds (height above water). */
 export const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10

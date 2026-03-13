@@ -32,6 +32,7 @@ import {
   decodeLocalKey,
   invalidateColumnHeight,
   getBlockAt,
+  setBlockModification,
 } from '../../chunk-runtime'
 import { filterVisibleBlocks as filterVisibleBlocksPure } from './visible-blocks'
 import {
@@ -652,8 +653,7 @@ export function breakBlock(
     chunks,
     getLayerPositions,
     isUnbreakableBlock,
-    blockModifications,
-    blockKeyString,
+    setBlockModification,
     invalidateColumnHeight,
     localKey,
     chunkSize: CHUNK_SIZE,
@@ -956,7 +956,7 @@ export function tryUpdateSnowAccumulation(
     if (BLOCKS_SNOW_CAN_LAY_ON.has(topType) && (above === null || above === 'air')) {
       const ny = topY + 1
       const newType: BlockType = 'snow_layer_1'
-      blockModifications.set(blockKeyString(bx, ny, bz), newType)
+      setBlockModification(bx, ny, bz, newType)
       const lk = localKey(lx, ny - WORLD_MIN_Y, lz)
       data.voxelMap.set(lk, newType)
       invalidateColumnHeight(bx, bz)
@@ -968,7 +968,7 @@ export function tryUpdateSnowAccumulation(
     if (snowLayerMatch != null) {
       const k = parseInt(snowLayerMatch[1], 10)
       const newType = `snow_layer_${k + 1}` as BlockType
-      blockModifications.set(blockKeyString(bx, topY, bz), newType)
+      setBlockModification(bx, topY, bz, newType)
       const lk = localKey(lx, topY - WORLD_MIN_Y, lz)
       data.voxelMap.set(lk, newType)
       invalidateColumnHeight(bx, bz)

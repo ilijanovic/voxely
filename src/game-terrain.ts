@@ -2,8 +2,8 @@
  * Terrain sampling, biomes, spawn search, and tree generation for the main thread.
  * Uses chunk-runtime for height cache and block lookup; no THREE scene dependency.
  */
-import * as THREE from 'three'
 import { createNoise2D, createNoise3D } from 'simplex-noise'
+import { noise2DSeeded } from './game/noise-improved'
 import type { BlockType, TreeNoiseCaches } from './types'
 import type { Biome } from './types'
 import {
@@ -18,10 +18,7 @@ import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from './block-regist
 import { createTerrainSampling } from './terrain-sampling'
 import { getPoiBiomeOverride, getActivePois } from './world-pois'
 import { BIOME_REGISTRY } from './terrain/biomes'
-import {
-  MOUNTAIN_STONE_SURFACE_HEIGHT,
-  SURFACE_STONE_HEIGHT,
-} from './terrain/surface-constants'
+import { MOUNTAIN_STONE_SURFACE_HEIGHT, SURFACE_STONE_HEIGHT } from './terrain/surface-constants'
 import { resolveSurfaceBlock } from './terrain/surface-resolver'
 import {
   FOREST_DENSITY_SCALE,
@@ -59,19 +56,59 @@ export { MOUNTAIN_STONE_SURFACE_HEIGHT, SURFACE_STONE_HEIGHT }
 
 const WORLD_SEED_KEY = 'voxel-world-seed'
 
-/** Reads world seed from localStorage or generates and persists a new one so reloads keep the same terrain. */
+/**
+ * Clamps a numeric value into the inclusive [min, max] range.
+ *
+ * @param value - Input value
+ * @param min - Minimum allowed value
+ * @param max - Maximum allowed value
+ * @returns Clamped value
+ */
+function clamp(value: number, min: number, max: number): number {
+  if (value < min) return min
+  if (value > max) return max
+  return value
+}
+
+/**
+ * Reads the world seed from a well-defined override and falls back to localStorage.
+ *
+ * Order of precedence:
+ * - Explicit numeric override on window.__VOXELY_WORLD_SEED (for server / debug tools)
+ * - Stored value in localStorage (keeps terrain stable across reloads on the same client)
+ * - Fresh pseudo-random seed, which is then persisted to localStorage
+ *
+ * This keeps the generator deterministic for a given seed while allowing external
+ * systems (e.g. a multiplayer server) to provide a global seed without changing
+ * the terrain pipeline contract.
+ *
+ * @returns Deterministic world seed for this client
+ */
 function getOrCreateWorldSeed(): number {
-  const stored = localStorage.getItem(WORLD_SEED_KEY)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const maybeGlobal = (globalThis as any).__VOXELY_WORLD_SEED
+  if (typeof maybeGlobal === 'number' && Number.isFinite(maybeGlobal)) {
+    return maybeGlobal
+  }
+
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(WORLD_SEED_KEY) : null
   if (stored != null) {
     const n = parseInt(stored, 10)
     if (Number.isFinite(n)) return n
   }
+
   const seed = (Date.now() >>> 0) ^ ((Math.random() * 0xffffffff) >>> 0)
-  localStorage.setItem(WORLD_SEED_KEY, String(seed))
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(WORLD_SEED_KEY, String(seed))
+    } catch {
+      // Ignore persistence failures (private mode, disabled storage, quota exceeded)
+    }
+  }
   return seed
 }
 
-/** World seed: persisted so reloads keep same terrain; new session gets new seed. */
+/** World seed: deterministic for a given seed, persisted per client unless overridden globally. */
 export const WORLD_SEED = getOrCreateWorldSeed()
 
 const terrainSampling = createTerrainSampling(WORLD_SEED)
@@ -81,6 +118,21 @@ const forestDensityNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 777))
 const treePlacementNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 888))
 const treeShapeNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 999))
 const detailNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 456))
+
+/** When true, use Three.js ImprovedNoise (Perlin) for detail noise instead of Simplex; allows comparing the two. */
+const USE_IMPROVED_NOISE_FOR_DETAIL = false
+
+const DETAIL_NOISE_SEED = WORLD_SEED + 456
+
+/**
+ * Detail noise for surface dither and frozen_peaks/badlands; same signature as Simplex 2D (returns approx. [-1, 1]).
+ * When USE_IMPROVED_NOISE_FOR_DETAIL is true, uses Three.js ImprovedNoise (Perlin) for this channel.
+ */
+function getDetailNoise2D(x: number, z: number): number {
+  return USE_IMPROVED_NOISE_FOR_DETAIL
+    ? noise2DSeeded(x, z, DETAIL_NOISE_SEED)
+    : detailNoise2D(x, z)
+}
 
 /** 3D cave noise (same seed as terrain pipeline). Used only for debug spawn above cave. */
 const caveNoise3D = createNoise3D(makeSeededRandom(WORLD_SEED + 400))
@@ -114,7 +166,7 @@ export function getHeight(x: number, z: number): number {
   if (cached !== undefined) return cached
 
   const h = terrainSampling.getSmoothedHeight(x, z)
-  const result = Math.floor(THREE.MathUtils.clamp(h, WORLD_MIN_Y, WORLD_MAX_Y))
+  const result = Math.floor(clamp(h, WORLD_MIN_Y, WORLD_MAX_Y))
   columnHeightCache.set(key, result)
   return result
 }
@@ -212,13 +264,7 @@ const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
 const SPAWN_OCEAN_BUFFER_CHUNKS = 5
 
 /** Biomes that count as snow for grass → grass_snow neighbor rule. Must match terrain worker. */
-const SNOW_BIOMES: Biome[] = [
-  'snow',
-  'grove',
-  'snowy_slopes',
-  'frozen_peaks',
-  'jagged_peaks',
-]
+const SNOW_BIOMES: Biome[] = ['snow', 'grove', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks']
 
 /** Max cardinal height delta for slope (cliff) detection. */
 function getMaxSlopeDelta(x: number, z: number): number {
@@ -238,28 +284,28 @@ export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: nu
   const blend = terrainSampling.getBiomeBlend(wx, wz)
   const slope = getMaxSlopeDelta(wx, wz)
   const ditherNoiseCoast =
-    (detailNoise2D(
+    (getDetailNoise2D(
       wx * SURFACE_DITHER_COAST_SCALE + SURFACE_DITHER_COAST_OFFSET_X,
       wz * SURFACE_DITHER_COAST_SCALE + SURFACE_DITHER_COAST_OFFSET_Z,
     ) +
       1) *
     0.5
   const ditherNoiseLand =
-    (detailNoise2D(
+    (getDetailNoise2D(
       wx * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_X,
       wz * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_Z,
     ) +
       1) *
     0.5
   const frozenPeaksNoiseN =
-    (detailNoise2D(
+    (getDetailNoise2D(
       wx * SURFACE_FROZEN_PEAKS_N_SCALE + SURFACE_FROZEN_PEAKS_N_OFFSET_X,
       wz * SURFACE_FROZEN_PEAKS_N_SCALE + SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
     ) +
       1) *
     0.5
   const frozenPeaksNoiseBlob =
-    (detailNoise2D(
+    (getDetailNoise2D(
       wx * SURFACE_FROZEN_PEAKS_BLOB_SCALE + SURFACE_FROZEN_PEAKS_BLOB_OFFSET_X,
       wz * SURFACE_FROZEN_PEAKS_BLOB_SCALE + SURFACE_FROZEN_PEAKS_BLOB_OFFSET_Z,
     ) +
@@ -279,7 +325,7 @@ export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: nu
   }
   const badlandsBandNoise =
     biome === 'badlands'
-      ? (detailNoise2D(
+      ? (getDetailNoise2D(
           wx * BADLANDS_BAND_SCALE_XZ + topY * BADLANDS_BAND_SCALE_Y,
           wz * BADLANDS_BAND_SCALE_XZ,
         ) +
@@ -318,8 +364,7 @@ function isBiomeSolid(wx: number, wz: number, biome: Biome): boolean {
 function hasOceanNearby(wx: number, wz: number, bufferChunks: number): boolean {
   for (let dcx = -bufferChunks; dcx <= bufferChunks; dcx++) {
     for (let dcz = -bufferChunks; dcz <= bufferChunks; dcz++) {
-      if (getResolvedBiome(wx + dcx * CHUNK_SIZE, wz + dcz * CHUNK_SIZE) === 'ocean')
-        return true
+      if (getResolvedBiome(wx + dcx * CHUNK_SIZE, wz + dcz * CHUNK_SIZE) === 'ocean') return true
     }
   }
   return false
@@ -700,7 +745,10 @@ export function getTreeBlocks(
           leafDistSq(dx, y - canopyCenterY, dz) > maxLeafDistSq
         )
           continue
-        if (!(dx === 0 && dz === 0) && leafNoiseValue(wx + shapeOx, wz + shapeOz, dx, dy, dz) > effectiveLeafDensity) {
+        if (
+          !(dx === 0 && dz === 0) &&
+          leafNoiseValue(wx + shapeOx, wz + shapeOz, dx, dy, dz) > effectiveLeafDensity
+        ) {
           continue
         }
         leaves.push({ x: wx + dx, y, z: wz + dz })

@@ -18,6 +18,9 @@ export const chunks = new Map<number, ChunkData>()
 export const blockModifications = new Map<string, BlockType | 'air'>()
 export const columnHeightCache = new Map<number, number>()
 
+/** Block modifications indexed by chunk key for fast worker requests (no global scan). */
+const blockModsByChunkKeyNum = new Map<number, Map<string, BlockModEntry>>()
+
 export function chunkKey(cx: number, cz: number): string {
   return `${cx},${cz}`
 }
@@ -63,6 +66,55 @@ export function blockKeyFromNumeric(k: number): { bx: number; by: number; bz: nu
 
 export function blockKeyString(bx: number, by: number, bz: number): string {
   return `${Math.floor(bx)},${Math.floor(by)},${Math.floor(bz)}`
+}
+
+/**
+ * Sets or overwrites a block modification at the given integer cell.
+ * Also updates the per-chunk index used by getBlockModsForChunk.
+ */
+export function setBlockModification(bx: number, by: number, bz: number, value: BlockType | 'air'): void {
+  const x = Math.floor(bx)
+  const y = Math.floor(by)
+  const z = Math.floor(bz)
+  const keyStr = blockKeyString(x, y, z)
+  blockModifications.set(keyStr, value)
+  const cx = Math.floor(x / CHUNK_SIZE)
+  const cz = Math.floor(z / CHUNK_SIZE)
+  const chunkKeyNum = chunkKeyNumeric(cx, cz)
+  let byChunk = blockModsByChunkKeyNum.get(chunkKeyNum)
+  if (!byChunk) {
+    byChunk = new Map<string, BlockModEntry>()
+    blockModsByChunkKeyNum.set(chunkKeyNum, byChunk)
+  }
+  byChunk.set(keyStr, { bx: x, by: y, bz: z, value })
+}
+
+/**
+ * Removes a block modification override at the given integer cell (reverts to generated chunk data).
+ * Also updates the per-chunk index used by getBlockModsForChunk.
+ */
+export function deleteBlockModification(bx: number, by: number, bz: number): void {
+  const x = Math.floor(bx)
+  const y = Math.floor(by)
+  const z = Math.floor(bz)
+  const keyStr = blockKeyString(x, y, z)
+  blockModifications.delete(keyStr)
+  const cx = Math.floor(x / CHUNK_SIZE)
+  const cz = Math.floor(z / CHUNK_SIZE)
+  const chunkKeyNum = chunkKeyNumeric(cx, cz)
+  const byChunk = blockModsByChunkKeyNum.get(chunkKeyNum)
+  if (!byChunk) return
+  byChunk.delete(keyStr)
+  if (byChunk.size === 0) blockModsByChunkKeyNum.delete(chunkKeyNum)
+}
+
+/**
+ * Clears all block modifications and their chunk index.
+ * Intended for tests and full world resets.
+ */
+export function clearBlockModifications(): void {
+  blockModifications.clear()
+  blockModsByChunkKeyNum.clear()
 }
 
 export function invalidateColumnHeight(bx: number, bz: number): void {
@@ -153,14 +205,43 @@ export function isSolidBlockLoadedOnly(
 }
 
 export function getBlockModsForChunk(chunkX: number, chunkZ: number): BlockModEntry[] {
-  const entries: BlockModEntry[] = []
-  for (const [strKey, value] of blockModifications) {
-    const parts = strKey.split(',')
-    const bx = Number(parts[0])
-    const by = Number(parts[1])
-    const bz = Number(parts[2])
-    if (Math.floor(bx / CHUNK_SIZE) !== chunkX || Math.floor(bz / CHUNK_SIZE) !== chunkZ) continue
-    entries.push({ bx, by, bz, value })
+  const keyNum = chunkKeyNumeric(chunkX, chunkZ)
+  const byChunk = blockModsByChunkKeyNum.get(keyNum)
+  if (byChunk && byChunk.size > 0) return Array.from(byChunk.values())
+
+  // Backward-compatible fallback: some call sites/tests may mutate `blockModifications` directly
+  // without using setBlockModification(), which bypasses the per-chunk index.
+  const out: BlockModEntry[] = []
+  const x0 = chunkX * CHUNK_SIZE
+  const z0 = chunkZ * CHUNK_SIZE
+  const x1 = x0 + CHUNK_SIZE
+  const z1 = z0 + CHUNK_SIZE
+
+  for (const [k, value] of blockModifications) {
+    const parsed = parseBlockKeyString(k)
+    if (!parsed) continue
+    if (parsed.bx >= x0 && parsed.bx < x1 && parsed.bz >= z0 && parsed.bz < z1) {
+      out.push({ bx: parsed.bx, by: parsed.by, bz: parsed.bz, value })
+    }
   }
-  return entries
+
+  return out
+}
+
+/**
+ * Parses a `blockKeyString()` value back into coordinates.
+ *
+ * @param key - Key in the form "bx,by,bz"
+ * @returns Parsed coordinates or null when invalid
+ */
+function parseBlockKeyString(key: string): { bx: number; by: number; bz: number } | null {
+  const a = key.indexOf(',')
+  if (a < 0) return null
+  const b = key.indexOf(',', a + 1)
+  if (b < 0) return null
+  const bx = Number(key.slice(0, a))
+  const by = Number(key.slice(a + 1, b))
+  const bz = Number(key.slice(b + 1))
+  if (!Number.isFinite(bx) || !Number.isFinite(by) || !Number.isFinite(bz)) return null
+  return { bx, by, bz }
 }

@@ -1,0 +1,61 @@
+---
+description: Assistant workflow: when to ask clarifying questions, when to confirm understanding, and safe defaults for changes in this repo
+alwaysApply: true
+---
+
+# Assistant workflow (Voxely)
+
+This rule defines **how the assistant should operate** in this repository: when to ask clarifying questions, when to confirm understanding, what safe defaults are allowed, and what counts as risky work.
+
+## Core behavior
+
+- **Be concise and actionable.** Prefer short, high-signal updates and keep the work moving.
+- **Confirm understanding only when it helps.** Do a brief paraphrase when requirements are ambiguous or the change is risky; otherwise proceed.
+- **Ask at most 1–2 targeted questions** when blocked. Prefer multiple-choice questions when possible.
+- **Prefer existing systems and patterns** over inventing new architecture.
+
+## When to ask clarifying questions (balanced policy)
+
+Ask clarifying questions **before editing** when any of the following are true:
+
+- **Ambiguity that changes the outcome** (multiple valid implementations, unclear acceptance criteria, unclear scope).
+- **Risky or irreversible operations** (data loss, save format changes, large refactors, deleting assets/files, broad API/contract changes).
+- **Cross-cutting changes** (touching many systems: terrain ↔ worker ↔ runtime ↔ rendering ↔ save/load).
+- **Performance or correctness sensitive areas** where the target metric is unclear (FPS goals, render distance targets, memory budgets).
+- **User asks for “Minecraft-like” behavior** but the exact interpretation matters (e.g. mining speed, drop tables, biome sizes, spawn rules).
+
+Do **not** ask when the request is clear and low-risk; proceed with reasonable defaults and state them.
+
+## When to confirm understanding
+
+Add a 1–2 sentence confirmation (paraphrase) when:
+
+- You asked a clarifying question and got an answer.
+- The change affects a **contract boundary** or core gameplay feel.
+- The request is broad but you can sensibly de-scope (state what you will and won’t do).
+
+Skip confirmation for small, localized edits (single file, obvious intent, no API/contract changes).
+
+## Safe defaults the assistant may assume
+
+- **No git commits unless asked.** If the user asks to commit, follow `.cursor/rules/git-commit.mdc`.
+- **Keep terrain pure.** `src/terrain/**` must not depend on `THREE` or DOM; keep it deterministic/serializable.
+- **Respect contract boundaries.** Treat the chunk payload shape as a contract between terrain ↔ worker ↔ runtime (`terrain-core.ts` ↔ `chunk-worker-handler.ts` ↔ `chunk.worker.ts` ↔ `game.ts`).
+- **Prefer tests for logic changes.** When touching pure logic, add/update Vitest tests and keep them deterministic.
+- **English in code and docs.** Follow `.cursor/rules/english.mdc` for comments/docs/user-facing text.
+- **JSDoc for every function.** Follow `.cursor/rules/function-docs-and-style.mdc`.
+
+## Routing (where to look first)
+
+- **“Where is X?” / navigation**: start with `docs/PROJECT_MAP.md`, then `.cursor/rules/project-structure.mdc`.
+- **Worldgen / terrain / biomes**: `docs/SYSTEMS_OVERVIEW.md` → `src/terrain/**`. For biome edits use `.cursor/skills/biome-integration-assistant` and `.cursor/rules/terrain-biome-integrity.mdc`.
+- **Chunk runtime / worker contract**: `src/terrain-core.ts`, `src/chunk-worker-handler.ts`, `src/chunk.worker.ts`, `src/chunk-runtime.ts`, `src/game.ts`.
+- **Gameplay interactions (mining/placing/drops)**: `src/game/world-interactions/**`.
+- **Entities / spawns**: `src/entities/**` and the spawn docs in `docs/SYSTEMS_OVERVIEW.md`.
+- **Rendering, fog, materials**: `src/game/init/**`, `src/terrain-fog.ts`, `src/block-materials.ts`.
+
+## Definition of “done”
+
+- The change matches the user request and stated defaults.
+- Contract boundaries remain valid (or are updated consistently across all touch points).
+- Tests relevant to the change are updated and pass (when applicable).

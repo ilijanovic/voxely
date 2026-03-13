@@ -7,6 +7,7 @@ import type { Biome } from '../../types'
 import { BIOME_TERRAIN, BIOME_LAYERS } from './index'
 import {
   BIOME_REGISTRY,
+  BASE_LAND_BIOMES,
   getBiomeByMultiNoise,
   getLandBiomeBlendByClimate,
   getLandBiomeBlendByMultiNoise,
@@ -32,20 +33,6 @@ const ALL_BIOMES: Biome[] = [
   'windswept_hills',
   'windswept_gravelly_hills',
   'windswept_forest',
-  'badlands',
-  'mushroom_fields',
-  'mangrove_swamp',
-  'old_growth_taiga',
-]
-
-const BASE_LAND_BIOMES: Biome[] = [
-  'desert',
-  'plains',
-  'savanna',
-  'forest',
-  'jungle',
-  'mountain',
-  'snow',
   'badlands',
   'mushroom_fields',
   'mangrove_swamp',
@@ -247,5 +234,63 @@ describe('getLandBiomeBlendByMultiNoise', () => {
         expect(out.secondary).not.toBe('ocean')
       }
     }
+  })
+})
+
+/**
+ * Creates a deterministic pseudo-random generator for test sampling.
+ * This avoids flaky tests while still probing a broad range of multi-noise space.
+ */
+function createTestRng(seed: number): () => number {
+  // LCG parameters (Numerical Recipes): fast, deterministic, good enough for tests.
+  const MOD = 0x100000000
+  const MUL = 1664525
+  const INC = 1013904223
+  let state = seed >>> 0
+  return () => {
+    state = (Math.imul(state, MUL) + INC) >>> 0
+    return state / MOD
+  }
+}
+
+/** Maps a [0,1) random value into [min, max]. */
+function randRange(r: number, min: number, max: number): number {
+  return min + r * (max - min)
+}
+
+describe('multi-noise rarity weighting', () => {
+  it('makes common land biomes more frequent than rare ones in typical inland sampling', () => {
+    const rng = createTestRng(123456)
+    const SAMPLE_COUNT = 250
+
+    const common: Biome[] = ['plains', 'forest', 'desert', 'savanna', 'mountain', 'snow']
+    const rare: Biome[] = [
+      'jungle',
+      'badlands',
+      'mushroom_fields',
+      'mangrove_swamp',
+      'old_growth_taiga',
+    ]
+
+    const counts = new Map<Biome, number>()
+    for (let i = 0; i < SAMPLE_COUNT; i++) {
+      const b = getLandBiomeByMultiNoise({
+        // Keep samples in a "typical inland land" region; ocean selection is elsewhere.
+        continentalness: randRange(rng(), 0.05, 0.95),
+        erosion: randRange(rng(), -1, 1),
+        temperature: randRange(rng(), -1, 1),
+        humidity: randRange(rng(), -1, 1),
+        weirdness: randRange(rng(), -1, 1),
+        y: randRange(rng(), 0.2, 0.35),
+      })
+      counts.set(b, (counts.get(b) ?? 0) + 1)
+    }
+
+    const sum = (biomes: Biome[]) => biomes.reduce((acc, b) => acc + (counts.get(b) ?? 0), 0)
+    const commonCount = sum(common)
+    const rareCount = sum(rare)
+
+    // Not an exact distribution assertion; just ensures rarity weighting has the intended direction.
+    expect(commonCount).toBeGreaterThan(rareCount)
   })
 })

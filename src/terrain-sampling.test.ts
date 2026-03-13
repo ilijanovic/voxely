@@ -251,3 +251,29 @@ describe('pipeline vs terrain-sampling height parity (worker/sync contract)', ()
     }
   })
 })
+
+/**
+ * Worker vs main-thread contract for biome resolution.
+ * For the same seed and (x, z), the resolved biome from the pipeline generator and
+ * from terrain-sampling should agree when using the same height function.
+ */
+describe('pipeline vs terrain-sampling biome parity', () => {
+  const SEED = 4242
+
+  it('getResolvedBiome matches terrain-sampling for typical positions', () => {
+    const gen = createChunkGenerator(SEED)
+    const sampling = createTerrainSampling(SEED)
+
+    for (let x = -64; x <= 64; x += 16) {
+      for (let z = -64; z <= 64; z += 16) {
+        const h = sampling.getSmoothedHeight(x, z)
+        const samplingBiome = sampling.getResolvedBiome(x, z, () => h)
+        const pipelineBiome = gen.getResolvedBiome(x, z)
+        expect(
+          pipelineBiome,
+          `biome at (${x}, ${z}): pipeline ${pipelineBiome} vs sampling ${samplingBiome}`,
+        ).toBe(samplingBiome)
+      }
+    }
+  })
+})

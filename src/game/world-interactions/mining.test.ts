@@ -18,6 +18,9 @@ function makeChunkData(cx: number, cz: number): ChunkData {
 
 function makeParams(overrides: Partial<Parameters<typeof breakBlock>[0]> = {}) {
   const blockModifications = new Map<string, BlockType | 'air'>()
+  const setBlockModification = (x: number, y: number, z: number, value: BlockType | 'air') => {
+    blockModifications.set(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`, value)
+  }
   const invalidateColumnHeight = vi.fn()
   const refreshChunkVisibleMeshes = vi.fn()
   const spawnDrop = vi.fn()
@@ -35,8 +38,8 @@ function makeParams(overrides: Partial<Parameters<typeof breakBlock>[0]> = {}) {
       { x: 5, y: 10, z: 5 },
     ],
     isUnbreakableBlock: (_bt: BlockType) => false,
+    setBlockModification,
     blockModifications,
-    blockKeyString: (x: number, y: number, z: number) => `${x},${y},${z}`,
     invalidateColumnHeight,
     localKey,
     chunkSize,

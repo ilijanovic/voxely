@@ -21,6 +21,7 @@ const defaults = {
   toneMappingEnabled: true,
   toneMappingExposure: 1.1,
   shadowMapType: 'pcf' as ShadowMapType,
+  fogNoiseEnabled: true,
   bloomEnabled: false,
   bloomStrength: 0.15,
   bloomRadius: 0.3,
@@ -40,6 +41,7 @@ const state = {
   toneMappingEnabled: defaults.toneMappingEnabled,
   toneMappingExposure: defaults.toneMappingExposure,
   shadowMapType: defaults.shadowMapType,
+  fogNoiseEnabled: defaults.fogNoiseEnabled,
   bloomEnabled: defaults.bloomEnabled,
   bloomStrength: defaults.bloomStrength,
   bloomRadius: defaults.bloomRadius,
@@ -80,6 +82,9 @@ function loadFromStorage(): void {
     }
     if (data.shadowMapType === 'pcf' || data.shadowMapType === 'pcf_soft') {
       state.shadowMapType = data.shadowMapType
+    }
+    if (typeof data.fogNoiseEnabled === 'boolean') {
+      state.fogNoiseEnabled = data.fogNoiseEnabled
     }
     if (typeof data.bloomEnabled === 'boolean') state.bloomEnabled = data.bloomEnabled
     if (typeof data.bloomStrength === 'number') {
@@ -158,6 +163,13 @@ export function getShadowMapType(): ShadowMapType {
   return state.shadowMapType
 }
 
+/**
+ * Returns whether fog density noise modulation is enabled.
+ */
+export function getFogNoiseEnabled(): boolean {
+  return state.fogNoiseEnabled
+}
+
 export function setRenderDistance(value: number): void {
   state.renderDistance = Math.max(2, Math.min(12, Math.round(value)))
   saveToStorage()
@@ -218,6 +230,16 @@ export function setShadowMapType(value: ShadowMapType): void {
   saveToStorage()
 }
 
+/**
+ * Enables or disables fog density noise modulation and persists the setting.
+ *
+ * @param value - True to enable fog noise, false to disable
+ */
+export function setFogNoiseEnabled(value: boolean): void {
+  state.fogNoiseEnabled = value
+  saveToStorage()
+}
+
 export function getBloomEnabled(): boolean {
   return state.bloomEnabled
 }
@@ -268,6 +290,7 @@ export function getGraphicsState() {
     toneMappingEnabled: state.toneMappingEnabled,
     toneMappingExposure: state.toneMappingExposure,
     shadowMapType: state.shadowMapType,
+    fogNoiseEnabled: state.fogNoiseEnabled,
     bloomEnabled: state.bloomEnabled,
     bloomStrength: state.bloomStrength,
     bloomRadius: state.bloomRadius,

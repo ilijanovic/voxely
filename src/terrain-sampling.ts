@@ -25,10 +25,6 @@ import {
   HIGHLAND_MEADOW_MAX,
   HIGHLAND_SNOWY_SLOPES_MAX,
   HIGHLAND_VARIANT_SCALE,
-  MACRO_TERRAIN_DEEP_OCEAN_MAX,
-  MACRO_TERRAIN_FAR_INLAND_MIN,
-  MACRO_TERRAIN_MID_INLAND_MIN,
-  MACRO_TERRAIN_NEAR_INLAND_MIN,
   MOUNTAIN_AMPLITUDE,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
@@ -43,8 +39,6 @@ import {
   SPAWN_ORIGIN_FOREST_RADIUS_SQ,
   SPAWN_ORIGIN_FOREST_TEMP,
   SNOW_BIOME_HEIGHT_BOOST,
-  WEIRDNESS_RIDGE_AMP,
-  WEIRDNESS_VANILLA_RANGE_SCALE,
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './terrain/constants'
 import {
@@ -56,6 +50,7 @@ import { BIOME_LAYERS, BIOME_TERRAIN, BIOME_VALUE } from './terrain/biomes'
 import { getSurfaceBlockFromRules } from './terrain/surface-rules'
 import { makeSeededRandom } from './terrain/utils'
 import { createClimateSampler } from './terrain/climate-sampler'
+import { getMacroTerrainOffset, getRidgeTerm, lerp, smoothstep01, clamp01 } from './terrain/height-shaping'
 
 export type GetHeightFn = (x: number, z: number) => number
 
@@ -64,18 +59,7 @@ function createNoise(seed: number) {
   return createNoise2D(makeSeededRandom(seed))
 }
 
-function clamp01(v: number): number {
-  return Math.max(0, Math.min(1, v))
-}
-
-function smoothstep01(t: number): number {
-  const x = clamp01(t)
-  return x * x * (3 - 2 * x)
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t
-}
+// clamp01/smoothstep01/lerp are shared via terrain/height-shaping to avoid drift.
 
 /** 5-tap smoothing filter (center + N/S/E/W) for height blending. */
 function smooth5tap(center: number, n: number, s: number, e: number, w: number): number {
@@ -268,16 +252,7 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getMacroTerrain(x: number, z: number): number {
-    const c = getContinentalness(x, z)
-    const s = (a: number, b: number, v: number) => smoothstep01((v - a) / (b - a))
-    if (c < MACRO_TERRAIN_DEEP_OCEAN_MAX) return -18
-    if (c < OCEAN_CONTINENTALNESS_THRESHOLD)
-      return lerp(-18, -8, s(MACRO_TERRAIN_DEEP_OCEAN_MAX, OCEAN_CONTINENTALNESS_THRESHOLD, c))
-    if (c < MACRO_TERRAIN_NEAR_INLAND_MIN)
-      return lerp(-8, 0, s(OCEAN_CONTINENTALNESS_THRESHOLD, MACRO_TERRAIN_NEAR_INLAND_MIN, c))
-    if (c < MACRO_TERRAIN_MID_INLAND_MIN)
-      return lerp(0, 14, s(MACRO_TERRAIN_NEAR_INLAND_MIN, MACRO_TERRAIN_MID_INLAND_MIN, c))
-    return lerp(14, 22, s(MACRO_TERRAIN_MID_INLAND_MIN, MACRO_TERRAIN_FAR_INLAND_MIN, c))
+    return getMacroTerrainOffset(getContinentalness(x, z))
   }
 
   function getLocalTerrain(x: number, z: number, biome: Biome): number {
@@ -428,8 +403,7 @@ export function createTerrainSampling(seed: number) {
       }
     }
     const erosion = getErosion(x, z)
-    const ridge = 1 - Math.abs(getWeirdness(x, z)) / WEIRDNESS_VANILLA_RANGE_SCALE
-    const ridgeTerm = ridge * ridge * WEIRDNESS_RIDGE_AMP * mountainAllowedFactor
+    const ridgeTerm = getRidgeTerm(getWeirdness(x, z), mountainAllowedFactor)
     return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - erosion
   }
 

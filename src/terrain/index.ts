@@ -52,10 +52,6 @@ import {
   HIGHLAND_MEADOW_MAX,
   HIGHLAND_SNOWY_SLOPES_MAX,
   HIGHLAND_VARIANT_SCALE,
-  MACRO_TERRAIN_DEEP_OCEAN_MAX,
-  MACRO_TERRAIN_FAR_INLAND_MIN,
-  MACRO_TERRAIN_MID_INLAND_MIN,
-  MACRO_TERRAIN_NEAR_INLAND_MIN,
   MOUNTAIN_AMPLITUDE,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
@@ -66,12 +62,10 @@ import {
   PEAK_Y_MIN,
   PEAK_Y_RANGE,
   SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
-  WEIRDNESS_VANILLA_RANGE_SCALE,
   SPAWN_ORIGIN_FOREST_HUMIDITY,
   SPAWN_ORIGIN_FOREST_RADIUS_SQ,
   SPAWN_ORIGIN_FOREST_TEMP,
   SNOW_BIOME_HEIGHT_BOOST,
-  WEIRDNESS_RIDGE_AMP,
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './constants'
 import {
@@ -105,6 +99,7 @@ import {
 } from './biomes'
 import { createClimateSampler } from './climate-sampler'
 import { makeSeededRandom, clamp } from './utils'
+import { getMacroTerrainOffset, getRidgeTerm } from './height-shaping'
 import { runPipeline, createChunkContext } from './pipeline'
 import { override as defaultOverride } from './override'
 import {
@@ -378,16 +373,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   }
 
   function getMacroTerrain(x: number, z: number): number {
-    const c = getContinentalness(x, z)
-    const s = (a: number, b: number, v: number) => smoothstep01((v - a) / (b - a))
-    if (c < MACRO_TERRAIN_DEEP_OCEAN_MAX) return -18
-    if (c < OCEAN_CONTINENTALNESS_THRESHOLD)
-      return lerp(-18, -8, s(MACRO_TERRAIN_DEEP_OCEAN_MAX, OCEAN_CONTINENTALNESS_THRESHOLD, c))
-    if (c < MACRO_TERRAIN_NEAR_INLAND_MIN)
-      return lerp(-8, 0, s(OCEAN_CONTINENTALNESS_THRESHOLD, MACRO_TERRAIN_NEAR_INLAND_MIN, c))
-    if (c < MACRO_TERRAIN_MID_INLAND_MIN)
-      return lerp(0, 14, s(MACRO_TERRAIN_NEAR_INLAND_MIN, MACRO_TERRAIN_MID_INLAND_MIN, c))
-    return lerp(14, 22, s(MACRO_TERRAIN_MID_INLAND_MIN, MACRO_TERRAIN_FAR_INLAND_MIN, c))
+    return getMacroTerrainOffset(getContinentalness(x, z))
   }
 
   function getContinentalness(x: number, z: number): number {
@@ -571,9 +557,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       }
     }
 
-    const ridge = 1 - Math.abs(getWeirdness(x, z)) / WEIRDNESS_VANILLA_RANGE_SCALE
-    const ridgeTerm = ridge * ridge * WEIRDNESS_RIDGE_AMP * mountainAllowedFactor
-
+    const ridgeTerm = getRidgeTerm(getWeirdness(x, z), mountainAllowedFactor)
     return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - getErosion(x, z)
   }
 

@@ -8,7 +8,7 @@ import {
   chunks,
   chunkKeyNumeric,
   localKey,
-  blockModifications,
+  clearBlockModifications,
   columnHeightCache,
   getBlockAt,
 } from './chunk-runtime'
@@ -27,7 +27,7 @@ function makeChunkData(cx: number, cz: number, voxelMap: Map<number, string>): C
 describe('resolveVoxelCollisions', () => {
   beforeEach(() => {
     chunks.clear()
-    blockModifications.clear()
+    clearBlockModifications()
     columnHeightCache.clear()
   })
 
