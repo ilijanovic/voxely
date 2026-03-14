@@ -22,9 +22,11 @@ export const CONTINENTALNESS_VANILLA_MAX = 1
 
 /**
  * Continentalness threshold for ocean vs. land (vanilla-aligned).
- * Vanilla uses -0.19 as the above-water/underwater boundary; below this is ocean.
+ * Vanilla uses -0.19 als Grenze; wir ziehen den Threshold leicht in Richtung Land,
+ * damit großflächige zusammenhängende Ozeane seltener auftreten und früher Küsten/
+ * Kontinente beginnen.
  */
-export const OCEAN_CONTINENTALNESS_THRESHOLD = -0.19
+export const OCEAN_CONTINENTALNESS_THRESHOLD = -0.1
 
 /** Width of ocean/land blend in continentalness space; wider band softens coast height edges. */
 export const COAST_BLEND_BAND = 0.12
@@ -64,11 +66,27 @@ export const MOUNTAIN_THRESHOLD = 0.38
 export const MOUNTAIN_TRANSITION_WIDTH = 0.18
 export const MOUNTAIN_BIOME_HEIGHT_BOOST = 1.8
 export const SNOW_BIOME_HEIGHT_BOOST = 3.2
+/** Non-core mountain-enabled biomes (forest, jungle, taiga) get reduced mountain strength. */
+export const MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST = 0.7
+/** Additional height gain when the weirdness signal is in a peak band. */
+export const MOUNTAIN_PEAK_BAND_BOOST = 0.4
+/** Extra height gain for sharp negative-weirdness mountain ridges. */
+export const MOUNTAIN_JAGGED_BOOST = 0.35
+/** Extra local-relief gain for jagged mountain ridges. */
+export const MOUNTAIN_JAGGED_DETAIL_BOOST = 0.2
 
 /** Weirdness dimension for ridges. Vanilla uses [-2, 2]; we scale raw noise by this. */
 export const WEIRDNESS_SCALE = 0.0016
 export const WEIRDNESS_VANILLA_RANGE_SCALE = 2
 export const WEIRDNESS_RIDGE_AMP = 4.5
+/** Approximate center of the vanilla peaks-and-valleys ridge bands in normalized weirdness space. */
+export const WEIRDNESS_PEAK_BAND_CENTER = 0.58
+/** Half-width of the peak band around WEIRDNESS_PEAK_BAND_CENTER. */
+export const WEIRDNESS_PEAK_BAND_HALF_WIDTH = 0.42
+/** Normalized weirdness threshold where negative weirdness starts looking jagged. */
+export const WEIRDNESS_JAGGED_START = 0.08
+/** Extra ridge gain applied to the negative-weirdness jagged branch. */
+export const WEIRDNESS_JAGGED_RIDGE_BOOST = 0.45
 
 /** Highland band thresholds (height above water). */
 export const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10
@@ -92,6 +110,12 @@ export const HEIGHT_TRANSITION_AMPLITUDE = 4.5
 /** Peak biome selection (frozen/jagged/stony) height range. */
 export const PEAK_Y_MIN = WATER_LEVEL + 30
 export const PEAK_Y_RANGE = 24
+/** Minimum peak-band factor before the sharp jagged branch can win peak selection. */
+export const PEAK_JAGGED_BAND_MIN = 0.5
+/** Minimum jagged factor before a peak is classified as jagged. */
+export const PEAK_JAGGED_FACTOR_MIN = 0.55
+/** Jagged peaks prefer low erosion (sharper terrain). */
+export const PEAK_JAGGED_EROSION_MAX = -0.45
 
 /** Flatness noise frequency for terrain smoothness; shared by height and local terrain. */
 export const FLAT_NOISE_SCALE = 0.01
@@ -110,8 +134,7 @@ export const HEIGHT_DETAIL_PERSISTENCE = 0.5
  * Equal to (1 - persistence^octaves) / (1 - persistence).
  */
 export const HEIGHT_DETAIL_FBM_NORMALIZE =
-  (1 - Math.pow(HEIGHT_DETAIL_PERSISTENCE, HEIGHT_DETAIL_OCTAVES)) /
-  (1 - HEIGHT_DETAIL_PERSISTENCE)
+  (1 - Math.pow(HEIGHT_DETAIL_PERSISTENCE, HEIGHT_DETAIL_OCTAVES)) / (1 - HEIGHT_DETAIL_PERSISTENCE)
 
 /** Default scale for feature placement noise (vegetation, decoration). Same world seed yields deterministic patches. */
 export const FEATURE_PLACEMENT_NOISE_SCALE = 0.05

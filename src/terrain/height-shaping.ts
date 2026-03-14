@@ -11,6 +11,10 @@ import {
   MACRO_TERRAIN_MID_INLAND_MIN,
   MACRO_TERRAIN_NEAR_INLAND_MIN,
   OCEAN_CONTINENTALNESS_THRESHOLD,
+  WEIRDNESS_JAGGED_RIDGE_BOOST,
+  WEIRDNESS_JAGGED_START,
+  WEIRDNESS_PEAK_BAND_CENTER,
+  WEIRDNESS_PEAK_BAND_HALF_WIDTH,
   WEIRDNESS_RIDGE_AMP,
   WEIRDNESS_VANILLA_RANGE_SCALE,
 } from './constants'
@@ -49,6 +53,29 @@ export function smoothstep01(t: number): number {
 }
 
 /**
+ * Returns how strongly the weirdness signal falls into a mountain peak band.
+ *
+ * @param weirdnessSigned - Signed weirdness in vanilla-aligned range
+ * @returns Peak-band factor in [0, 1]
+ */
+export function getPeakBandFactor(weirdnessSigned: number): number {
+  const normalized = Math.abs(weirdnessSigned) / WEIRDNESS_VANILLA_RANGE_SCALE
+  const distance = Math.abs(normalized - WEIRDNESS_PEAK_BAND_CENTER)
+  return clamp01(1 - distance / WEIRDNESS_PEAK_BAND_HALF_WIDTH)
+}
+
+/**
+ * Returns an extra factor for sharp negative-weirdness mountain ridges.
+ *
+ * @param weirdnessSigned - Signed weirdness in vanilla-aligned range
+ * @returns Jagged ridge factor in [0, 1]
+ */
+export function getJaggedPeakFactor(weirdnessSigned: number): number {
+  const normalized = weirdnessSigned / WEIRDNESS_VANILLA_RANGE_SCALE
+  return smoothstep01((-normalized - WEIRDNESS_JAGGED_START) / (1 - WEIRDNESS_JAGGED_START))
+}
+
+/**
  * Maps signed continentalness (vanilla-aligned range) to a macro height offset.
  * This is the main lever for continents, shelves, and inland ramping.
  *
@@ -63,11 +90,7 @@ export function getMacroTerrainOffset(continentalnessSigned: number): number {
   if (c < MACRO_TERRAIN_DEEP_OCEAN_MAX) return -24
   // Ocean shelf up to the ocean/land threshold
   if (c < OCEAN_CONTINENTALNESS_THRESHOLD)
-    return lerp(
-      -24,
-      -10,
-      s(MACRO_TERRAIN_DEEP_OCEAN_MAX, OCEAN_CONTINENTALNESS_THRESHOLD, c),
-    )
+    return lerp(-24, -10, s(MACRO_TERRAIN_DEEP_OCEAN_MAX, OCEAN_CONTINENTALNESS_THRESHOLD, c))
   // Near-inland ramp (beach/coast band)
   if (c < MACRO_TERRAIN_NEAR_INLAND_MIN)
     return lerp(-10, 2, s(OCEAN_CONTINENTALNESS_THRESHOLD, MACRO_TERRAIN_NEAR_INLAND_MIN, c))
@@ -86,7 +109,13 @@ export function getMacroTerrainOffset(continentalnessSigned: number): number {
  * @returns Ridge height contribution in blocks
  */
 export function getRidgeTerm(weirdnessSigned: number, mountainAllowedFactor: number): number {
-  const ridge = 1 - Math.abs(weirdnessSigned) / WEIRDNESS_VANILLA_RANGE_SCALE
-  return ridge * ridge * WEIRDNESS_RIDGE_AMP * mountainAllowedFactor
+  const peakBand = getPeakBandFactor(weirdnessSigned)
+  const jagged = getJaggedPeakFactor(weirdnessSigned)
+  return (
+    peakBand *
+    peakBand *
+    (1 + jagged * WEIRDNESS_JAGGED_RIDGE_BOOST) *
+    WEIRDNESS_RIDGE_AMP *
+    mountainAllowedFactor
+  )
 }
-

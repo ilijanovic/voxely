@@ -187,6 +187,7 @@ import {
 } from './atmosphere'
 import { createSnowEffect, type SnowEffect } from './snow-effect'
 import { registerCommand } from './debug-commands'
+import { initGameplayRng, randomFloat, randomInt } from './random'
 import {
   chunks,
   blockModifications,
@@ -984,8 +985,8 @@ function applyBlockChangeToLoadedChunk(params: {
       spawnDropItem({
         scene,
         drops,
-        worldX: tx + 0.5 + (Math.random() - 0.5) * 0.3,
-        worldZ: tz + 0.5 + (Math.random() - 0.5) * 0.3,
+        worldX: tx + 0.5 + (randomFloat() - 0.5) * 0.3,
+        worldZ: tz + 0.5 + (randomFloat() - 0.5) * 0.3,
         startY: ty + 0.8,
         restY: ty + 0.2,
         blockType: 'torch',
@@ -1651,6 +1652,7 @@ export async function initGame(
     }) => void
   },
 ): Promise<void> {
+  initGameplayRng(WORLD_SEED)
   multiplayerEnabled = options?.multiplayer === true
   setOnHotbarChange(options?.onHotbarChange ?? null)
   onCraftingTableUse = options?.onCraftingTableUse ?? null
@@ -2000,7 +2002,7 @@ function initControlsAndInput(): void {
         attackState = 'slashing'
         slashPhase = 0
         slashHitCheckedThisCycle = false
-        currentSlashVariant = SLASH_VARIANTS[Math.floor(Math.random() * SLASH_VARIANTS.length)]
+        currentSlashVariant = SLASH_VARIANTS[randomInt(0, SLASH_VARIANTS.length - 1)]
       }
     }
     if (e.button === 2) {
@@ -2735,8 +2737,8 @@ function updateCameraAndViewMode(time: number, dt: number): void {
             const loot = rollLoot(deadKind)
             for (const { item, count } of loot) {
               for (let i = 0; i < count; i++) {
-                const offsetX = (Math.random() - 0.5) * 0.4
-                const offsetZ = (Math.random() - 0.5) * 0.4
+                const offsetX = (randomFloat() - 0.5) * 0.4
+                const offsetZ = (randomFloat() - 0.5) * 0.4
                 spawnDropItem({
                   scene,
                   drops,
@@ -2968,7 +2970,7 @@ function runBlockTick(time: number): void {
     if (value === 'air') continue
     const match = /^wheat_([1-7])$/.exec(value)
     if (!match) continue
-    if (Math.random() >= WHEAT_GROWTH_PROBABILITY) continue
+    if (randomFloat() >= WHEAT_GROWTH_PROBABILITY) continue
     const stage = parseInt(match[1], 10)
     const parts = keyStr.split(',')
     const bx = Number(parts[0])

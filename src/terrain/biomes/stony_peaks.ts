@@ -27,15 +27,17 @@ export const stonyPeaksDefinition: BiomeDefinition = {
     center: {
       continentalness: 0.516,
       erosion: -0.55,
-      temperature: 0.15,
+      temperature: 0.42,
       humidity: -0.55,
-      weirdness: 0.3,
+      weirdness: 0.18,
       y: 0.84,
     },
     weights: {
-      y: 2.5,
+      y: 2.8,
       humidity: 2,
       continentalness: 1.5,
+      temperature: 2.1,
+      weirdness: 1.8,
     },
   },
 }

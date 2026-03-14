@@ -3,6 +3,7 @@
  */
 import * as THREE from 'three'
 import type { BlockType } from '../../types'
+import { randomFloat } from '../../random'
 import { getMaterialForBlockType } from '../../block-materials'
 import { addBlockToInventory } from '../../game-hotbar'
 
@@ -90,7 +91,7 @@ export function spawnDrop(params: {
     restPosition,
     blockType: params.blockType,
     group,
-    bobPhase: Math.random() * Math.PI * 2,
+    bobPhase: randomFloat() * Math.PI * 2,
     spawnTime: params.time,
     initialY: params.startY,
   })
@@ -129,7 +130,7 @@ export function spawnXpDrop(params: {
     restPosition,
     xpAmount: params.amount,
     group,
-    bobPhase: Math.random() * Math.PI * 2,
+    bobPhase: randomFloat() * Math.PI * 2,
     spawnTime: params.time,
     initialY: params.startY,
   })

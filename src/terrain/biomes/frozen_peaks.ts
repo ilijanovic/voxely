@@ -27,17 +27,18 @@ export const frozenPeaksDefinition: BiomeDefinition = {
   multiNoise: {
     center: {
       continentalness: 0.516,
-      erosion: -0.25,
-      temperature: -0.72,
-      humidity: 0.55,
-      weirdness: 0.0,
+      erosion: -0.3,
+      temperature: -0.78,
+      humidity: 0.22,
+      weirdness: 0.72,
       y: 0.86,
     },
     weights: {
       y: 3,
-      temperature: 2,
+      temperature: 2.4,
       continentalness: 1.5,
       erosion: 1.5,
+      weirdness: 2.6,
     },
   },
 }

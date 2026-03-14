@@ -6,9 +6,9 @@ import type { TerrainParams, BiomeDefinition } from './types'
  */
 export const plainsTerrain: TerrainParams = {
   baseOffset: 0,
-  detailAmp: 1.3,
-  detailFreq: 0.015,
-  flatness: 0.97,
+  detailAmp: 1.1,
+  detailFreq: 0.014,
+  flatness: 0.985,
   mountainAllowed: false,
 }
 

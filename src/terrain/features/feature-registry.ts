@@ -50,7 +50,7 @@ export function createOrderedFeatureList(featuresById: Record<FeatureId, Feature
 export const FEATURE_DENSITY_BY_BIOME: Partial<Record<FeatureId, Partial<Record<Biome, number>>>> = {
   trees: {
     plains: 0.04,
-    forest: 0.12,
+    forest: 0.2,
     jungle: 0.18,
     savanna: 0.03,
     meadow: 0.05,

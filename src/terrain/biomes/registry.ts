@@ -91,8 +91,8 @@ const BIOME_RARITY_WEIGHT: Partial<Record<Biome, number>> = {
   // Common warm / cold land
   desert: 1.3,
   savanna: 1.2,
-  mountain: 1,
-  snow: 0.8,
+  mountain: 1.6,
+  snow: 1.1,
   // Rare warm/wet or special biomes
   jungle: 0.3,
   mangrove_swamp: 0.35,

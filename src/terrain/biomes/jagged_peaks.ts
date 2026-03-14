@@ -27,15 +27,17 @@ export const jaggedPeaksDefinition: BiomeDefinition = {
     center: {
       continentalness: 0.516,
       erosion: -0.86,
-      temperature: -0.05,
+      temperature: -0.18,
       humidity: 0.25,
-      weirdness: 0.7,
+      weirdness: -0.82,
       y: 0.86,
     },
     weights: {
       y: 3,
       erosion: 3,
       continentalness: 1.5,
+      weirdness: 2.8,
+      temperature: 1.6,
     },
   },
 }

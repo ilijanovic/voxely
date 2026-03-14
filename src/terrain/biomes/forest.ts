@@ -2,9 +2,9 @@ import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const forestTerrain: TerrainParams = {
   baseOffset: 3,
-  detailAmp: 4.5,
-  detailFreq: 0.026,
-  flatness: 0.7,
+  detailAmp: 3.8,
+  detailFreq: 0.022,
+  flatness: 0.8,
   mountainAllowed: true,
 }
 

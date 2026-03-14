@@ -3,6 +3,7 @@
  * Uses chunk-runtime for height cache and block lookup; no THREE scene dependency.
  */
 import { createNoise2D, createNoise3D } from 'simplex-noise'
+import seedrandom from 'seedrandom'
 import { noise2DSeeded } from './game/noise-improved'
 import type { BlockType, TreeNoiseCaches } from './types'
 import type { Biome } from './types'
@@ -97,7 +98,8 @@ function getOrCreateWorldSeed(): number {
     if (Number.isFinite(n)) return n
   }
 
-  const seed = (Date.now() >>> 0) ^ ((Math.random() * 0xffffffff) >>> 0)
+  const seedRng = seedrandom()
+  const seed = (seedRng() * 0xffffffff) >>> 0
   if (typeof localStorage !== 'undefined') {
     try {
       localStorage.setItem(WORLD_SEED_KEY, String(seed))

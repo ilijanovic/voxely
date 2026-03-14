@@ -28,10 +28,17 @@ import {
   MOUNTAIN_AMPLITUDE,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
+  MOUNTAIN_JAGGED_BOOST,
+  MOUNTAIN_JAGGED_DETAIL_BOOST,
   MOUNTAIN_MASK_SCALE,
+  MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST,
+  MOUNTAIN_PEAK_BAND_BOOST,
   MOUNTAIN_THRESHOLD,
   MOUNTAIN_TRANSITION_WIDTH,
   OCEAN_CONTINENTALNESS_THRESHOLD,
+  PEAK_JAGGED_BAND_MIN,
+  PEAK_JAGGED_EROSION_MAX,
+  PEAK_JAGGED_FACTOR_MIN,
   PEAK_Y_MIN,
   PEAK_Y_RANGE,
   SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
@@ -50,7 +57,15 @@ import { BIOME_LAYERS, BIOME_TERRAIN, BIOME_VALUE } from './terrain/biomes'
 import { getSurfaceBlockFromRules } from './terrain/surface-rules'
 import { makeSeededRandom } from './terrain/utils'
 import { createClimateSampler } from './terrain/climate-sampler'
-import { getMacroTerrainOffset, getRidgeTerm, lerp, smoothstep01, clamp01 } from './terrain/height-shaping'
+import {
+  getJaggedPeakFactor,
+  getMacroTerrainOffset,
+  getPeakBandFactor,
+  getRidgeTerm,
+  lerp,
+  smoothstep01,
+  clamp01,
+} from './terrain/height-shaping'
 
 export type GetHeightFn = (x: number, z: number) => number
 
@@ -244,11 +259,7 @@ export function createTerrainSampling(seed: number) {
    */
   function getBiome(x: number, z: number): Biome {
     const blend = getBiomeBlend(x, z)
-    return blend.primary === 'ocean'
-      ? blend.t < 0.5
-        ? 'ocean'
-        : blend.secondary
-      : blend.primary
+    return blend.primary === 'ocean' ? (blend.t < 0.5 ? 'ocean' : blend.secondary) : blend.primary
   }
 
   function getMacroTerrain(x: number, z: number): number {
@@ -372,7 +383,13 @@ export function createTerrainSampling(seed: number) {
     const jaggednessT = smoothstep01(
       (-erosionSigned - EROSION_JAGGEDNESS_START) / (1 - EROSION_JAGGEDNESS_START),
     )
-    effectiveAmp *= 1 + jaggednessT * (EROSION_DETAIL_BOOST_MAX - 1)
+    const weirdnessSigned = getWeirdness(x, z)
+    const peakBandFactor = getPeakBandFactor(weirdnessSigned)
+    const jaggedPeakFactor = getJaggedPeakFactor(weirdnessSigned)
+    effectiveAmp *=
+      1 +
+      jaggednessT * (EROSION_DETAIL_BOOST_MAX - 1) +
+      jaggedPeakFactor * MOUNTAIN_JAGGED_DETAIL_BOOST
     const local = n * effectiveAmp
 
     let mountain = 0
@@ -390,20 +407,32 @@ export function createTerrainSampling(seed: number) {
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
             : blend.primary === 'snow'
               ? SNOW_BIOME_HEIGHT_BOOST
-              : 1
+              : pA.mountainAllowed
+                ? MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST
+                : 0
         const boostB =
           blend.secondary === 'mountain'
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
             : blend.secondary === 'snow'
               ? SNOW_BIOME_HEIGHT_BOOST
-              : 1
+              : pB.mountainAllowed
+                ? MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST
+                : 0
         const boost = lerp(boostA, boostB, t)
+        const mountainShapeBoost =
+          1 + peakBandFactor * MOUNTAIN_PEAK_BAND_BOOST + jaggedPeakFactor * MOUNTAIN_JAGGED_BOOST
         mountain =
-          tMaskSmooth * tMaskRamp * m * MOUNTAIN_AMPLITUDE * boost * mountainAllowedFactor
+          tMaskSmooth *
+          tMaskRamp *
+          m *
+          MOUNTAIN_AMPLITUDE *
+          boost *
+          mountainShapeBoost *
+          mountainAllowedFactor
       }
     }
     const erosion = getErosion(x, z)
-    const ridgeTerm = getRidgeTerm(getWeirdness(x, z), mountainAllowedFactor)
+    const ridgeTerm = getRidgeTerm(weirdnessSigned, mountainAllowedFactor)
     return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - erosion
   }
 
@@ -427,7 +456,6 @@ export function createTerrainSampling(seed: number) {
     if (base !== 'mountain' && base !== 'snow') {
       const temp = getTemperatureSmoothed(x, z)
       if (temp <= COLD_HIGHLAND_TEMP_MAX) {
-        if (hFuzzy >= HIGHLAND_SNOWY_SLOPES_MAX + 6) return 'frozen_peaks'
         if (hFuzzy >= HIGHLAND_SNOWY_SLOPES_MAX) return 'snowy_slopes'
         if (hFuzzy >= HIGHLAND_GROVE_MAX) return 'grove'
       }
@@ -455,12 +483,22 @@ export function createTerrainSampling(seed: number) {
       return 'grove'
     }
     if (hFuzzy < HIGHLAND_SNOWY_SLOPES_MAX) return 'snowy_slopes'
+    const weirdnessSigned = getWeirdnessSmoothed(x, z)
+    const peakBandFactor = getPeakBandFactor(weirdnessSigned)
+    const jaggedPeakFactor = getJaggedPeakFactor(weirdnessSigned)
+    const erosionSigned = getErosionSignedSmoothed(x, z)
+    if (
+      peakBandFactor >= PEAK_JAGGED_BAND_MIN &&
+      jaggedPeakFactor >= PEAK_JAGGED_FACTOR_MIN &&
+      erosionSigned <= PEAK_JAGGED_EROSION_MAX
+    )
+      return 'jagged_peaks'
     const peakPick = getBiomeByMultiNoise({
       continentalness: getContinentalness(x, z),
-      erosion: getErosionSignedSmoothed(x, z),
+      erosion: erosionSigned,
       temperature: getTemperatureSignedSmoothed(x, z),
       humidity: getHumiditySignedSmoothed(x, z),
-      weirdness: getWeirdnessSmoothed(x, z),
+      weirdness: weirdnessSigned,
       y: getPeakY01(hFuzzy),
     })
     if (peakPick === 'stony_peaks' || peakPick === 'frozen_peaks' || peakPick === 'jagged_peaks')

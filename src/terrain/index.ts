@@ -15,10 +15,7 @@ import {
 import type { WorldPoi } from '../world-pois'
 import type { PoiFlattenAt } from '../world-pois'
 import { getStructureOriginsInChunk } from './structures/origins'
-import {
-  getHouseDimensions,
-  getVillageHouseSizeFromSeed,
-} from './structures/templates/village'
+import { getHouseDimensions, getVillageHouseSizeFromSeed } from './structures/templates/village'
 import {
   CHUNK_SIZE,
   MIN_CAVE_DEPTH_BELOW_SURFACE,
@@ -55,10 +52,17 @@ import {
   MOUNTAIN_AMPLITUDE,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
+  MOUNTAIN_JAGGED_BOOST,
+  MOUNTAIN_JAGGED_DETAIL_BOOST,
   MOUNTAIN_MASK_SCALE,
+  MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST,
+  MOUNTAIN_PEAK_BAND_BOOST,
   MOUNTAIN_THRESHOLD,
   MOUNTAIN_TRANSITION_WIDTH,
   OCEAN_CONTINENTALNESS_THRESHOLD,
+  PEAK_JAGGED_BAND_MIN,
+  PEAK_JAGGED_EROSION_MAX,
+  PEAK_JAGGED_FACTOR_MIN,
   PEAK_Y_MIN,
   PEAK_Y_RANGE,
   SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
@@ -99,7 +103,12 @@ import {
 } from './biomes'
 import { createClimateSampler } from './climate-sampler'
 import { makeSeededRandom, clamp } from './utils'
-import { getMacroTerrainOffset, getRidgeTerm } from './height-shaping'
+import {
+  getJaggedPeakFactor,
+  getMacroTerrainOffset,
+  getPeakBandFactor,
+  getRidgeTerm,
+} from './height-shaping'
 import { runPipeline, createChunkContext } from './pipeline'
 import { override as defaultOverride } from './override'
 import {
@@ -162,9 +171,7 @@ import {
 export type BlockModEntry = { bx: number; by: number; bz: number; value: BlockType | 'air' }
 
 /** Stable ordering of biomes for map biome buffer encoding (index = byte value in biomeMapBuffer). */
-export const ALL_BIOMES: readonly Biome[] = (
-  Object.keys(BIOME_REGISTRY) as Biome[]
-).sort()
+export const ALL_BIOMES: readonly Biome[] = (Object.keys(BIOME_REGISTRY) as Biome[]).sort()
 
 /** Result of generateChunkData: serializable chunk data for main thread to build meshes. */
 export interface ChunkDataPayload {
@@ -245,7 +252,10 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   /** Set during chunk generation so getHeight can apply procedural village flatten for the current chunk. */
   let currentChunkContext: { chunkX: number; chunkZ: number } | null = null
   /** Cache of procedural village (ox, oz) centers per chunk for flatten lookup. */
-  const proceduralVillageCentersCache = new Map<string, Array<{ centerX: number; centerZ: number }>>()
+  const proceduralVillageCentersCache = new Map<
+    string,
+    Array<{ centerX: number; centerZ: number }>
+  >()
   const temperatureNoise2D = createNoise2D(makeSeededRandom(seed + 500))
   const humidityNoise2D = createNoise2D(makeSeededRandom(seed + 600))
   const continentalNoise2D = createNoise2D(makeSeededRandom(seed + 123))
@@ -526,7 +536,13 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const jaggednessT = smoothstep01(
       (-erosionSigned - EROSION_JAGGEDNESS_START) / (1 - EROSION_JAGGEDNESS_START),
     )
-    effectiveAmp *= 1 + jaggednessT * (EROSION_DETAIL_BOOST_MAX - 1)
+    const weirdnessSigned = getWeirdness(x, z)
+    const peakBandFactor = getPeakBandFactor(weirdnessSigned)
+    const jaggedPeakFactor = getJaggedPeakFactor(weirdnessSigned)
+    effectiveAmp *=
+      1 +
+      jaggednessT * (EROSION_DETAIL_BOOST_MAX - 1) +
+      jaggedPeakFactor * MOUNTAIN_JAGGED_DETAIL_BOOST
     const local = n * effectiveAmp
 
     let mountain = 0
@@ -544,20 +560,32 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
             : blend.primary === 'snow'
               ? SNOW_BIOME_HEIGHT_BOOST
-              : 1
+              : pA.mountainAllowed
+                ? MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST
+                : 0
         const boostB =
           blend.secondary === 'mountain'
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
             : blend.secondary === 'snow'
               ? SNOW_BIOME_HEIGHT_BOOST
-              : 1
+              : pB.mountainAllowed
+                ? MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST
+                : 0
         const boost = lerp(boostA, boostB, t)
+        const mountainShapeBoost =
+          1 + peakBandFactor * MOUNTAIN_PEAK_BAND_BOOST + jaggedPeakFactor * MOUNTAIN_JAGGED_BOOST
         mountain =
-          tMaskSmooth * tMaskRamp * m * MOUNTAIN_AMPLITUDE * boost * mountainAllowedFactor
+          tMaskSmooth *
+          tMaskRamp *
+          m *
+          MOUNTAIN_AMPLITUDE *
+          boost *
+          mountainShapeBoost *
+          mountainAllowedFactor
       }
     }
 
-    const ridgeTerm = getRidgeTerm(getWeirdness(x, z), mountainAllowedFactor)
+    const ridgeTerm = getRidgeTerm(weirdnessSigned, mountainAllowedFactor)
     return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - getErosion(x, z)
   }
 
@@ -566,7 +594,6 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     if (base !== 'mountain' && base !== 'snow') {
       const temp = getTemperatureSmoothed(x, z)
       if (temp <= COLD_HIGHLAND_TEMP_MAX) {
-        if (hFuzzy >= HIGHLAND_SNOWY_SLOPES_MAX + 6) return 'frozen_peaks'
         if (hFuzzy >= HIGHLAND_SNOWY_SLOPES_MAX) return 'snowy_slopes'
         if (hFuzzy >= HIGHLAND_GROVE_MAX) return 'grove'
       }
@@ -594,12 +621,22 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       return 'grove'
     }
     if (hFuzzy < HIGHLAND_SNOWY_SLOPES_MAX) return 'snowy_slopes'
+    const weirdnessSigned = getWeirdnessSmoothed(x, z)
+    const peakBandFactor = getPeakBandFactor(weirdnessSigned)
+    const jaggedPeakFactor = getJaggedPeakFactor(weirdnessSigned)
+    const erosionSigned = getErosionSignedSmoothed(x, z)
+    if (
+      peakBandFactor >= PEAK_JAGGED_BAND_MIN &&
+      jaggedPeakFactor >= PEAK_JAGGED_FACTOR_MIN &&
+      erosionSigned <= PEAK_JAGGED_EROSION_MAX
+    )
+      return 'jagged_peaks'
     const peakPick = getBiomeByMultiNoise({
       continentalness: getContinentalness(x, z),
-      erosion: getErosionSignedSmoothed(x, z),
+      erosion: erosionSigned,
       temperature: getTemperatureSignedSmoothed(x, z),
       humidity: getHumiditySignedSmoothed(x, z),
-      weirdness: getWeirdnessSmoothed(x, z),
+      weirdness: weirdnessSigned,
       y: getPeakY01(hFuzzy),
     })
     if (peakPick === 'stony_peaks' || peakPick === 'frozen_peaks' || peakPick === 'jagged_peaks')
@@ -656,7 +693,10 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
    * Returns procedural village (ox, oz) centers that can affect the given chunk.
    * Uses POI-only height to avoid circular dependency with getHeight.
    */
-  function getProceduralVillageCentersForChunk(chunkX: number, chunkZ: number): Array<{ centerX: number; centerZ: number }> {
+  function getProceduralVillageCentersForChunk(
+    chunkX: number,
+    chunkZ: number,
+  ): Array<{ centerX: number; centerZ: number }> {
     const key = `${chunkX},${chunkZ}`
     let centers = proceduralVillageCentersCache.get(key)
     if (centers !== undefined) return centers
@@ -683,7 +723,12 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
    * Returns flatten params if (x, z) lies inside a procedural village flatten area.
    * Uses POI default radius/transition so the area around every village is always flattened.
    */
-  function getProceduralFlattenAt(x: number, z: number, chunkX: number, chunkZ: number): PoiFlattenAt | null {
+  function getProceduralFlattenAt(
+    x: number,
+    z: number,
+    chunkX: number,
+    chunkZ: number,
+  ): PoiFlattenAt | null {
     const centers = getProceduralVillageCentersForChunk(chunkX, chunkZ)
     const radius = POI_DEFAULT_FLATTEN_RADIUS
     const radiusSq = radius * radius
@@ -897,12 +942,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       } else {
         const minX = origin.ox - Math.floor(TEMPLE_SIZE / 2)
         const minZ = origin.oz - Math.floor(TEMPLE_SIZE / 2)
-        if (
-          wx >= minX &&
-          wx < minX + TEMPLE_SIZE &&
-          wz >= minZ &&
-          wz < minZ + TEMPLE_SIZE
-        )
+        if (wx >= minX && wx < minX + TEMPLE_SIZE && wz >= minZ && wz < minZ + TEMPLE_SIZE)
           return true
       }
     }
@@ -1090,7 +1130,10 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
             dx * dx + (y - canopyCenterY) ** 2 + dz * dz > maxLeafDistSq
           )
             continue
-          if (!(dx === 0 && dz === 0) && leafNoiseValue(wx + shapeOx, wz + shapeOz, dx, dy, dz) > effectiveLeafDensity)
+          if (
+            !(dx === 0 && dz === 0) &&
+            leafNoiseValue(wx + shapeOx, wz + shapeOz, dx, dy, dz) > effectiveLeafDensity
+          )
             continue
           leaves.push({ x: wx + dx, y, z: wz + dz })
         }
@@ -1253,7 +1296,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
             wz * BADLANDS_BAND_SCALE_XZ,
           ) +
             1) *
-            0.5
+          0.5
         : undefined
     return resolveSurfaceBlock({
       topY,
@@ -1415,8 +1458,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
             const maxSlope = Math.max(dN, dS, dW, dE)
             let layers: number
             if (maxSlope >= SNOW_LAYER_STEEP_SLOPE_MIN) layers = 0
-            else if (maxSlope >= SNOW_LAYER_MODERATE_SLOPE_MAX)
-              layers = 1
+            else if (maxSlope >= SNOW_LAYER_MODERATE_SLOPE_MAX) layers = 1
             else if (maxSlope >= SNOW_LAYER_FLAT_SLOPE_MAX)
               layers = Math.max(1, Math.floor((Math.min(snowAccumulationHeight, 8) + 1) / 2))
             else layers = Math.min(snowAccumulationHeight, 8)

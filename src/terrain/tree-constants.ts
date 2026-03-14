@@ -21,7 +21,7 @@ export const JUNGLE_TREE_SHAPE_OFFSET_Z = -300
 /** Min forest density to allow trees in forest / jungle / windswept_forest. */
 export const FOREST_DENSITY_THRESHOLD = 0.0
 
-export const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1
+export const TREE_PLACEMENT_FOREST_THRESHOLD = -0.25
 export const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0
 /** Lower than forest so jungle has noticeably more trees (denser canopy). */
 export const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.88

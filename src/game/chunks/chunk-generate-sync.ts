@@ -11,6 +11,7 @@ import {
   SNOW_GROWTH_INTERVAL_SEC,
   SNOW_GROWTH_CANDIDATES_PER_INTERVAL,
 } from '../../constants'
+import { randomInt } from '../../random'
 import {
   WORLD_SEED,
   getHeight,
@@ -921,12 +922,13 @@ export function tryUpdateSnowAccumulation(
   const chunksToRefresh = new Map<number, Set<BlockType>>()
 
   for (let c = 0; c < SNOW_GROWTH_CANDIDATES_PER_INTERVAL; c++) {
-    const keyNum = loadedChunkKeys[Math.floor(Math.random() * loadedChunkKeys.length)]
+    const keyIndex = randomInt(0, loadedChunkKeys.length - 1)
+    const keyNum = loadedChunkKeys[keyIndex]
     const data = chunks.get(keyNum)
     if (!data) continue
 
-    const lx = Math.floor(Math.random() * CHUNK_SIZE)
-    const lz = Math.floor(Math.random() * CHUNK_SIZE)
+    const lx = randomInt(0, CHUNK_SIZE - 1)
+    const lz = randomInt(0, CHUNK_SIZE - 1)
     const bx = data.cx * CHUNK_SIZE + lx
     const bz = data.cz * CHUNK_SIZE + lz
 
