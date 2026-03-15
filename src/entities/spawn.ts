@@ -1,8 +1,7 @@
 import * as THREE from 'three'
-import type { Entity, AnimalKind, AnimalDef } from './types'
-import { addEntity, removeEntity, getEntitiesInChunk } from './registry'
-import { createAnimalMesh } from './meshes'
-import { getWorldApi } from '../world-api'
+import type { AnimalKind, Entity } from './types'
+import { getEntitiesInChunk } from './registry'
+import { getWorldApi, type WorldApi } from '../world-api'
 import { CHUNK_SIZE } from '../constants'
 import { getStructureOriginsInChunk } from '../terrain/structures/origins'
 import { getHeight, getResolvedBiome, WORLD_SEED } from '../game-terrain'
@@ -19,19 +18,24 @@ import {
   SHEEP_FORBIDDEN_BIOMES,
 } from '../creature-zones'
 import {
-  createQuestNpcIcon,
-  registerQuestNpcSprite,
-  unregisterAndDisposeQuestNpcSprite,
-} from './quest-npc-icon'
-import {
-  CREATURE_SPAWN_PROBABILITY,
-  DEFAULT_CREATURE_SPAWN_PROBABILITY,
   CREATURE_SPAWN_SURFACE_BLOCKS,
   CREATURE_SPAWN_POSITION_ATTEMPTS,
   HOSTILE_SPAWN_MAX_LIGHT,
 } from './spawn-constants'
 import { isNight } from '../atmosphere'
 import type { Biome } from '../types'
+import {
+  getCreatureDefsForBiome,
+  getCreatureSpawnProbability,
+  pickWeightedCreature,
+} from './entity-defs'
+import {
+  makeNaturalSpawnRng,
+  makeVillageSpawnRng,
+  makeVillagerVariantRng,
+  makeZoneChunkRng,
+} from './spawn-rng'
+import { removeEntityFromScene, spawnEntityInScene } from './spawn-scene'
 
 /** Min and max number of villagers to spawn per village (deterministic per village origin). */
 const VILLAGERS_PER_VILLAGE_MIN = 1
@@ -39,153 +43,15 @@ const VILLAGERS_PER_VILLAGE_MAX = 2
 /** Max block offset in X/Z from village center for villager spawn position. */
 const VILLAGE_SPAWN_OFFSET_RADIUS = 3
 
-/** Deterministic seeded RNG for chunk spawn (same chunk + kind = same count/positions). */
-function makeChunkRng(chunkKey: string, kind: AnimalKind): () => number {
-  let seed = 0
-  for (let i = 0; i < chunkKey.length; i++) seed = (seed << 5) - seed + chunkKey.charCodeAt(i)
-  seed += kind.length * 31
-  seed = Math.imul(seed, 0x7fffffff) >>> 0
-  return function () {
-    seed = Math.imul(seed, 1103515245) + 12345
-    return ((seed >>> 0) % 0x7fffffff) / 0x7fffffff
-  }
+interface ChunkSpawnContext {
+  scene: THREE.Scene
+  chunkKey: string
+  chunkX: number
+  chunkZ: number
+  worldX: number
+  worldZ: number
+  api: WorldApi
 }
-
-/** Deterministic RNG for creature zone spawn (chunkKey + zone id). */
-function makeZoneChunkRng(chunkKey: string, zoneId: string): () => number {
-  let seed = 0
-  for (let i = 0; i < chunkKey.length; i++) seed = (seed << 5) - seed + chunkKey.charCodeAt(i)
-  for (let i = 0; i < zoneId.length; i++) seed = (seed << 5) - seed + zoneId.charCodeAt(i)
-  seed = Math.imul(seed, 0x7fffffff) >>> 0
-  return function () {
-    seed = Math.imul(seed, 1103515245) + 12345
-    return ((seed >>> 0) % 0x7fffffff) / 0x7fffffff
-  }
-}
-
-export const ANIMAL_DEFS: AnimalDef[] = [
-  {
-    kind: 'sheep',
-    aabb: { halfX: 0.3, halfZ: 0.2, height: 0.5 },
-    walkSpeed: 1.2,
-    runSpeed: 2.8,
-    spawnBiomes: ['plains', 'forest', 'jungle', 'meadow', 'savanna'],
-    maxPerChunk: 1,
-    behaviour: 'flee',
-    defaultDisposition: 'neutral',
-    maxHealth: 8,
-    spawnWeight: 10,
-    spawnGroupMin: 1,
-    spawnGroupMax: 2,
-  },
-  {
-    kind: 'pig',
-    aabb: { halfX: 0.45, halfZ: 0.3, height: 0.9 },
-    walkSpeed: 1.4,
-    runSpeed: 2.6,
-    spawnBiomes: ['plains', 'forest', 'jungle', 'meadow', 'savanna'],
-    maxPerChunk: 1,
-    behaviour: 'passive',
-    defaultDisposition: 'neutral',
-    maxHealth: 10,
-    spawnWeight: 10,
-    spawnGroupMin: 1,
-    spawnGroupMax: 2,
-  },
-  {
-    kind: 'cow',
-    aabb: { halfX: 0.5, halfZ: 0.35, height: 1.0 },
-    walkSpeed: 1.0,
-    runSpeed: 2.2,
-    spawnBiomes: ['plains', 'forest', 'jungle', 'meadow', 'savanna'],
-    maxPerChunk: 1,
-    behaviour: 'flee',
-    defaultDisposition: 'neutral',
-    maxHealth: 10,
-    spawnWeight: 8,
-    spawnGroupMin: 1,
-    spawnGroupMax: 3,
-  },
-  {
-    kind: 'chicken',
-    aabb: { halfX: 0.2, halfZ: 0.15, height: 0.4 },
-    walkSpeed: 1.2,
-    runSpeed: 2.0,
-    spawnBiomes: ['plains', 'forest', 'jungle', 'meadow', 'savanna'],
-    maxPerChunk: 1,
-    behaviour: 'flee',
-    defaultDisposition: 'neutral',
-    maxHealth: 4,
-    spawnWeight: 10,
-    spawnGroupMin: 2,
-    spawnGroupMax: 4,
-  },
-  {
-    kind: 'horse',
-    aabb: { halfX: 0.5, halfZ: 0.4, height: 1.3 },
-    walkSpeed: 1.5,
-    runSpeed: 3.0,
-    spawnBiomes: ['plains', 'savanna'],
-    maxPerChunk: 1,
-    behaviour: 'passive',
-    defaultDisposition: 'neutral',
-    maxHealth: 15,
-    spawnWeight: 5,
-    spawnGroupMin: 1,
-    spawnGroupMax: 2,
-  },
-  {
-    kind: 'wolf',
-    aabb: { halfX: 0.35, halfZ: 0.25, height: 0.55 },
-    walkSpeed: 1.6,
-    runSpeed: 3.2,
-    spawnBiomes: ['forest', 'mountain', 'snow', 'grove'],
-    maxPerChunk: 1,
-    behaviour: 'chase',
-    defaultDisposition: 'aggro',
-    maxHealth: 8,
-    spawnWeight: 5,
-    spawnGroupMin: 1,
-    spawnGroupMax: 2,
-  },
-  {
-    kind: 'villager',
-    aabb: { halfX: 0.3, halfZ: 0.3, height: 1.8 },
-    walkSpeed: 1.0,
-    runSpeed: 1.4,
-    spawnBiomes: [],
-    maxPerChunk: 0,
-    behaviour: 'passive',
-    defaultDisposition: 'friendly',
-    maxHealth: 20,
-  },
-  {
-    kind: 'zombie',
-    aabb: { halfX: 0.3, halfZ: 0.3, height: 1.9 },
-    walkSpeed: 0.9,
-    runSpeed: 2.2,
-    spawnBiomes: ['plains', 'forest', 'savanna'],
-    maxPerChunk: 1,
-    behaviour: 'chase',
-    defaultDisposition: 'aggro',
-    maxHealth: 20,
-    spawnWeight: 3,
-    spawnGroupMin: 1,
-    spawnGroupMax: 2,
-  },
-]
-
-function getDef(kind: AnimalKind): AnimalDef {
-  const d = ANIMAL_DEFS.find((x) => x.kind === kind)
-  if (!d) throw new Error('Unknown animal kind: ' + kind)
-  return d
-}
-
-/** Default weight when spawnWeight is not set on AnimalDef. */
-const DEFAULT_SPAWN_WEIGHT = 10
-/** Default min/max group size when not set. */
-const DEFAULT_SPAWN_GROUP_MIN = 1
-const DEFAULT_SPAWN_GROUP_MAX = 2
 
 /**
  * Returns the biome used for this chunk's creature spawn decision (Minecraft: one representative per chunk).
@@ -201,75 +67,42 @@ function getChunkRepresentativeBiome(
 }
 
 /**
- * Returns creature spawn probability for the given biome (0 = no spawns).
+ * Builds the shared spawn context for one chunk.
+ *
+ * @param scene - Scene receiving spawned entities
+ * @param chunkKey - Chunk key string
+ * @param chunkX - Chunk x coordinate
+ * @param chunkZ - Chunk z coordinate
+ * @returns Stable chunk-scoped context for all spawn sources
  */
-function getCreatureSpawnProbability(biome: Biome): number {
-  return CREATURE_SPAWN_PROBABILITY[biome] ?? DEFAULT_CREATURE_SPAWN_PROBABILITY
-}
-
-/**
- * Defs that can spawn in the given biome, with effective weight and group size for weighted pick.
- */
-function getCreatureDefsForBiome(biome: Biome): Array<{ def: AnimalDef; weight: number; groupMin: number; groupMax: number }> {
-  return ANIMAL_DEFS.filter((d) => d.spawnBiomes.length > 0 && d.spawnBiomes.includes(biome)).map(
-    (def) => ({
-      def,
-      weight: def.spawnWeight ?? DEFAULT_SPAWN_WEIGHT,
-      groupMin: def.spawnGroupMin ?? DEFAULT_SPAWN_GROUP_MIN,
-      groupMax: def.spawnGroupMax ?? DEFAULT_SPAWN_GROUP_MAX,
-    }),
-  )
-}
-
-/**
- * Picks one entry from the weighted list (deterministic with given rng).
- */
-function pickWeightedCreature(
-  entries: Array<{ def: AnimalDef; weight: number; groupMin: number; groupMax: number }>,
-  rng: () => number,
-): typeof entries[0] | null {
-  if (entries.length === 0) return null
-  const total = entries.reduce((s, e) => s + e.weight, 0)
-  if (total <= 0) return null
-  let r = rng() * total
-  for (const e of entries) {
-    r -= e.weight
-    if (r <= 0) return e
-  }
-  return entries[entries.length - 1]
-}
-
-/** Deterministic RNG for natural (Minecraft-style) creature spawn loop (chunkKey only). */
-function makeNaturalSpawnRng(chunkKey: string): () => number {
-  let seed = 0
-  for (let i = 0; i < chunkKey.length; i++) seed = (seed << 5) - seed + chunkKey.charCodeAt(i)
-  seed += 31 * 7 // "creature"
-  seed = Math.imul(seed, 0x7fffffff) >>> 0
-  return function () {
-    seed = Math.imul(seed, 1103515245) + 12345
-    return ((seed >>> 0) % 0x7fffffff) / 0x7fffffff
-  }
-}
-
-/**
- * Spawn entities for a newly loaded chunk. Deterministic per chunk.
- * Uses world-api for getSurfaceY, getBiome, getBlockAt. Natural spawn uses Minecraft-style chunk biome + probability + weighted creature pick.
- */
-export function spawnEntitiesForChunk(
+function createChunkSpawnContext(
   scene: THREE.Scene,
   chunkKey: string,
   chunkX: number,
   chunkZ: number,
-): void {
-  const api = getWorldApi()
-  const worldX = chunkX * CHUNK_SIZE
-  const worldZ = chunkZ * CHUNK_SIZE
+): ChunkSpawnContext {
+  return {
+    scene,
+    chunkKey,
+    chunkX,
+    chunkZ,
+    worldX: chunkX * CHUNK_SIZE,
+    worldZ: chunkZ * CHUNK_SIZE,
+    api: getWorldApi(),
+  }
+}
 
-  const kindsSpawnedByZones = getKindsSpawnedByZonesInChunk(chunkX, chunkZ)
+/**
+ * Spawns all creature-zone entities that overlap the chunk.
+ *
+ * @param ctx - Chunk-scoped spawn context
+ * @returns Kinds that were already spawned by zone logic in this chunk
+ */
+function spawnZoneEntitiesInChunk(ctx: ChunkSpawnContext): Set<AnimalKind> {
+  const kindsSpawnedByZones = getKindsSpawnedByZonesInChunk(ctx.chunkX, ctx.chunkZ)
 
-  for (const zone of getZonesOverlappingChunk(chunkX, chunkZ)) {
-    const def = getDef(zone.kind)
-    const rng = makeZoneChunkRng(chunkKey, zone.id)
+  for (const zone of getZonesOverlappingChunk(ctx.chunkX, ctx.chunkZ)) {
+    const rng = makeZoneChunkRng(ctx.chunkKey, zone.id)
     const count = Math.floor(rng() * (zone.maxPerChunk + 1))
     for (let i = 0; i < count; i++) {
       let wx: number
@@ -283,8 +116,8 @@ export function spawnEntitiesForChunk(
         wx = 0
         wz = 0
         for (let t = 0; t < maxTries; t++) {
-          wx = worldX + 2 + rng() * (CHUNK_SIZE - 4)
-          wz = worldZ + 2 + rng() * (CHUNK_SIZE - 4)
+          wx = ctx.worldX + 2 + rng() * (CHUNK_SIZE - 4)
+          wz = ctx.worldZ + 2 + rng() * (CHUNK_SIZE - 4)
           const dx = wx - zone.centerX
           const dz = wz - zone.centerZ
           if (dx * dx + dz * dz <= zone.radius * zone.radius) break
@@ -293,40 +126,47 @@ export function spawnEntitiesForChunk(
         const dz = wz - zone.centerZ
         if (dx * dx + dz * dz > zone.radius * zone.radius) continue
       }
-      if (zone.kind === 'sheep' && SHEEP_FORBIDDEN_BIOMES.has(api.getBiome(wx, wz))) continue
-      const y = api.getColumnSurfaceY(wx, wz)
+      if (zone.kind === 'sheep' && SHEEP_FORBIDDEN_BIOMES.has(ctx.api.getBiome(wx, wz))) continue
+      const y = ctx.api.getColumnSurfaceY(wx, wz)
       const area = getAreaAt(wx, wz)
       const level = area ? getRandomMobLevelInArea(area) : undefined
-      const entity: Omit<Entity, 'id'> = {
+      spawnEntityInScene({
+        scene: ctx.scene,
         kind: zone.kind,
         position: { x: wx, y: y, z: wz },
-        velocity: { x: 0, y: 0, z: 0 },
-        rotationY: 0,
-        aabb: { ...def.aabb },
-        state: 'idle',
-        stateTime: 0,
-        health: def.maxHealth,
-        maxHealth: def.maxHealth,
-        disposition: zone.dispositionOverride ?? def.defaultDisposition,
+        disposition: zone.dispositionOverride,
         level,
         spawnHome: { x: wx, z: wz },
-        ...(zone.wanderRadius != null ? { wanderRadius: zone.wanderRadius } : {}),
-      }
-      const mesh = createAnimalMesh(zone.kind)
-      mesh.position.set(entity.position.x, entity.position.y, entity.position.z)
-      scene.add(mesh)
-      addEntity(entity, mesh)
+        wanderRadius: zone.wanderRadius,
+      })
     }
   }
 
-  const chunkBiome = getChunkRepresentativeBiome(chunkX, chunkZ, api.getBiome.bind(api))
+  return kindsSpawnedByZones
+}
+
+/**
+ * Spawns natural chunk-based creatures for the chunk.
+ *
+ * @param ctx - Chunk-scoped spawn context
+ * @param blockedKinds - Creature kinds already claimed by zone spawning
+ */
+function spawnNaturalEntitiesInChunk(
+  ctx: ChunkSpawnContext,
+  blockedKinds: Set<AnimalKind>,
+): void {
+  const chunkBiome = getChunkRepresentativeBiome(
+    ctx.chunkX,
+    ctx.chunkZ,
+    ctx.api.getBiome.bind(ctx.api),
+  )
   const probability = getCreatureSpawnProbability(chunkBiome)
   const weightedDefs = getCreatureDefsForBiome(chunkBiome).filter(
-    (e) => !kindsSpawnedByZones.has(e.def.kind),
+    (entry) => !blockedKinds.has(entry.def.kind),
   )
 
   if (probability > 0 && weightedDefs.length > 0) {
-    const rng = makeNaturalSpawnRng(chunkKey)
+    const rng = makeNaturalSpawnRng(ctx.chunkKey)
     for (;;) {
       if (rng() >= probability) break
       const entry = pickWeightedCreature(weightedDefs, rng)
@@ -342,76 +182,71 @@ export function spawnEntitiesForChunk(
       for (let g = 0; g < groupSize; g++) {
         let spawned = false
         for (let t = 0; t < CREATURE_SPAWN_POSITION_ATTEMPTS && !spawned; t++) {
-          const wx = worldX + 2 + rng() * (CHUNK_SIZE - 4)
-          const wz = worldZ + 2 + rng() * (CHUNK_SIZE - 4)
-          const posBiome = api.getBiome(wx, wz)
+          const wx = ctx.worldX + 2 + rng() * (CHUNK_SIZE - 4)
+          const wz = ctx.worldZ + 2 + rng() * (CHUNK_SIZE - 4)
+          const posBiome = ctx.api.getBiome(wx, wz)
           if (!def.spawnBiomes.includes(posBiome)) continue
-          const y = api.getColumnSurfaceY(wx, wz)
+          const y = ctx.api.getColumnSurfaceY(wx, wz)
           if (def.defaultDisposition === 'aggro') {
             if (!isNight()) continue
-            const light = api.getBlockLightAt?.(wx, y, wz) ?? 0
+            const light = ctx.api.getBlockLightAt?.(wx, y, wz) ?? 0
             if (light > HOSTILE_SPAWN_MAX_LIGHT) continue
           }
-          const block = api.getBlockAt(wx, y, wz)
+          const block = ctx.api.getBlockAt(wx, y, wz)
           if (block !== 'air' && block !== null && !CREATURE_SPAWN_SURFACE_BLOCKS.has(block)) continue
           const area = getAreaAt(wx, wz)
           const level = area ? getRandomMobLevelInArea(area) : undefined
-          const entity: Omit<Entity, 'id'> = {
+          spawnEntityInScene({
+            scene: ctx.scene,
             kind: def.kind,
             position: { x: wx, y: y, z: wz },
-            velocity: { x: 0, y: 0, z: 0 },
-            rotationY: 0,
-            aabb: { ...def.aabb },
-            state: 'idle',
-            stateTime: 0,
-            health: def.maxHealth,
-            maxHealth: def.maxHealth,
             disposition: def.defaultDisposition,
             level,
-          }
-          const mesh = createAnimalMesh(def.kind)
-          mesh.position.set(entity.position.x, entity.position.y, entity.position.z)
-          scene.add(mesh)
-          addEntity(entity, mesh)
+          })
           spawned = true
         }
       }
     }
   }
+}
 
+/**
+ * Returns all village origins that can auto-spawn villagers in this chunk.
+ *
+ * @param ctx - Chunk-scoped spawn context
+ * @returns Village origins affecting this chunk
+ */
+function getVillageOriginsInChunk(ctx: ChunkSpawnContext) {
   const proceduralOrigins = getStructureOriginsInChunk(
     WORLD_SEED,
-    chunkX,
-    chunkZ,
+    ctx.chunkX,
+    ctx.chunkZ,
     getHeight,
     getResolvedBiome,
   )
   const fixedVillageOrigins = getFixedVillageOriginsInChunk(
     getActivePois(),
-    chunkX,
-    chunkZ,
+    ctx.chunkX,
+    ctx.chunkZ,
     getHeight,
     getResolvedBiome,
   )
-  const origins = [...proceduralOrigins, ...fixedVillageOrigins]
-  const villagerDef = ANIMAL_DEFS.find((d) => d.kind === 'villager')!
-  for (const origin of origins) {
+  return [...proceduralOrigins, ...fixedVillageOrigins]
+}
+
+/**
+ * Spawns auto-generated villagers for villages whose origin lies in the chunk.
+ *
+ * @param ctx - Chunk-scoped spawn context
+ */
+function spawnVillageEntitiesInChunk(ctx: ChunkSpawnContext): void {
+  for (const origin of getVillageOriginsInChunk(ctx)) {
     if (origin.type !== 'village') continue
     if (origin.noAutoVillagers === true) continue
-    const oxInChunk =
-      origin.ox >= worldX && origin.ox < worldX + CHUNK_SIZE
-    const ozInChunk =
-      origin.oz >= worldZ && origin.oz < worldZ + CHUNK_SIZE
+    const oxInChunk = origin.ox >= ctx.worldX && origin.ox < ctx.worldX + CHUNK_SIZE
+    const ozInChunk = origin.oz >= ctx.worldZ && origin.oz < ctx.worldZ + CHUNK_SIZE
     if (!oxInChunk || !ozInChunk) continue
-    let seed = 0
-    for (let i = 0; i < chunkKey.length; i++)
-      seed = (seed << 5) - seed + chunkKey.charCodeAt(i)
-    seed += Math.floor(origin.ox) * 374761393 + Math.floor(origin.oz) * 668265263
-    let rngState = (seed >>> 0) % 0x7fffffff || 1
-    const villageRng = () => {
-      rngState = Math.imul(rngState, 1103515245) + 12345
-      return ((rngState >>> 0) % 0x7fffffff) / 0x7fffffff
-    }
+    const villageRng = makeVillageSpawnRng(ctx.chunkKey, origin.ox, origin.oz)
     const count =
       VILLAGERS_PER_VILLAGE_MIN +
       Math.floor(
@@ -422,91 +257,93 @@ export function spawnEntitiesForChunk(
       const dz = (villageRng() * 2 - 1) * VILLAGE_SPAWN_OFFSET_RADIUS
       const wx = origin.ox + dx
       const wz = origin.oz + dz
-      const y = api.getColumnSurfaceY(wx, wz)
+      const y = ctx.api.getColumnSurfaceY(wx, wz)
       const area = getAreaAt(wx, wz)
       const level = area ? getRandomMobLevelInArea(area) : undefined
-      const entity: Omit<Entity, 'id'> = {
+      spawnEntityInScene({
+        scene: ctx.scene,
         kind: 'villager',
         position: { x: wx, y: y, z: wz },
-        velocity: { x: 0, y: 0, z: 0 },
-        rotationY: 0,
-        aabb: { ...villagerDef.aabb },
-        state: 'idle',
-        stateTime: 0,
-        health: villagerDef.maxHealth,
-        maxHealth: villagerDef.maxHealth,
-        disposition: villagerDef.defaultDisposition,
         level,
-      }
-      const mesh = createAnimalMesh('villager', villageRng())
-      mesh.position.set(entity.position.x, entity.position.y, entity.position.z)
-      scene.add(mesh)
-      addEntity(entity, mesh)
+        variant: villageRng(),
+      })
     }
   }
+}
 
+/**
+ * Builds quest-giver metadata for a fixed spawn when it offers quests or talk objectives.
+ *
+ * @param spawn - Fixed spawn definition
+ * @returns Quest-giver payload or undefined
+ */
+function buildQuestGiverConfig(
+  spawn: {
+    questOfferIds?: string[]
+    prerequisiteQuestIds?: string[]
+    talkTargetId?: string
+  },
+): Entity['questGiver'] | undefined {
+  if (spawn.questOfferIds == null || spawn.questOfferIds.length === 0) return undefined
+  return {
+    offeredQuestIds: spawn.questOfferIds,
+    ...(spawn.prerequisiteQuestIds != null && spawn.prerequisiteQuestIds.length > 0
+      ? { prerequisiteQuestIds: spawn.prerequisiteQuestIds }
+      : {}),
+    ...(spawn.talkTargetId != null ? { talkTargetId: spawn.talkTargetId } : {}),
+  }
+}
+
+/**
+ * Spawns fixed POI-authored entities for the chunk.
+ *
+ * @param ctx - Chunk-scoped spawn context
+ */
+function spawnFixedEntitiesInChunk(ctx: ChunkSpawnContext): void {
   const fixedSpawns = getFixedSpawnsInChunk(
     getActivePois(),
-    chunkKey,
-    chunkX,
-    chunkZ,
+    ctx.chunkKey,
+    ctx.chunkX,
+    ctx.chunkZ,
     getResolvedBiome,
     getHeight,
     WORLD_SEED,
   )
   for (let i = 0; i < fixedSpawns.length; i++) {
     const spawn = fixedSpawns[i]
-    const def = getDef(spawn.kind)
-    const y = api.getColumnSurfaceY(spawn.x, spawn.z)
+    const y = ctx.api.getColumnSurfaceY(spawn.x, spawn.z)
     const area = getAreaAt(spawn.x, spawn.z)
     const level = area ? getRandomMobLevelInArea(area) : undefined
-    const entity: Omit<Entity, 'id'> = {
+    const variant =
+      spawn.kind === 'villager'
+        ? makeVillagerVariantRng(ctx.chunkKey, spawn.x, spawn.z, i)()
+        : undefined
+    spawnEntityInScene({
+      scene: ctx.scene,
       kind: spawn.kind,
       position: { x: spawn.x, y, z: spawn.z },
-      velocity: { x: 0, y: 0, z: 0 },
-      rotationY: 0,
-      aabb: { ...def.aabb },
-      state: 'idle',
-      stateTime: 0,
-      health: def.maxHealth,
-      maxHealth: def.maxHealth,
-      disposition: def.defaultDisposition,
       level,
-      ...(spawn.questOfferIds != null && spawn.questOfferIds.length > 0
-        ? {
-            questGiver: {
-              offeredQuestIds: spawn.questOfferIds,
-              ...(spawn.prerequisiteQuestIds != null && spawn.prerequisiteQuestIds.length > 0
-                ? { prerequisiteQuestIds: spawn.prerequisiteQuestIds }
-                : {}),
-              ...(spawn.talkTargetId != null ? { talkTargetId: spawn.talkTargetId } : {}),
-            },
-          }
-        : {}),
-    }
-    let variant: number | undefined
-    if (spawn.kind === 'villager') {
-      let seed = 0
-      for (let j = 0; j < chunkKey.length; j++) seed = (seed << 5) - seed + chunkKey.charCodeAt(j)
-      seed += Math.floor(spawn.x) * 374761393 + Math.floor(spawn.z) * 668265263 + i * 31
-      const rng = makeChunkRng(String(seed), 'villager')
-      variant = rng()
-    }
-    const mesh = createAnimalMesh(spawn.kind, variant)
-    mesh.position.set(entity.position.x, entity.position.y, entity.position.z)
-    if (entity.questGiver) {
-      const iconSprite = createQuestNpcIcon(entity)
-      mesh.add(iconSprite)
-    }
-    scene.add(mesh)
-    const added = addEntity(entity, mesh)
-    if (added.questGiver) {
-      const iconSprite = mesh.children[mesh.children.length - 1]
-      if (iconSprite instanceof THREE.Sprite) {
-        registerQuestNpcSprite(added.id, iconSprite)
-      }
-    }
+      questGiver: buildQuestGiverConfig(spawn),
+      variant,
+    })
   }
+}
+
+/**
+ * Spawn entities for a newly loaded chunk. Deterministic per chunk.
+ * Uses world-api for getSurfaceY, getBiome, getBlockAt. Natural spawn uses Minecraft-style chunk biome + probability + weighted creature pick.
+ */
+export function spawnEntitiesForChunk(
+  scene: THREE.Scene,
+  chunkKey: string,
+  chunkX: number,
+  chunkZ: number,
+): void {
+  const ctx = createChunkSpawnContext(scene, chunkKey, chunkX, chunkZ)
+  const kindsSpawnedByZones = spawnZoneEntitiesInChunk(ctx)
+  spawnNaturalEntitiesInChunk(ctx, kindsSpawnedByZones)
+  spawnVillageEntitiesInChunk(ctx)
+  spawnFixedEntitiesInChunk(ctx)
 }
 
 /**
@@ -515,20 +352,9 @@ export function spawnEntitiesForChunk(
  */
 export function despawnEntitiesInChunk(scene: THREE.Scene, chunkKey: string): void {
   const entities = getEntitiesInChunk(chunkKey)
-  for (const e of entities) {
-    if (e.questGiver) unregisterAndDisposeQuestNpcSprite(e.id)
-    const mesh = removeEntity(e.id)
-    if (mesh) {
-      scene.remove(mesh)
-      mesh.traverse((obj) => {
-        if (obj instanceof THREE.Mesh) {
-          obj.geometry?.dispose()
-          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose())
-          else obj.material?.dispose()
-        }
-      })
-    }
+  for (const entity of entities) {
+    removeEntityFromScene(scene, entity)
   }
 }
 
-export { getDef }
+export { ANIMAL_DEFS, getDef } from './entity-defs'

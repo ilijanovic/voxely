@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-vi.mock('./spawn', () => ({
+vi.mock('./entity-defs', () => ({
   getDef: (kind: string) => {
     const defs: Record<
       string,

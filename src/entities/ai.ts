@@ -1,6 +1,6 @@
 import type { Entity } from './types'
 import { getAllEntities } from './registry'
-import { getDef } from './spawn'
+import { getDef } from './entity-defs'
 
 const IDLE_MIN = 2
 const IDLE_MAX = 5
