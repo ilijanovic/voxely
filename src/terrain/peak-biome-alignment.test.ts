@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createTerrainSampling } from '../terrain-sampling'
-import { getBiomeByMultiNoise } from './biomes'
+import { getPeakBiomeByMultiNoise } from './biomes'
 import { getJaggedPeakFactor, getPeakBandFactor, getRidgeTerm } from './height-shaping'
 
 const FULL_MOUNTAIN_FACTOR = 1
@@ -18,17 +18,18 @@ const SAMPLE_SEEDS = [42, 12345]
 const PEAK_BASE_BIOMES = new Set(['mountain', 'snow'])
 
 /**
- * Counts resolved peak biomes in a sampled square region.
+ * Counts one resolved biome in a sampled square region.
  *
  * @param seed - World seed used for sampling
- * @returns Total count of resolved jagged peaks
+ * @param biome - Resolved biome to count
+ * @returns Total count of the requested biome
  */
-function countJaggedPeaks(seed: number): number {
+function countResolvedBiome(seed: number, biome: 'jagged_peaks' | 'stony_peaks'): number {
   const terrain = createTerrainSampling(seed)
   let total = 0
   for (let x = -SAMPLE_RADIUS; x <= SAMPLE_RADIUS; x += SAMPLE_STEP) {
     for (let z = -SAMPLE_RADIUS; z <= SAMPLE_RADIUS; z += SAMPLE_STEP) {
-      if (terrain.getResolvedBiome(x, z, terrain.getSmoothedHeight) === 'jagged_peaks') total += 1
+      if (terrain.getResolvedBiome(x, z, terrain.getSmoothedHeight) === biome) total += 1
     }
   }
   return total
@@ -56,35 +57,35 @@ describe('height shaping', () => {
 describe('peak biome multi-noise selection', () => {
   it('selects frozen, jagged, and stony peaks from their tuned peak centers', () => {
     expect(
-      getBiomeByMultiNoise({
+      getPeakBiomeByMultiNoise({
         continentalness: 0.516,
-        erosion: -0.3,
-        temperature: -0.78,
-        humidity: 0.22,
-        weirdness: 0.72,
-        y: 0.86,
+        erosion: -0.25,
+        temperature: -0.82,
+        humidity: 0.2,
+        weirdness: 1.05,
+        y: 0.62,
       }),
     ).toBe('frozen_peaks')
 
     expect(
-      getBiomeByMultiNoise({
+      getPeakBiomeByMultiNoise({
         continentalness: 0.516,
-        erosion: -0.86,
-        temperature: -0.18,
-        humidity: 0.25,
-        weirdness: -0.82,
-        y: 0.86,
+        erosion: -0.74,
+        temperature: -0.28,
+        humidity: 0.1,
+        weirdness: -0.78,
+        y: 0.66,
       }),
     ).toBe('jagged_peaks')
 
     expect(
-      getBiomeByMultiNoise({
-        continentalness: 0.516,
-        erosion: -0.55,
-        temperature: 0.42,
-        humidity: -0.55,
-        weirdness: 0.18,
-        y: 0.84,
+      getPeakBiomeByMultiNoise({
+        continentalness: 0.52,
+        erosion: -0.3,
+        temperature: -0.34,
+        humidity: -0.18,
+        weirdness: 0.22,
+        y: 0.56,
       }),
     ).toBe('stony_peaks')
   })
@@ -105,7 +106,12 @@ describe('resolved peak biomes', () => {
   })
 
   it('produces jagged peaks in a large cold mountain sample', () => {
-    const total = SAMPLE_SEEDS.reduce((sum, seed) => sum + countJaggedPeaks(seed), 0)
+    const total = SAMPLE_SEEDS.reduce((sum, seed) => sum + countResolvedBiome(seed, 'jagged_peaks'), 0)
+    expect(total).toBeGreaterThan(0)
+  })
+
+  it('produces stony peaks in a large mountain sample', () => {
+    const total = SAMPLE_SEEDS.reduce((sum, seed) => sum + countResolvedBiome(seed, 'stony_peaks'), 0)
     expect(total).toBeGreaterThan(0)
   })
 })

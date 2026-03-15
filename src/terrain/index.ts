@@ -97,9 +97,9 @@ import {
 import {
   BIOME_REGISTRY,
   BIOME_TERRAIN,
-  getBiomeByMultiNoise,
   getLandBiomeBlendByClimate,
   getLandBiomeBlendByMultiNoise,
+  getPeakBiomeByMultiNoise,
 } from './biomes'
 import { createClimateSampler } from './climate-sampler'
 import { makeSeededRandom, clamp } from './utils'
@@ -631,7 +631,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       erosionSigned <= PEAK_JAGGED_EROSION_MAX
     )
       return 'jagged_peaks'
-    const peakPick = getBiomeByMultiNoise({
+    return getPeakBiomeByMultiNoise({
       continentalness: getContinentalness(x, z),
       erosion: erosionSigned,
       temperature: getTemperatureSignedSmoothed(x, z),
@@ -639,9 +639,6 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       weirdness: weirdnessSigned,
       y: getPeakY01(hFuzzy),
     })
-    if (peakPick === 'stony_peaks' || peakPick === 'frozen_peaks' || peakPick === 'jagged_peaks')
-      return peakPick
-    return 'frozen_peaks'
   }
 
   function getHeightUncached(x: number, z: number): number {

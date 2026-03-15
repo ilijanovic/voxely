@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { BlockType } from '../../types'
 import type { Biome } from '../../game-terrain'
-import { CHUNK_SIZE, WATER_LEVEL, SPAWN_X, SPAWN_Z } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, SPAWN_X, SPAWN_Z, WORLD_MIN_Y } from '../../constants'
 import { chunks, chunkKeyNumeric, localKey, getBlockAt } from '../../chunk-runtime'
 import { isSolidBlock as isBlockTypeSolid } from '../../block-registry'
 import {
@@ -27,7 +27,7 @@ export function logBlockAt(bx: number, by: number, bz: number, label: string): v
 
   const lx = bx - cx * CHUNK_SIZE
   const lz = bz - cz * CHUNK_SIZE
-  const localKeyVal = localKey(lx, by, lz)
+  const localKeyVal = localKey(lx, by - WORLD_MIN_Y, lz)
 
   const info: Record<string, unknown> = {
     worldPos: { bx, by, bz },

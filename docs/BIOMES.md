@@ -27,7 +27,7 @@ Related docs:
 | mushroom_fields | Base land | Climate |
 | mangrove_swamp | Base land | Climate |
 | old_growth_taiga | Base land | Climate |
-| ocean | Water | Continentalness < 0.44 |
+| ocean | Water | Continentalness < `OCEAN_CONTINENTALNESS_THRESHOLD` (signed, vanilla-aligned range) |
 | meadow | Highland variant | Height + noise in mountain/snow regions |
 | grove | Highland variant | Height + noise in mountain/snow or cold upland |
 | snowy_slopes | Highland variant | Height band in mountain/snow |
@@ -39,7 +39,7 @@ Related docs:
 | windswept_forest | Highland variant | Height + humidity/variant noise |
 | windswept_gravelly_hills | Highland variant | Height + highland variant noise |
 
-**Base land (11)** are chosen by nearest-match in 2D climate (temperature, humidity). **Ocean** is chosen when continentalness (noise at `CONTINENTAL_SCALE`) is below 0.44. **Highland variants** appear mainly when the base biome is mountain or snow above certain world Y thresholds (see section 5); some variants (grove, snowy_slopes, frozen_peaks, windswept_*) can also appear for other bases at cold temperature and high elevation.
+**Base land (11)** are chosen by nearest-match in 2D climate (temperature, humidity). **Ocean** is chosen when signed continentalness is below `OCEAN_CONTINENTALNESS_THRESHOLD` (see `src/terrain/constants.ts`; current value `-0.24`, vanilla-aligned signed range `[-1.2, 1]`). **Highland variants** appear mainly when the base biome is mountain or snow above certain world Y thresholds (see section 5); some variants (grove, snowy_slopes, frozen_peaks, windswept_*) can also appear for other bases at cold temperature and high elevation.
 
 ---
 

@@ -349,7 +349,7 @@ function makeGetBlockForChunk(
     const lx = bx - worldX
     const lz = bz - worldZ
     if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
-      const key = localKey(lx, by, lz)
+      const key = localKey(lx, by - WORLD_MIN_Y, lz)
       return voxelMap.get(key) ?? 'air'
     }
     return getBlockAt(bx, by, bz) ?? 'air'
@@ -417,6 +417,7 @@ export function filterVisibleBlocks(
   return filterVisibleBlocksPure({
     worldX,
     worldZ,
+    worldMinY: WORLD_MIN_Y,
     chunkSize: CHUNK_SIZE,
     worldHeight: WORLD_HEIGHT,
     voxelMap,

@@ -77,8 +77,8 @@ describe('macro terrain profile', () => {
     const oceanFrac = total > 0 ? ocean / total : 0
 
     // Broad invariants: overworld should have significant oceans but not be mostly ocean.
-    expect(oceanFrac).toBeGreaterThan(0.2)
-    expect(oceanFrac).toBeLessThan(0.7)
+    expect(oceanFrac).toBeGreaterThan(0.3)
+    expect(oceanFrac).toBeLessThan(0.55)
   })
 
   it('produces plausible height ranges (sea level centered, peaks exist)', () => {
@@ -100,7 +100,6 @@ describe('macro terrain profile', () => {
 
     // Ensure both low (ocean basins) and high (mountains/peaks) exist in a large region.
     expect(s.min).toBeLessThan(WATER_LEVEL - 8)
-    expect(s.max).toBeGreaterThan(WATER_LEVEL + 40)
+    expect(s.max).toBeGreaterThan(WATER_LEVEL + 55)
   })
 })
-

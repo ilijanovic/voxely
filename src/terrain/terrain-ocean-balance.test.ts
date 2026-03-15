@@ -41,9 +41,9 @@ describe('terrain ocean balance', () => {
       )}`,
     )
 
-    // Expected band after tuning: keep oceans significant but not dominant.
-    expect(oceanFraction).toBeGreaterThan(0.25)
-    expect(oceanFraction).toBeLessThan(0.6)
+    // Expected band after tuning: oceans are common, but land remains dominant.
+    expect(oceanFraction).toBeGreaterThan(0.3)
+    expect(oceanFraction).toBeLessThan(0.5)
   })
 
   it('does not produce extremely long pure-ocean stretches along a line', () => {
@@ -71,9 +71,7 @@ describe('terrain ocean balance', () => {
 
     const maxRunDistance = maxRun * step
 
-    // We allow large oceans, but assert that auf einer geraden Linie
-    // kein endloser Ozean ohne Landpassagen entsteht.
+    // We allow large oceans, but not endless uninterrupted stretches.
     expect(maxRunDistance).toBeLessThanOrEqual(4096)
   })
 })
-

@@ -1,9 +1,6 @@
 import type { AnimalDef, AnimalKind } from './types'
 import type { Biome } from '../types'
-import {
-  CREATURE_SPAWN_PROBABILITY,
-  DEFAULT_CREATURE_SPAWN_PROBABILITY,
-} from './spawn-constants'
+import { CREATURE_SPAWN_PROBABILITY, DEFAULT_CREATURE_SPAWN_PROBABILITY } from './spawn-constants'
 
 /** Effective natural-spawn config after applying defaults for weight and group size. */
 export interface WeightedCreatureSpawnDef {
@@ -16,17 +13,17 @@ export interface WeightedCreatureSpawnDef {
 export const ANIMAL_DEFS: AnimalDef[] = [
   {
     kind: 'sheep',
-    aabb: { halfX: 0.3, halfZ: 0.2, height: 0.5 },
-    walkSpeed: 1.2,
-    runSpeed: 2.8,
-    spawnBiomes: ['plains', 'forest', 'jungle', 'meadow', 'savanna'],
-    maxPerChunk: 1,
-    behaviour: 'flee',
+    aabb: { halfX: 0.45, halfZ: 0.45, height: 1.3 },
+    walkSpeed: 1.1,
+    runSpeed: 2.7,
+    spawnBiomes: ['plains', 'forest', 'jungle', 'meadow', 'savanna', 'windswept_hills'],
+    maxPerChunk: 2,
+    behaviour: 'passive',
     defaultDisposition: 'neutral',
     maxHealth: 8,
-    spawnWeight: 10,
-    spawnGroupMin: 1,
-    spawnGroupMax: 2,
+    spawnWeight: 12,
+    spawnGroupMin: 4,
+    spawnGroupMax: 4,
   },
   {
     kind: 'pig',
@@ -165,14 +162,14 @@ export function getCreatureSpawnProbability(biome: Biome): number {
  * @returns Weighted creature definitions for that biome
  */
 export function getCreatureDefsForBiome(biome: Biome): WeightedCreatureSpawnDef[] {
-  return ANIMAL_DEFS.filter((def) => def.spawnBiomes.length > 0 && def.spawnBiomes.includes(biome)).map(
-    (def) => ({
-      def,
-      weight: def.spawnWeight ?? DEFAULT_SPAWN_WEIGHT,
-      groupMin: def.spawnGroupMin ?? DEFAULT_SPAWN_GROUP_MIN,
-      groupMax: def.spawnGroupMax ?? DEFAULT_SPAWN_GROUP_MAX,
-    }),
-  )
+  return ANIMAL_DEFS.filter(
+    (def) => def.spawnBiomes.length > 0 && def.spawnBiomes.includes(biome),
+  ).map((def) => ({
+    def,
+    weight: def.spawnWeight ?? DEFAULT_SPAWN_WEIGHT,
+    groupMin: def.spawnGroupMin ?? DEFAULT_SPAWN_GROUP_MIN,
+    groupMax: def.spawnGroupMax ?? DEFAULT_SPAWN_GROUP_MAX,
+  }))
 }
 
 /**

@@ -266,7 +266,8 @@ describe('pipeline vs terrain-sampling biome parity', () => {
 
     for (let x = -64; x <= 64; x += 16) {
       for (let z = -64; z <= 64; z += 16) {
-        const h = sampling.getSmoothedHeight(x, z)
+        // Pipeline resolves biomes from integer column heights; mirror that here.
+        const h = Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, sampling.getSmoothedHeight(x, z))))
         const samplingBiome = sampling.getResolvedBiome(x, z, () => h)
         const pipelineBiome = gen.getResolvedBiome(x, z)
         expect(

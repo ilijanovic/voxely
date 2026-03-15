@@ -91,8 +91,8 @@ const BIOME_RARITY_WEIGHT: Partial<Record<Biome, number>> = {
   // Common warm / cold land
   desert: 1.3,
   savanna: 1.2,
-  mountain: 1.6,
-  snow: 1.1,
+  mountain: 2.1,
+  snow: 1.3,
   // Rare warm/wet or special biomes
   jungle: 0.3,
   mangrove_swamp: 0.35,
@@ -177,6 +177,8 @@ export interface LandBiomeBlendMultiNoise {
   /** Weight for secondary biome in [0,1]. */
   t: number
 }
+
+const PEAK_BIOMES: readonly Biome[] = ['frozen_peaks', 'jagged_peaks', 'stony_peaks']
 
 /**
  * Return the two closest land biomes in climate space (with rarity weighting) plus a blend weight.
@@ -287,6 +289,26 @@ export function getBiomeByMultiNoise(point: MultiNoise6Point): Biome {
     const rawD = distSqMultiNoise(point, def.multiNoise)
     const weight = getBiomeRarityWeight(b, def)
     const d = rawD / Math.max(weight, 0.1)
+    if (d < bestD) {
+      bestD = d
+      best = b
+    }
+  }
+  return best
+}
+
+/**
+ * Select one of the peak biomes by nearest multi-noise center in 6D.
+ * This keeps high mountain resolution stable and avoids fallback bias toward
+ * a single peak type when non-peak biomes are closer in the global selector.
+ */
+export function getPeakBiomeByMultiNoise(point: MultiNoise6Point): Biome {
+  let best: Biome = 'frozen_peaks'
+  let bestD = Infinity
+  for (const b of PEAK_BIOMES) {
+    const def = BIOME_REGISTRY[b]
+    if (!def.multiNoise) continue
+    const d = distSqMultiNoise(point, def.multiNoise)
     if (d < bestD) {
       bestD = d
       best = b

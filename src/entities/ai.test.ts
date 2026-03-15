@@ -12,10 +12,34 @@ vi.mock('./entity-defs', () => ({
         maxHealth: number
       }
     > = {
-      sheep: { walkSpeed: 1.2, runSpeed: 2.8, behaviour: 'flee', defaultDisposition: 'neutral', maxHealth: 8 },
-      pig: { walkSpeed: 1.4, runSpeed: 2.6, behaviour: 'passive', defaultDisposition: 'neutral', maxHealth: 10 },
-      wolf: { walkSpeed: 1.6, runSpeed: 3.2, behaviour: 'chase', defaultDisposition: 'aggro', maxHealth: 8 },
-      villager: { walkSpeed: 1.0, runSpeed: 1.4, behaviour: 'passive', defaultDisposition: 'friendly', maxHealth: 20 },
+      sheep: {
+        walkSpeed: 1.1,
+        runSpeed: 2.7,
+        behaviour: 'passive',
+        defaultDisposition: 'neutral',
+        maxHealth: 8,
+      },
+      pig: {
+        walkSpeed: 1.4,
+        runSpeed: 2.6,
+        behaviour: 'passive',
+        defaultDisposition: 'neutral',
+        maxHealth: 10,
+      },
+      wolf: {
+        walkSpeed: 1.6,
+        runSpeed: 3.2,
+        behaviour: 'chase',
+        defaultDisposition: 'aggro',
+        maxHealth: 8,
+      },
+      villager: {
+        walkSpeed: 1.0,
+        runSpeed: 1.4,
+        behaviour: 'passive',
+        defaultDisposition: 'friendly',
+        maxHealth: 20,
+      },
     }
     return (
       defs[kind] ?? {
@@ -41,7 +65,7 @@ function makeEntity(
     position: { x: 100, y: 64, z: 100 },
     velocity: { x: 0, y: 0, z: 0 },
     rotationY: 0,
-    aabb: { halfX: 0.3, halfZ: 0.2, height: 0.5 },
+    aabb: { halfX: 0.45, halfZ: 0.45, height: 1.3 },
     state: 'idle',
     stateTime: 0,
     health: 8,
@@ -88,11 +112,27 @@ describe('updateAI', () => {
     expect(e.velocity.z).toBe(0)
   })
 
-  it('sheep flees when player is close', () => {
+  it('sheep does not flee when player is close (passive like Minecraft)', () => {
     const e = addEntity(makeEntity({ id: 'sheep_flee', position: { x: 10, y: 64, z: 10 } }))
     updateAI({ x: 10, y: 64, z: 12 }, 0.1, 0)
-    expect(e.state).toBe('flee')
-    expect(e.velocity.z).toBeLessThan(0)
+    expect(e.state).not.toBe('flee')
+  })
+
+  it('sheep flees from a nearby wolf threat', () => {
+    const sheep = addEntity(
+      makeEntity({ id: 'sheep_wolf_threat', position: { x: 10, y: 64, z: 10 } }),
+    )
+    addEntity(
+      makeEntity({
+        id: 'wolf_threat',
+        kind: 'wolf',
+        disposition: 'neutral',
+        position: { x: 10, y: 64, z: 12 },
+      }),
+    )
+    updateAI({ x: 1000, y: 64, z: 1000 }, 0.1, 0)
+    expect(sheep.state).toBe('flee')
+    expect(sheep.velocity.z).toBeLessThan(0)
   })
 
   it('sheep stops fleeing when player is far enough', () => {

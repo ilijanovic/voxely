@@ -23,9 +23,7 @@ export const QUESTS: Quest[] = [
     description:
       'The village needs wool to repair clothes and blankets before winter. Sheep graze about 200 blocks from the village—head in the direction shown below and they drop wool when slain. Gather three pieces of white wool and bring them back here so we can put them to use. You will be paid for your trouble.',
     locationHint: () => `Sheep · ${SHEEP_ZONE_RADIUS}m ${getSheepRingDirection()}`,
-    objectives: [
-      { type: 'collect', item: 'white_wool', count: 3, label: 'Wool' },
-    ],
+    objectives: [{ type: 'collect', item: 'white_wool', count: 3, label: 'Wool' }],
     reward: { gold: 10, xp: 15 },
   },
   {
@@ -37,9 +35,7 @@ export const QUESTS: Quest[] = [
     description:
       'Our stores are running low and we need meat to feed the village. Pigs can be found in the plains and forests; when killed they drop raw porkchop. Collect five raw porkchops and bring them back. In return you will receive silver, and a proper weapon if you are a warrior.',
     locationHint: 'Pigs · plains and forests',
-    objectives: [
-      { type: 'collect', item: 'raw_porkchop', count: 5, label: 'Raw porkchop' },
-    ],
+    objectives: [{ type: 'collect', item: 'raw_porkchop', count: 5, label: 'Raw porkchop' }],
     prerequisiteQuestIds: ['first_spawn_wool'],
     reward: { gold: 30 },
     rewardByClass: {
@@ -55,9 +51,7 @@ export const QUESTS: Quest[] = [
     description:
       'Wolves have been prowling near the village and several livestock have been lost. We need someone to thin their numbers before they grow bolder. Hunt three wolves in the forest or nearby and report back. As thanks, you will receive a stone sword—sturdy and sharp enough to see you through the wilds.',
     locationHint: 'Wolves · forest or near village',
-    objectives: [
-      { type: 'kill', targetKind: 'wolf', count: 3, label: 'Wolves' },
-    ],
+    objectives: [{ type: 'kill', targetKind: 'wolf', count: 3, label: 'Wolves' }],
     prerequisiteQuestIds: ['first_spawn_pork'],
     reward: { items: [{ type: 'stone_sword', count: 1 }] },
   },
@@ -68,11 +62,9 @@ export const QUESTS: Quest[] = [
     zoneId: ZONE_FIRST_SPAWN,
     title: 'Sheep Slayer',
     description:
-      'The plains are overrun with sheep and the herds are trampling crops and blocking paths. They graze about 200 blocks from the village—head in the direction shown below. Slay three sheep and the village will reward you with experience. Watch out—they will flee when you approach.',
+      'The plains are overrun with sheep and the herds are trampling crops and blocking paths. They graze about 200 blocks from the village—head in the direction shown below. Slay three sheep and the village will reward you with experience. They are calm at first, but they panic and run once threatened.',
     locationHint: () => `Sheep · ${SHEEP_ZONE_RADIUS}m ${getSheepRingDirection()}`,
-    objectives: [
-      { type: 'kill', targetKind: 'sheep', count: 3, label: 'Sheep' },
-    ],
+    objectives: [{ type: 'kill', targetKind: 'sheep', count: 3, label: 'Sheep' }],
     prerequisiteQuestIds: ['first_spawn_wool'],
     reward: { xp: 25 },
   },
@@ -85,9 +77,7 @@ export const QUESTS: Quest[] = [
     description:
       'We are always in need of wool for weaving and repairs. Sheep graze about 200 blocks from the village—head in the direction shown below; they drop wool when slain. Gather five pieces of white wool and bring them back to the village. Your efforts will be rewarded with experience.',
     locationHint: () => `Sheep · ${SHEEP_ZONE_RADIUS}m ${getSheepRingDirection()}`,
-    objectives: [
-      { type: 'collect', item: 'white_wool', count: 5, label: 'Wool' },
-    ],
+    objectives: [{ type: 'collect', item: 'white_wool', count: 5, label: 'Wool' }],
     prerequisiteQuestIds: ['first_spawn_wool'],
     reward: { xp: 40 },
   },
@@ -100,9 +90,7 @@ export const QUESTS: Quest[] = [
     description:
       'The village needs more meat for the larder. Pigs roam the plains and forests; when killed they drop raw porkchop. Hunt two pigs and bring back the meat. Raw porkchops will do—we will prepare them here.',
     locationHint: 'Pigs · plains and forests',
-    objectives: [
-      { type: 'kill', targetKind: 'pig', count: 2, label: 'Pigs' },
-    ],
+    objectives: [{ type: 'kill', targetKind: 'pig', count: 2, label: 'Pigs' }],
     prerequisiteQuestIds: ['first_spawn_wool'],
     reward: { xp: 20 },
   },
@@ -115,9 +103,7 @@ export const QUESTS: Quest[] = [
     description:
       'Wolves have been spotted in the forest and we need to keep their numbers in check. Hunt two wolves and return when the deed is done. The pelts and meat are yours; the village will pay you in experience for the service.',
     locationHint: 'Wolves · forest',
-    objectives: [
-      { type: 'kill', targetKind: 'wolf', count: 2, label: 'Wolves' },
-    ],
+    objectives: [{ type: 'kill', targetKind: 'wolf', count: 2, label: 'Wolves' }],
     prerequisiteQuestIds: ['first_spawn_wool'],
     reward: { xp: 35 },
   },
@@ -130,9 +116,7 @@ export const QUESTS: Quest[] = [
     description:
       'I have some work for you, but first I need to see you are reliable. Bring me five oak planks—you can craft them from wood at a crafting table, or find them in village buildings. Once you have them, return here.',
     locationHint: 'Oak planks · craft from wood or find in villages',
-    objectives: [
-      { type: 'collect', item: 'oak_planks', count: 5, label: 'Oak planks' },
-    ],
+    objectives: [{ type: 'collect', item: 'oak_planks', count: 5, label: 'Oak planks' }],
     prerequisiteQuestIds: ['first_spawn_wool', 'first_spawn_pork', 'first_spawn_wolves'],
     reward: { gold: 15, xp: 20 },
   },
@@ -145,9 +129,7 @@ export const QUESTS: Quest[] = [
     description:
       'Good work with the planks. Next I need stone—five pieces. Mine it from the ground with a pickaxe, or gather cobblestone from ruins. Bring me five stone and I will reward you.',
     locationHint: 'Stone · mine underground or find in structures',
-    objectives: [
-      { type: 'collect', item: 'stone', count: 5, label: 'Stone' },
-    ],
+    objectives: [{ type: 'collect', item: 'stone', count: 5, label: 'Stone' }],
     prerequisiteQuestIds: ['second_npc_planks'],
     reward: { gold: 20, xp: 25 },
   },
@@ -160,9 +142,7 @@ export const QUESTS: Quest[] = [
     description:
       'You have proven yourself. One last favour: I need ten sticks for tool handles and repairs. Craft them from oak planks at a crafting table—two planks make four sticks. Bring me ten and you may choose a stone pickaxe or a stone axe as thanks.',
     locationHint: 'Sticks · craft from oak planks at a crafting table',
-    objectives: [
-      { type: 'collect', item: 'stick', count: 10, label: 'Sticks' },
-    ],
+    objectives: [{ type: 'collect', item: 'stick', count: 10, label: 'Sticks' }],
     prerequisiteQuestIds: ['second_npc_stones'],
     reward: { gold: 25, xp: 30 },
     rewardChoices: [

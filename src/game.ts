@@ -1307,51 +1307,67 @@ const HELD_BLOCK_SCALE = 0.2
 const HELD_ITEM_SIZE = 0.32
 /** Held weapon: Z offset so sword sits in front of arm (no clipping with depthTest). */
 const HELD_WEAPON_OFFSET_Z = 0.08
-/** Held sword: pivot at bottom center (hilt). Y = face camera, X = slight tilt, Z = slight lean so blade reads vertical on screen. */
-const HELD_SWORD_TILT_Y_RAD = Math.PI
-const HELD_SWORD_TILT_Z_RAD = -0.35
+/** Held sword: keep front side toward camera (no mirrored backface) and lean to match Minecraft-like right-hand POV. */
+const HELD_SWORD_TILT_Y_RAD = 0
+const HELD_SWORD_TILT_Z_RAD = 0.35
 const HELD_SWORD_TILT_X_DEG = 8
+/** Weapon/tool render: layered cutout planes to fake item thickness like Minecraft held tools. */
+const HELD_ITEM_DEPTH_LAYERS = 4
+const HELD_ITEM_DEPTH_STEP = 0.006
 /** Cache of held-item meshes by block type (block or item id). */
-const heldItemMeshCache = new Map<string, THREE.Mesh>()
+const heldItemMeshCache = new Map<string, THREE.Object3D>()
 /** Container for the currently held item (child of POV arm). Set in createPOVHands. */
 let povHeldItemContainer: THREE.Group
 
 /**
  * Creates or returns a cached mesh for the given block/item type to show in the first-person hand.
  */
-function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
+function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Object3D {
   let mesh = heldItemMeshCache.get(blockType)
   if (mesh) return mesh
 
   const itemTex = getItemTextureName(blockType)
   if (itemTex) {
-    // Weapon/tool: single quad; origin at bottom center (hilt) so swing pivots at hand.
-    const geom = new THREE.PlaneGeometry(HELD_ITEM_SIZE, HELD_ITEM_SIZE)
-    geom.translate(0, HELD_ITEM_SIZE / 2, 0)
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      depthTest: true,
-      depthWrite: true,
-      transparent: true,
-      opacity: 1,
-      side: THREE.DoubleSide,
-    })
-    mesh = new THREE.Mesh(geom, mat)
-    mesh.renderOrder = 10000
+    // Weapon/tool: layered cutout planes with alpha test.
+    // This avoids the transparent-quad depth artifact (hand "disappearing") and gives a slight 3D feel.
+    const itemGroup = new THREE.Group()
+    itemGroup.renderOrder = 10000
+    const layerMaterials: THREE.MeshBasicMaterial[] = []
+    for (let i = 0; i < HELD_ITEM_DEPTH_LAYERS; i++) {
+      const geom = new THREE.PlaneGeometry(HELD_ITEM_SIZE, HELD_ITEM_SIZE)
+      geom.translate(0, HELD_ITEM_SIZE / 2, 0)
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        depthTest: true,
+        depthWrite: true,
+        transparent: true,
+        alphaTest: 0.5,
+        opacity: 1,
+        side: THREE.DoubleSide,
+      })
+      const layer = new THREE.Mesh(geom, mat)
+      layer.position.z = (i - (HELD_ITEM_DEPTH_LAYERS - 1) * 0.5) * HELD_ITEM_DEPTH_STEP
+      layer.renderOrder = 10000
+      itemGroup.add(layer)
+      layerMaterials.push(mat)
+    }
     loadItemTextureSafe(itemTex).then((tex) => {
       setPixelFilter(tex)
       tex.wrapS = THREE.ClampToEdgeWrapping
       tex.wrapT = THREE.ClampToEdgeWrapping
       tex.colorSpace = THREE.SRGBColorSpace
-      mat.map = tex
-      mat.needsUpdate = true
+      for (const mat of layerMaterials) {
+        mat.map = tex
+        mat.needsUpdate = true
+      }
     })
-    mesh.rotation.set(
+    itemGroup.rotation.set(
       THREE.MathUtils.degToRad(HELD_SWORD_TILT_X_DEG),
       HELD_SWORD_TILT_Y_RAD,
       HELD_SWORD_TILT_Z_RAD,
     )
-    mesh.position.set(0, 0, HELD_WEAPON_OFFSET_Z)
+    itemGroup.position.set(0, 0, HELD_WEAPON_OFFSET_Z)
+    mesh = itemGroup
   } else {
     // Block: small cube with block texture. Use transparent: true so it is sorted with transparents
     // and drawn after water/flowers (high renderOrder), avoiding world geometry in front of the held block.
@@ -1390,15 +1406,20 @@ function updatePOVHeldItem(): void {
   const mainHand = getEquipped('mainHand').type
   const blockType = mainHand ?? getSelectedBlockType()
   const count = mainHand ? 1 : getSelectedSlotCount()
+  const povArm = povHands.children[0] as THREE.Mesh | undefined
   if (!blockType || count <= 0) {
+    if (povArm) povArm.visible = true
     povHeldItemContainer.clear()
     return
   }
   const def = getBlockDefinition(blockType)
   if (!def) {
+    if (povArm) povArm.visible = true
     povHeldItemContainer.clear()
     return
   }
+  // Minecraft-like: when wielding a tool/weapon, prioritize the tool model and hide the long forearm mesh.
+  if (povArm) povArm.visible = !(def.weaponType || def.toolType)
   const mesh = getOrCreateHeldItemMesh(blockType)
   if (povHeldItemContainer.children[0] !== mesh) {
     povHeldItemContainer.clear()

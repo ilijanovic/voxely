@@ -537,6 +537,7 @@ export function applyChunkPayload(
         visible = filterVisibleBlocks({
           worldX,
           worldZ,
+          worldMinY: WORLD_MIN_Y,
           chunkSize: CHUNK_SIZE,
           worldHeight: WORLD_HEIGHT,
           voxelMap,

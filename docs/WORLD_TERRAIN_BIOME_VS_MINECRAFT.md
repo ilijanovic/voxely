@@ -98,7 +98,7 @@ Same idea as Minecraft: features/structures by biome and height, deterministic.
 - **Cave biomes:** No 3D biome assignment at depth (no Deep Dark etc.).
 - **Biome map independent of blocks:** As in Minecraft — player block edits do not change the stored biome map (only overrides for POI).
 - **Sub-biome / parentBiome:** Present in types ([src/terrain/biomes/types.ts](../src/terrain/biomes/types.ts)); not yet used in selection.
-- **Continentalness and weirdness:** Aligned with vanilla: continentalness in **[-1.2, 1]** (see [climate-sampler.ts](../src/terrain/climate-sampler.ts), `getContinentalnessSigned`); ocean/land use `OCEAN_CONTINENTALNESS_THRESHOLD` (-0.19). Weirdness in **[-2, 2]** via `WEIRDNESS_VANILLA_RANGE_SCALE` in [terrain/constants.ts](../src/terrain/constants.ts).
+- **Continentalness and weirdness:** Aligned with vanilla: continentalness in **[-1.2, 1]** (see [climate-sampler.ts](../src/terrain/climate-sampler.ts), `getContinentalnessSigned`); ocean/land use `OCEAN_CONTINENTALNESS_THRESHOLD` (current value: `-0.24`). Weirdness in **[-2, 2]** via `WEIRDNESS_VANILLA_RANGE_SCALE` in [terrain/constants.ts](../src/terrain/constants.ts).
 
 ---
 
