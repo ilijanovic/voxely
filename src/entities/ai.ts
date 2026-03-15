@@ -42,7 +42,9 @@ function isDamagePanicKind(kind: AnimalKind, behaviour: AnimalBehaviour): boolea
     kind === 'sheep' ||
     kind === 'pig' ||
     kind === 'cow' ||
-    kind === 'chicken'
+    kind === 'chicken' ||
+    kind === 'donkey' ||
+    kind === 'rabbit'
   )
 }
 

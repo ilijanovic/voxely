@@ -9,11 +9,17 @@ import {
   RIVER_ALTITUDE_FADE_START,
   RIVER_BIOME_FACTOR_THRESHOLD,
   RIVER_CARVE_POWER,
+  RIVER_CONFLUENCE_BOOST,
+  RIVER_CONFLUENCE_MIN_CORE,
   RIVER_CONTINENTALNESS_MAX,
   RIVER_CONTINENTALNESS_MIN,
   RIVER_DEPTH_MAX,
   RIVER_DEPTH_MIN,
   RIVER_EDGE_SOFTNESS,
+  RIVER_FROZEN_ALTITUDE_MAX,
+  RIVER_FROZEN_CORE_FACTOR_MIN,
+  RIVER_FROZEN_RARE_NOISE_THRESHOLD,
+  RIVER_FROZEN_TEMP_MAX,
   RIVER_WIDTH_MAX,
   RIVER_WIDTH_MIN,
 } from './constants'
@@ -23,12 +29,26 @@ import { clamp01, lerp, smoothstep01 } from './height-shaping'
 export interface RiverCarveInputs {
   /** Absolute river centerline signal in [0, 1] (typically abs(noise)). Lower means closer to the channel center. */
   signalAbs: number
+  /** Secondary absolute river signal in [0,1], used to widen channels near confluences. */
+  secondarySignalAbs: number
   /** Width variation noise in [0, 1]. */
   widthNoise01: number
   /** Continentalness (vanilla-aligned signed range). */
   continentalness: number
   /** Pre-carve terrain height (world Y). */
   baseHeight: number
+}
+
+/** Inputs for choosing the frozen river variant. */
+export interface FrozenRiverInputs {
+  /** Smoothed temperature in [0,1]. */
+  temperature01: number
+  /** River carve factor in [0,1]. */
+  riverFactor: number
+  /** Carved altitude at this column (world Y). */
+  carvedHeight: number
+  /** Rare clustering noise in [0,1] (keeps frozen rivers patchy, not universal). */
+  rareNoise01: number
 }
 
 /**
@@ -73,7 +93,14 @@ export function getRiverAllowanceFactor(continentalness: number, baseHeight: num
  * @returns River factor in [0,1]
  */
 export function getRiverCarveFactor(inputs: RiverCarveInputs): number {
-  const channel = getRiverChannelFactor(inputs.signalAbs, inputs.widthNoise01)
+  const primary = getRiverChannelFactor(inputs.signalAbs, inputs.widthNoise01)
+  const secondary = getRiverChannelFactor(inputs.secondarySignalAbs, inputs.widthNoise01)
+  const confluenceCore = primary * secondary
+  const confluenceT = smoothstep01(
+    (confluenceCore - RIVER_CONFLUENCE_MIN_CORE) /
+      Math.max(1 - RIVER_CONFLUENCE_MIN_CORE, 1e-6),
+  )
+  const channel = clamp01(primary + confluenceT * RIVER_CONFLUENCE_BOOST)
   const allowance = getRiverAllowanceFactor(inputs.continentalness, inputs.baseHeight)
   return clamp01(channel * allowance)
 }
@@ -110,4 +137,29 @@ export function carveRiverHeight(
 export function shouldUseRiverBiome(baseBiome: Biome, riverFactor: number): boolean {
   if (baseBiome === 'ocean') return false
   return riverFactor >= RIVER_BIOME_FACTOR_THRESHOLD
+}
+
+/**
+ * Returns true when a river column should resolve to the frozen_river variant.
+ *
+ * @param inputs - Temperature, carve intensity, altitude, and rare noise
+ * @returns True when this river column should be frozen
+ */
+export function shouldUseFrozenRiver(inputs: FrozenRiverInputs): boolean {
+  if (inputs.temperature01 > RIVER_FROZEN_TEMP_MAX) return false
+  if (inputs.riverFactor < RIVER_FROZEN_CORE_FACTOR_MIN) return false
+  if (inputs.carvedHeight > RIVER_FROZEN_ALTITUDE_MAX) return false
+  return inputs.rareNoise01 >= RIVER_FROZEN_RARE_NOISE_THRESHOLD
+}
+
+/**
+ * Applies frozen-river surface height adjustment.
+ * Frozen rivers are clamped to sea level so ice surfaces form cleanly without water mesh overlap.
+ *
+ * @param carvedHeight - Height after river carving
+ * @param frozen - Whether this column uses frozen_river
+ * @returns Final height after frozen-river adjustment
+ */
+export function applyFrozenRiverHeight(carvedHeight: number, frozen: boolean): number {
+  return frozen ? Math.max(carvedHeight, WATER_LEVEL) : carvedHeight
 }

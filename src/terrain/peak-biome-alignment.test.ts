@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { createTerrainSampling } from '../terrain-sampling'
 import { getPeakBiomeByMultiNoise } from './biomes'
+import { LUKEWARM_MOUNTAIN_HUMIDITY_MIN, LUKEWARM_MOUNTAIN_TEMP_MIN } from './constants'
 import { getJaggedPeakFactor, getPeakBandFactor, getRidgeTerm } from './height-shaping'
 
 const FULL_MOUNTAIN_FACTOR = 1
@@ -16,6 +17,48 @@ const SAMPLE_STEP = 32
 const SAMPLE_RADIUS = 1536
 const SAMPLE_SEEDS = [42, 12345]
 const PEAK_BASE_BIOMES = new Set(['mountain', 'snow'])
+const PEAK_BIOMES = new Set(['frozen_peaks', 'jagged_peaks', 'stony_peaks'])
+
+/**
+ * 5-tap smoothing filter (center + N/S/E/W), matching terrain sampling.
+ */
+function smooth5tap(center: number, n: number, s: number, e: number, w: number): number {
+  return center * 0.5 + (n + s + e + w) * 0.125
+}
+
+/**
+ * Smoothed temperature in [0,1] at (x,z), matching lukewarm routing thresholds.
+ */
+function getTemperatureSmoothed(
+  terrain: ReturnType<typeof createTerrainSampling>,
+  x: number,
+  z: number,
+): number {
+  return smooth5tap(
+    terrain.getTemperature(x, z),
+    terrain.getTemperature(x, z - 1),
+    terrain.getTemperature(x, z + 1),
+    terrain.getTemperature(x + 1, z),
+    terrain.getTemperature(x - 1, z),
+  )
+}
+
+/**
+ * Smoothed humidity in [0,1] at (x,z), matching lukewarm routing thresholds.
+ */
+function getHumiditySmoothed(
+  terrain: ReturnType<typeof createTerrainSampling>,
+  x: number,
+  z: number,
+): number {
+  return smooth5tap(
+    terrain.getHumidity(x, z),
+    terrain.getHumidity(x, z - 1),
+    terrain.getHumidity(x, z + 1),
+    terrain.getHumidity(x + 1, z),
+    terrain.getHumidity(x - 1, z),
+  )
+}
 
 /**
  * Counts one resolved biome in a sampled square region.
@@ -81,11 +124,11 @@ describe('peak biome multi-noise selection', () => {
     expect(
       getPeakBiomeByMultiNoise({
         continentalness: 0.52,
-        erosion: -0.3,
-        temperature: -0.34,
-        humidity: -0.18,
+        erosion: -0.26,
+        temperature: 0.08,
+        humidity: 0.24,
         weirdness: 0.22,
-        y: 0.56,
+        y: 0.58,
       }),
     ).toBe('stony_peaks')
   })
@@ -113,5 +156,25 @@ describe('resolved peak biomes', () => {
   it('produces stony peaks in a large mountain sample', () => {
     const total = SAMPLE_SEEDS.reduce((sum, seed) => sum + countResolvedBiome(seed, 'stony_peaks'), 0)
     expect(total).toBeGreaterThan(0)
+  })
+
+  it('routes lukewarm mountain peak bands to stony peaks', () => {
+    for (const seed of SAMPLE_SEEDS) {
+      const terrain = createTerrainSampling(seed)
+      let lukewarmPeakSamples = 0
+      for (let x = -SAMPLE_RADIUS; x <= SAMPLE_RADIUS; x += SAMPLE_STEP) {
+        for (let z = -SAMPLE_RADIUS; z <= SAMPLE_RADIUS; z += SAMPLE_STEP) {
+          const base = terrain.getBiome(x, z)
+          if (!PEAK_BASE_BIOMES.has(base)) continue
+          if (getTemperatureSmoothed(terrain, x, z) < LUKEWARM_MOUNTAIN_TEMP_MIN) continue
+          if (getHumiditySmoothed(terrain, x, z) < LUKEWARM_MOUNTAIN_HUMIDITY_MIN) continue
+          const resolved = terrain.getResolvedBiome(x, z, terrain.getSmoothedHeight)
+          if (!PEAK_BIOMES.has(resolved)) continue
+          lukewarmPeakSamples += 1
+          expect(resolved).toBe('stony_peaks')
+        }
+      }
+      expect(lukewarmPeakSamples).toBeGreaterThan(0)
+    }
   })
 })

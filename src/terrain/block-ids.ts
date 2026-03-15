@@ -209,6 +209,8 @@ const TERRAIN_BLOCK_TYPES: (BlockType | 'air')[] = [
   'sandstone_stairs_east_top',
   'sandstone_stairs_south_top',
   'sandstone_stairs_west_top',
+  // Natural tree attachment block (meadow bee nests). Appended to keep existing ids stable.
+  'bee_nest',
 ]
 
 /** BlockType at id (id 0 = air, not in this array). Index = id - 1 for id >= 1. */

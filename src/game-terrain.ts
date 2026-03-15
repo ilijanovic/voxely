@@ -29,6 +29,7 @@ import {
   TREE_SHAPE_NOISE_SCALE,
   JUNGLE_TREE_SHAPE_OFFSET_X,
   JUNGLE_TREE_SHAPE_OFFSET_Z,
+  MEADOW_BEE_NEST_CHANCE,
   TREE_PLACEMENT_CONFIG,
   getTreeShapeConfigForBiome,
   type TreeShapeConfig,
@@ -37,6 +38,9 @@ import { CAVE_THRESHOLD } from './terrain/constants'
 import {
   BADLANDS_BAND_SCALE_XZ,
   BADLANDS_BAND_SCALE_Y,
+  SURFACE_RIVER_BANK_OFFSET_X,
+  SURFACE_RIVER_BANK_OFFSET_Z,
+  SURFACE_RIVER_BANK_SCALE,
   SURFACE_DITHER_COAST_OFFSET_X,
   SURFACE_DITHER_COAST_OFFSET_Z,
   SURFACE_DITHER_COAST_SCALE,
@@ -268,6 +272,7 @@ const SPAWN_OCEAN_BUFFER_CHUNKS = 5
 /** Biomes that count as snow for grass → grass_snow neighbor rule. Must match terrain worker. */
 const SNOW_BIOMES: Biome[] = [
   'snow',
+  'frozen_river',
   'snowy_beach',
   'grove',
   'snowy_slopes',
@@ -320,6 +325,13 @@ export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: nu
     ) +
       1) *
     0.5
+  const riverBankNoise =
+    (getDetailNoise2D(
+      wx * SURFACE_RIVER_BANK_SCALE + SURFACE_RIVER_BANK_OFFSET_X,
+      wz * SURFACE_RIVER_BANK_SCALE + SURFACE_RIVER_BANK_OFFSET_Z,
+    ) +
+      1) *
+    0.5
   let hasSnowNeighbor = false
   if (surface === 'grass') {
     for (let dx = -1; dx <= 1; dx++) {
@@ -352,6 +364,7 @@ export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: nu
     ditherNoiseCoast,
     ditherNoiseLand,
     badlandsBandNoise,
+    riverBankNoise,
   })
 }
 
@@ -656,7 +669,8 @@ function leafDistSq(dx: number, dy: number, dz: number): number {
 }
 
 /**
- * Generate trunk + leaf block positions for a single tree. Deterministic from (wx, baseY, wz, biome).
+ * Generate trunk/leaves and optional meadow bee-nest attachment for a single tree.
+ * Deterministic from (wx, baseY, wz, biome).
  */
 export function getTreeBlocks(
   wx: number,
@@ -666,9 +680,11 @@ export function getTreeBlocks(
 ): {
   wood: Array<{ x: number; y: number; z: number }>
   leaves: Array<{ x: number; y: number; z: number }>
+  beeNests: Array<{ x: number; y: number; z: number }>
 } {
   const wood: Array<{ x: number; y: number; z: number }> = []
   const leaves: Array<{ x: number; y: number; z: number }> = []
+  const beeNests: Array<{ x: number; y: number; z: number }> = []
   const shape = getTreeShapeConfig(biome)
   const shapeOx = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_X : 0
   const shapeOz = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_Z : 0
@@ -764,11 +780,23 @@ export function getTreeBlocks(
       }
     }
   }
-  return { wood, leaves }
+  if (biome === 'meadow' && treeSeed(211, -157) < MEADOW_BEE_NEST_CHANCE && trunkHeight >= 4) {
+    const sideIndex = Math.min(3, Math.floor(treeSeed(-211, 157) * 4))
+    const sideOffsets: ReadonlyArray<readonly [number, number]> = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]
+    const [dx, dz] = sideOffsets[sideIndex]
+    const nestY = baseY + Math.max(2, trunkHeight - 2)
+    beeNests.push({ x: wx + dx, y: nestY, z: wz + dz })
+  }
+  return { wood, leaves, beeNests }
 }
 
 /**
- * Generate a single tree at world position (ground block top = worldY). Returns wood and leaf positions.
+ * Generate a single tree at world position (ground block top = worldY).
  */
 export function generateTree(
   worldX: number,
@@ -777,6 +805,7 @@ export function generateTree(
 ): {
   wood: Array<{ x: number; y: number; z: number }>
   leaves: Array<{ x: number; y: number; z: number }>
+  beeNests: Array<{ x: number; y: number; z: number }>
 } {
   const biome = getResolvedBiome(worldX, worldZ)
   return getTreeBlocks(worldX, worldY, worldZ, biome)

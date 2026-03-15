@@ -12,6 +12,7 @@ import {
   FOREST_DENSITY_SCALE,
   TREE_PLACEMENT_SCALE,
   TREE_MAX_SLOPE,
+  MEADOW_BEE_NEST_CHANCE,
 } from './tree-constants'
 
 describe('tree-constants', () => {
@@ -60,6 +61,11 @@ describe('tree-constants', () => {
 
     it('TREE_MAX_SLOPE is positive', () => {
       expect(TREE_MAX_SLOPE).toBeGreaterThan(0)
+    })
+
+    it('MEADOW_BEE_NEST_CHANCE is a valid probability', () => {
+      expect(MEADOW_BEE_NEST_CHANCE).toBeGreaterThan(0)
+      expect(MEADOW_BEE_NEST_CHANCE).toBeLessThanOrEqual(1)
     })
   })
 })

@@ -63,3 +63,21 @@ export const BADLANDS_BAND_SCALE_XZ = 0.02
 export const BADLANDS_BAND_SCALE_Y = 0.08
 /** Number of band block types (red_sand, sandstone, orange/yellow/red/white terracotta). */
 export const BADLANDS_BAND_BLOCK_COUNT = 6
+
+/** River bank material blend: mostly sand/gravel within this height above water. */
+export const RIVER_BANK_SAND_MAX_HEIGHT = WATER_LEVEL + 3
+/** River bank material blend extends up to this height (then default biome surface takes over). */
+export const RIVER_BANK_BLEND_MAX_HEIGHT = WATER_LEVEL + 7
+/** Slope threshold where river banks prefer gravel over sand. */
+export const RIVER_BANK_GRAVEL_SLOPE_MIN = 3
+/** Near-water river bank: noise below this value becomes gravel, otherwise sand. */
+export const RIVER_BANK_NEAR_WATER_GRAVEL_NOISE_MAX = 0.38
+/** Upper-bank river blend: noise below this value becomes gravel. */
+export const RIVER_BANK_UPPER_GRAVEL_NOISE_MAX = 0.17
+/** Upper-bank river blend: noise below this value becomes sand (above = default surface). */
+export const RIVER_BANK_UPPER_SAND_NOISE_MAX = 0.48
+
+/** River bank dither noise sampling (same detail noise channel as other surface dithers). */
+export const SURFACE_RIVER_BANK_SCALE = 0.12
+export const SURFACE_RIVER_BANK_OFFSET_X = -143.2
+export const SURFACE_RIVER_BANK_OFFSET_Z = 214.6

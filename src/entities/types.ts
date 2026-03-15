@@ -2,8 +2,18 @@
 import type { Biome } from '../types'
 export type { Biome }
 
-/** Animal kinds: passive (sheep, pig, cow, chicken, horse), wolf, villager (villages only), zombie (hostile, night-only). */
-export type AnimalKind = 'sheep' | 'pig' | 'cow' | 'chicken' | 'horse' | 'wolf' | 'villager' | 'zombie'
+/** Animal kinds: passive livestock, meadow fauna (donkey/rabbit), wolf, villager (villages only), zombie (hostile, night-only). */
+export type AnimalKind =
+  | 'sheep'
+  | 'pig'
+  | 'cow'
+  | 'chicken'
+  | 'horse'
+  | 'donkey'
+  | 'rabbit'
+  | 'wolf'
+  | 'villager'
+  | 'zombie'
 
 /** AABB for collision: half extents in XZ and full height in Y. */
 export interface EntityAABB {

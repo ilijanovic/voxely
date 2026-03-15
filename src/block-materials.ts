@@ -283,6 +283,7 @@ const BIOME_GRASS_TEMP_HUMIDITY: Record<Biome, { temp: number; humidity: number 
   plains: { temp: 0.5, humidity: 0.5 },
   ocean: { temp: 0.5, humidity: 1 },
   river: { temp: 0.5, humidity: 0.7 },
+  frozen_river: { temp: 0.05, humidity: 0.7 },
   beach: { temp: 0.65, humidity: 0.6 },
   stony_shore: { temp: 0.45, humidity: 0.5 },
   desert: { temp: 1, humidity: 0 },

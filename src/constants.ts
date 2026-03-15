@@ -183,6 +183,7 @@ export const MAP_BIOME_COLORS: Record<string, string> = {
   plains: '#6b8c5d',
   ocean: '#3a7eb8',
   river: '#4a8ec6',
+  frozen_river: '#b7d8ee',
   beach: '#e3d39a',
   stony_shore: '#8f8f8f',
   snowy_beach: '#dfe7ed',

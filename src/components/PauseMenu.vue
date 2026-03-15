@@ -253,9 +253,7 @@ onUnmounted(() => {
                 </option>
               </select>
             </label>
-            <p class="option-hint">
-              Changing the pack reloads the game to apply textures.
-            </p>
+            <p class="option-hint">Changing the pack reloads the game to apply textures.</p>
             <label class="option-row">
               <span class="option-label">Render distance (chunks)</span>
               <div class="option-control">
@@ -382,26 +380,35 @@ onUnmounted(() => {
             <label class="option-row option-row-toggle">
               <span class="option-label">Torch shadows</span>
               <span class="option-toggle-wrap">
-                <input v-model="torchShadowsEnabled" type="checkbox" class="option-toggle-input" />
+                <input
+                  v-model="torchShadowsEnabled"
+                  type="checkbox"
+                  class="option-toggle-input"
+                  :disabled="!shadowsEnabled"
+                />
                 <span class="option-toggle-track">
                   <span class="option-toggle-thumb"></span>
                 </span>
-                <span class="option-toggle-text">{{ torchShadowsEnabled ? 'On' : 'Off' }}</span>
+                <span class="option-toggle-text">
+                  {{ !shadowsEnabled ? 'N/A' : torchShadowsEnabled ? 'On' : 'Off' }}
+                </span>
               </span>
             </label>
-            <p class="option-hint">
-              Torch shadows may impact performance with many torches.
-            </p>
-            <label class="option-row">
+            <p class="option-hint">Torch shadows may impact performance with many torches.</p>
+            <label class="option-row" :class="{ 'option-row-disabled': !shadowsEnabled }">
               <span class="option-label">Shadow softness</span>
-              <select v-model="shadowMapType" class="option-select">
+              <select v-model="shadowMapType" class="option-select" :disabled="!shadowsEnabled">
                 <option value="pcf">PCF (standard)</option>
                 <option value="pcf_soft">PCF Soft</option>
               </select>
             </label>
-            <label class="option-row">
+            <label class="option-row" :class="{ 'option-row-disabled': !shadowsEnabled }">
               <span class="option-label">Shadow quality</span>
-              <select v-model.number="shadowMapSize" class="option-select">
+              <select
+                v-model.number="shadowMapSize"
+                class="option-select"
+                :disabled="!shadowsEnabled"
+              >
                 <option v-for="opt in shadowMapSizeOptions" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
                 </option>
@@ -461,9 +468,7 @@ onUnmounted(() => {
                 </div>
               </label>
             </template>
-            <p class="option-hint">
-              Bloom may impact performance on low-end GPUs.
-            </p>
+            <p class="option-hint">Bloom may impact performance on low-end GPUs.</p>
           </section>
         </div>
 
@@ -698,6 +703,10 @@ onUnmounted(() => {
   font-family: var(--ui-font);
 }
 
+.option-row-disabled {
+  opacity: 0.62;
+}
+
 .option-row-toggle {
   cursor: pointer;
 }
@@ -782,6 +791,15 @@ onUnmounted(() => {
   outline-offset: 2px;
 }
 
+.option-toggle-input:disabled + .option-toggle-track {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.option-toggle-input:disabled + .option-toggle-track .option-toggle-thumb {
+  background: rgba(225, 232, 242, 0.72);
+}
+
 .option-toggle-text {
   min-width: 1.8rem;
   color: var(--ui-text);
@@ -821,6 +839,10 @@ onUnmounted(() => {
 .option-select:focus-visible {
   outline: 2px solid rgba(126, 180, 141, 0.95);
   outline-offset: 2px;
+}
+
+.option-select:disabled {
+  cursor: not-allowed;
 }
 
 .key-row {

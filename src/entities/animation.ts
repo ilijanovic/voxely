@@ -21,6 +21,8 @@ const QUADRUPED_GAIT_BY_KIND: Partial<Record<AnimalKind, QuadrupedGait>> = {
   sheep: { legFrequency: 10, swingAngle: 0.28 },
   cow: { legFrequency: 10, swingAngle: 0.3 },
   horse: { legFrequency: 11, swingAngle: 0.36 },
+  donkey: { legFrequency: 11, swingAngle: 0.34 },
+  rabbit: { legFrequency: 16, swingAngle: 0.42 },
   chicken: { legFrequency: 14, swingAngle: 0.24 },
 }
 
@@ -126,7 +128,9 @@ export function updateAnimation(time: number): void {
       e.kind === 'sheep' ||
       e.kind === 'cow' ||
       e.kind === 'chicken' ||
-      e.kind === 'horse'
+      e.kind === 'horse' ||
+      e.kind === 'donkey' ||
+      e.kind === 'rabbit'
     ) {
       updateQuadrupedLegs(mesh, moving, time, getQuadrupedGait(e.kind))
     }

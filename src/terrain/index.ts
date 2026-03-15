@@ -49,6 +49,8 @@ import {
   HIGHLAND_MEADOW_MAX,
   HIGHLAND_SNOWY_SLOPES_MAX,
   HIGHLAND_VARIANT_SCALE,
+  LUKEWARM_MOUNTAIN_HUMIDITY_MIN,
+  LUKEWARM_MOUNTAIN_TEMP_MIN,
   MOUNTAIN_AMPLITUDE,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
@@ -68,6 +70,7 @@ import {
   STONY_SHORE_MIN_SLOPE,
   RIVER_DEPTH_NOISE_SCALE,
   RIVER_NOISE_SCALE,
+  RIVER_SECONDARY_NOISE_SCALE,
   RIVER_WARP_AMP,
   RIVER_WARP_SCALE,
   RIVER_WIDTH_NOISE_SCALE,
@@ -86,6 +89,9 @@ import {
 import {
   BADLANDS_BAND_SCALE_XZ,
   BADLANDS_BAND_SCALE_Y,
+  SURFACE_RIVER_BANK_OFFSET_X,
+  SURFACE_RIVER_BANK_OFFSET_Z,
+  SURFACE_RIVER_BANK_SCALE,
   SURFACE_DITHER_COAST_OFFSET_X,
   SURFACE_DITHER_COAST_OFFSET_Z,
   SURFACE_DITHER_COAST_SCALE,
@@ -120,7 +126,13 @@ import {
   getPeakBandFactor,
   getRidgeTerm,
 } from './height-shaping'
-import { carveRiverHeight, getRiverCarveFactor, shouldUseRiverBiome } from './river-shaping'
+import {
+  applyFrozenRiverHeight,
+  carveRiverHeight,
+  getRiverCarveFactor,
+  shouldUseFrozenRiver,
+  shouldUseRiverBiome,
+} from './river-shaping'
 import { runPipeline, createChunkContext } from './pipeline'
 import { override as defaultOverride } from './override'
 import {
@@ -171,6 +183,7 @@ import {
   TREE_PLACEMENT_MOUNTAIN_THRESHOLD,
   TREE_PLACEMENT_SNOW_THRESHOLD,
   TREE_PLACEMENT_SNOWY_SLOPES_THRESHOLD,
+  MEADOW_BEE_NEST_CHANCE,
   TREE_MAX_SLOPE,
   TREE_SHAPE_NOISE_SCALE,
   JUNGLE_TREE_SHAPE_OFFSET_X,
@@ -257,6 +270,10 @@ const TEMPLE_SIZE = 6
 const RIVER_WARP_OFFSET_X = 193.7
 /** River warp noise offset for decorrelating X and Z warp channels. */
 const RIVER_WARP_OFFSET_Z = -89.1
+/** Secondary river signal offset so confluence widening samples a different channel family. */
+const RIVER_SECONDARY_OFFSET_X = 907.3
+/** Secondary river signal offset so confluence widening samples a different channel family. */
+const RIVER_SECONDARY_OFFSET_Z = -611.9
 
 export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptions) {
   const snowAccumulationHeight = clamp(options?.snowAccumulationHeight ?? 1, 0, 8)
@@ -280,6 +297,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   const riverWarpNoise2D = createNoise2D(makeSeededRandom(seed + 1601))
   const riverWidthNoise2D = createNoise2D(makeSeededRandom(seed + 1602))
   const riverDepthNoise2D = createNoise2D(makeSeededRandom(seed + 1603))
+  const riverFrozenNoise2D = createNoise2D(makeSeededRandom(seed + 1604))
   const detailNoise2D = createNoise2D(makeSeededRandom(seed + 456))
   const mountainMaskNoise2D = createNoise2D(makeSeededRandom(seed + 789))
   const mountainHeightNoise2D = createNoise2D(makeSeededRandom(seed + 101))
@@ -317,6 +335,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
 
   const SNOW_BIOMES: Biome[] = [
     'snow',
+    'frozen_river',
     'snowy_beach',
     'snowy_slopes',
     'frozen_peaks',
@@ -509,6 +528,19 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   }
 
   /**
+   * Samples secondary absolute river signal in [0,1] for confluence widening.
+   */
+  function getRiverSecondarySignalAbs(x: number, z: number): number {
+    const { xw, zw } = getRiverWarpedPos(x + RIVER_SECONDARY_OFFSET_X, z + RIVER_SECONDARY_OFFSET_Z)
+    return Math.abs(
+      riverNoise2D(
+        (xw + RIVER_SECONDARY_OFFSET_X) * RIVER_SECONDARY_NOISE_SCALE,
+        (zw + RIVER_SECONDARY_OFFSET_Z) * RIVER_SECONDARY_NOISE_SCALE,
+      ),
+    )
+  }
+
+  /**
    * Samples river width variation in [0,1].
    */
   function getRiverWidthNoise01(x: number, z: number): number {
@@ -523,11 +555,19 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   }
 
   /**
+   * Samples rare clustering noise in [0,1] used for frozen_river selection.
+   */
+  function getRiverFrozenNoise01(x: number, z: number): number {
+    return (riverFrozenNoise2D(x * RIVER_WIDTH_NOISE_SCALE, z * RIVER_WIDTH_NOISE_SCALE) + 1) * 0.5
+  }
+
+  /**
    * Computes river carve factor from river signals, continentalness, and pre-carve height.
    */
   function getRiverFactorAt(x: number, z: number, baseHeight: number): number {
     return getRiverCarveFactor({
       signalAbs: getRiverSignalAbs(x, z),
+      secondarySignalAbs: getRiverSecondarySignalAbs(x, z),
       widthNoise01: getRiverWidthNoise01(x, z),
       continentalness: getContinentalnessSmoothed(x, z),
       baseHeight,
@@ -547,10 +587,17 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       coastalBlend.t >= COAST_EDGE_MIN_COAST_BLEND_T
     )
       return base
-    if (getTemperatureSmoothed(x, z) <= SNOWY_BEACH_MAX_TEMPERATURE) return base
     const heightWithoutRiver = getTerrainHeightNoRiver(x, z)
     const riverFactor = getRiverFactorAt(x, z, heightWithoutRiver)
-    return shouldUseRiverBiome(base, riverFactor) ? 'river' : base
+    if (!shouldUseRiverBiome(base, riverFactor)) return base
+    const carvedHeight = carveRiverHeight(heightWithoutRiver, riverFactor, getRiverDepthNoise01(x, z))
+    const frozen = shouldUseFrozenRiver({
+      temperature01: getTemperatureSmoothed(x, z),
+      riverFactor,
+      carvedHeight,
+      rareNoise01: getRiverFrozenNoise01(x, z),
+    })
+    return frozen ? 'frozen_river' : 'river'
   }
 
   function getErosionSigned(x: number, z: number): number {
@@ -595,6 +642,17 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     return (
       heightTransitionNoise2D(x * HEIGHT_TRANSITION_SCALE, z * HEIGHT_TRANSITION_SCALE) *
       HEIGHT_TRANSITION_AMPLITUDE
+    )
+  }
+
+  /**
+   * Returns true when a mountain/snow chain sits in a lukewarm climate neighborhood.
+   * Used to route warm highlands toward stony peaks and non-snowy slope biomes.
+   */
+  function isLukewarmMountainContext(x: number, z: number): boolean {
+    return (
+      getTemperatureSmoothed(x, z) >= LUKEWARM_MOUNTAIN_TEMP_MIN &&
+      getHumiditySmoothed(x, z) >= LUKEWARM_MOUNTAIN_HUMIDITY_MIN
     )
   }
 
@@ -692,7 +750,14 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   function getHeightForBase(x: number, z: number): number {
     const baseHeight = getTerrainHeightNoRiver(x, z)
     const riverFactor = getRiverFactorAt(x, z, baseHeight)
-    return carveRiverHeight(baseHeight, riverFactor, getRiverDepthNoise01(x, z))
+    const carvedHeight = carveRiverHeight(baseHeight, riverFactor, getRiverDepthNoise01(x, z))
+    const frozen = shouldUseFrozenRiver({
+      temperature01: getTemperatureSmoothed(x, z),
+      riverFactor,
+      carvedHeight,
+      rareNoise01: getRiverFrozenNoise01(x, z),
+    })
+    return applyFrozenRiverHeight(carvedHeight, frozen)
   }
 
   /**
@@ -723,7 +788,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     z: number,
     topY: number,
   ): Biome {
-    if (resolved === 'ocean' || resolved === 'river') return resolved
+    if (resolved === 'ocean' || resolved === 'river' || resolved === 'frozen_river') return resolved
 
     const blend = getBiomeBlendAt(x, z)
     if (blend.primary !== 'ocean' || blend.secondary === 'ocean') return resolved
@@ -744,7 +809,9 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
 
   function getResolvedBiomeFromHeight(base: Biome, height: number, x: number, z: number): Biome {
     const hFuzzy = height + getHeightTransitionOffset(x, z)
-    if (base === 'river') return 'river'
+    if (base === 'river' || base === 'frozen_river') return base
+    const lukewarmMountain =
+      (base === 'mountain' || base === 'snow') && isLukewarmMountainContext(x, z)
 
     let resolved: Biome
     if (base !== 'mountain' && base !== 'snow') {
@@ -761,6 +828,13 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       } else {
         resolved = base
       }
+    } else if (lukewarmMountain && hFuzzy < HIGHLAND_MEADOW_MAX) {
+      resolved = getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN ? 'forest' : 'savanna'
+    } else if (lukewarmMountain && hFuzzy < HIGHLAND_SNOWY_SLOPES_MAX) {
+      resolved =
+        getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN
+          ? 'windswept_forest'
+          : 'windswept_hills'
     } else if (hFuzzy < HIGHLAND_MEADOW_MAX) {
       const v =
         (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5
@@ -778,6 +852,8 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       resolved = v > 0.82 ? 'windswept_forest' : 'grove'
     } else if (hFuzzy < HIGHLAND_SNOWY_SLOPES_MAX) {
       resolved = 'snowy_slopes'
+    } else if (lukewarmMountain) {
+      resolved = 'stony_peaks'
     } else {
       const weirdnessSigned = getWeirdnessSmoothed(x, z)
       const peakBandFactor = getPeakBandFactor(weirdnessSigned)
@@ -1197,9 +1273,11 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   ): {
     wood: Array<{ x: number; y: number; z: number }>
     leaves: Array<{ x: number; y: number; z: number }>
+    beeNests: Array<{ x: number; y: number; z: number }>
   } {
     const wood: Array<{ x: number; y: number; z: number }> = []
     const leaves: Array<{ x: number; y: number; z: number }> = []
+    const beeNests: Array<{ x: number; y: number; z: number }> = []
     const shape = getTreeShapeConfig(biome)
     const shapeOx = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_X : 0
     const shapeOz = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_Z : 0
@@ -1297,7 +1375,19 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
           leaves.push({ x: wx + dx, y, z: wz + dz })
         }
     }
-    return { wood, leaves }
+    if (biome === 'meadow' && treeSeed(211, -157) < MEADOW_BEE_NEST_CHANCE && trunkHeight >= 4) {
+      const sideIndex = Math.min(3, Math.floor(treeSeed(-211, 157) * 4))
+      const sideOffsets: ReadonlyArray<readonly [number, number]> = [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]
+      const [dx, dz] = sideOffsets[sideIndex]
+      const nestY = baseY + Math.max(2, trunkHeight - 2)
+      beeNests.push({ x: wx + dx, y: nestY, z: wz + dz })
+    }
+    return { wood, leaves, beeNests }
   }
 
   const stageEmpty = createNoopStage(PIPELINE_NOP_STAGE_NAMES[0])
@@ -1436,6 +1526,13 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       ) +
         1) *
       0.5
+    const riverBankNoise =
+      (detailNoise2D(
+        wx * SURFACE_RIVER_BANK_SCALE + SURFACE_RIVER_BANK_OFFSET_X,
+        wz * SURFACE_RIVER_BANK_SCALE + SURFACE_RIVER_BANK_OFFSET_Z,
+      ) +
+        1) *
+      0.5
     let hasSnowNeighbor = false
     if (surface === 'grass') {
       for (let dx = -1; dx <= 1; dx++) {
@@ -1468,6 +1565,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       ditherNoiseCoast,
       ditherNoiseLand,
       badlandsBandNoise,
+      riverBankNoise,
     })
   }
 

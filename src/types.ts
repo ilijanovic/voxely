@@ -8,6 +8,7 @@ export type Biome =
   | 'plains'
   | 'ocean'
   | 'river'
+  | 'frozen_river'
   | 'beach'
   | 'stony_shore'
   | 'snowy_beach'

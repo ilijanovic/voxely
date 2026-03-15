@@ -55,9 +55,14 @@ vi.mock('../world-interactions/mining', () => ({
   breakBlock: vi.fn(),
 }))
 
-import { rebuildChunkLayer, refreshChunkVisibleMeshes } from './chunk-generate-sync'
+import {
+  rebuildChunkLayer,
+  refreshChunkVisibleMeshes,
+  getTallGrassPositions,
+} from './chunk-generate-sync'
 import type { ChunkSyncContext } from './chunk-generate-sync'
 import type { ChunkData, BlockType } from '../../types'
+import { WORLD_MIN_Y } from '../../constants'
 import { localKey } from '../../chunk-runtime'
 import { RaycastMeshCache } from './raycast-cache'
 import { sharedBlockGeometry } from '../../block-materials'
@@ -233,5 +238,20 @@ describe('refreshChunkVisibleMeshes', () => {
       (c) => (c.userData as { blockType?: string }).blockType === 'dirt',
     )
     expect(dirtChildren).toHaveLength(1)
+  })
+})
+
+describe('getTallGrassPositions', () => {
+  it('uses local Y offset for "block above" lookup at WORLD_MIN_Y', () => {
+    const worldX = 0
+    const worldZ = 0
+    const voxelMap = new Map<number, BlockType>()
+    const positionsByType = new Map<BlockType, { x: number; y: number; z: number }[]>()
+
+    positionsByType.set('grass', [{ x: 0, y: WORLD_MIN_Y, z: 0 }])
+    voxelMap.set(localKey(0, 1, 0), 'stone')
+
+    const out = getTallGrassPositions(worldX, worldZ, voxelMap, positionsByType)
+    expect(out).toEqual([])
   })
 })

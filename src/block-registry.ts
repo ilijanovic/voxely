@@ -280,6 +280,17 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     breakTimeSeconds: 0.5,
   }),
   D({
+    id: 'bee_nest',
+    displayName: 'Bee Nest',
+    textures: {
+      type: 'six',
+      textures: ['log_oak', 'log_oak', 'planks_oak', 'planks_oak', 'log_oak', 'log_oak'],
+    },
+    placeable: false,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 0.8,
+  }),
+  D({
     id: 'torch',
     displayName: 'Torch',
     textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts

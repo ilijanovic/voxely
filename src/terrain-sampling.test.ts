@@ -16,6 +16,7 @@ const ALL_BIOMES: Biome[] = [
   'jungle',
   'mountain',
   'snow',
+  'frozen_river',
   'snowy_beach',
   'meadow',
   'grove',
@@ -344,4 +345,5 @@ describe('river generation', () => {
     expect(underwaterRiverCount).toBeGreaterThan(20)
     expect(highestRiverY).toBeLessThanOrEqual(WATER_LEVEL + 12)
   })
+
 })

@@ -2,20 +2,21 @@
 
 /* UI design tokens */
 :root {
-  --ui-bg: rgba(0, 0, 0, 0.7);
-  --ui-bg-hover: rgba(0, 0, 0, 0.9);
-  --ui-border: #4a4a4a;
-  --ui-border-hover: #5a5a5a;
-  --ui-accent: #4a7c59;
-  --ui-accent-glow: rgba(74, 124, 89, 0.5);
+  --ui-bg: rgba(10, 15, 24, 0.76);
+  --ui-bg-hover: rgba(12, 20, 32, 0.9);
+  --ui-border: rgba(153, 176, 206, 0.26);
+  --ui-border-hover: rgba(172, 198, 232, 0.36);
+  --ui-accent: #4f8a5f;
+  --ui-accent-glow: rgba(90, 161, 109, 0.42);
+  --ui-focus-ring: rgba(135, 197, 151, 0.95);
   --ui-text: #fff;
-  --ui-text-muted: rgba(255, 255, 255, 0.7);
+  --ui-text-muted: rgba(225, 235, 247, 0.74);
   --ui-radius-sm: 6px;
   --ui-radius-md: 8px;
   --ui-radius-lg: 12px;
   --ui-gap: 0.5rem;
-  --ui-shadow-panel: 0 0 0 2px #2a2a2a, inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --ui-shadow-button: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --ui-shadow-panel: 0 16px 42px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --ui-shadow-button: 0 7px 16px rgba(0, 0, 0, 0.34);
   --ui-font: 'Nunito', system-ui, -apple-system, sans-serif;
 }
 
@@ -42,17 +43,17 @@
 
 /* HUD panels (FPS, hotbar, buttons) use design tokens */
 .hud-panel {
-  background: var(--ui-bg);
+  background: linear-gradient(180deg, rgba(15, 23, 37, 0.88) 0%, rgba(9, 15, 26, 0.86) 100%);
   border-color: var(--ui-border);
   box-shadow: var(--ui-shadow-panel);
 }
 .hud-panel:hover {
-  background: var(--ui-bg-hover);
+  background: linear-gradient(180deg, rgba(18, 29, 47, 0.92) 0%, rgba(12, 19, 32, 0.9) 100%);
   border-color: var(--ui-border-hover);
 }
 .hud-slot {
-  border-color: #3a3a3a;
-  background: rgba(50, 50, 50, 0.9);
+  border-color: rgba(197, 216, 240, 0.2);
+  background: rgba(28, 36, 50, 0.86);
   border-radius: var(--ui-radius-sm);
 }
 #hotbar .slot.selected {

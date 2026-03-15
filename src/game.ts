@@ -195,7 +195,6 @@ import {
   chunkKey,
   chunkKeyNumeric,
   blockKeyNumeric,
-  localKey,
   decodeLocalKey,
   invalidateColumnHeight,
   getBlockAt,
@@ -205,6 +204,7 @@ import {
 import { isWaterBlock, getWaterLevel, computeWaterSpread } from './game/fluid/water-flow'
 import { isOccludingBlock as isBlockTypeOccluding } from './block-registry'
 import { isPendingSpawnReady } from './game/player/pending-spawn'
+import { applyBlockChangeToLoadedChunk as applyBlockChangeToLoadedChunkCore } from './game/world-interactions/apply-block-change'
 import { RaycastMeshCache } from './game/chunks/raycast-cache'
 import { initChunkWorkerClient, type ChunkWorkerClient } from './game/chunks/chunk-worker-client'
 import { createPoiRegistryForSpawn, getActivePois, setActivePois } from './world-pois'
@@ -882,32 +882,24 @@ function applyBlockChangeToLoadedChunk(params: {
 
   const cx = Math.floor(bx / CHUNK_SIZE)
   const cz = Math.floor(bz / CHUNK_SIZE)
-  const keyNum = chunkKeyNumeric(cx, cz)
-  const data = chunks.get(keyNum)
+  const { data, keyNum, affectedBlockTypes } = applyBlockChangeToLoadedChunkCore({
+    chunks,
+    bx,
+    by,
+    bz,
+    next,
+    getBlockAt,
+  })
   if (data) {
     const lx = bx - data.cx * CHUNK_SIZE
     const lz = bz - data.cz * CHUNK_SIZE
-    const k = localKey(lx, by, lz)
-    if (next === 'air') data.voxelMap.delete(k)
-    else data.voxelMap.set(k, next)
-
-    const affected = new Set<BlockType>()
-    if (next !== 'air') affected.add(next)
-    const neighbors: Array<[number, number, number]> = [
-      [bx + 1, by, bz],
-      [bx - 1, by, bz],
-      [bx, by + 1, bz],
-      [bx, by - 1, bz],
-      [bx, by, bz + 1],
-      [bx, by, bz - 1],
-    ]
-    for (const [nx, ny, nz] of neighbors) {
-      const t = getBlockAt(nx, ny, nz)
-      if (t !== null && t !== 'air') affected.add(t as BlockType)
-    }
 
     const ctx = getChunkSyncCtx()
-    refreshChunkVisibleMeshes(ctx, data, affected.size > 0 ? affected : undefined)
+    refreshChunkVisibleMeshes(
+      ctx,
+      data,
+      affectedBlockTypes.size > 0 ? affectedBlockTypes : undefined,
+    )
     // When a fence or its neighbor changes at a chunk boundary, refresh the adjacent chunk so fence connections update.
     const fenceOrNeighborFence =
       isFenceBlock(next as BlockType) ||

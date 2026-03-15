@@ -27,6 +27,8 @@ import {
   HIGHLAND_MEADOW_MAX,
   HIGHLAND_SNOWY_SLOPES_MAX,
   HIGHLAND_VARIANT_SCALE,
+  LUKEWARM_MOUNTAIN_HUMIDITY_MIN,
+  LUKEWARM_MOUNTAIN_TEMP_MIN,
   MOUNTAIN_AMPLITUDE,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
@@ -45,6 +47,7 @@ import {
   PEAK_Y_RANGE,
   RIVER_DEPTH_NOISE_SCALE,
   RIVER_NOISE_SCALE,
+  RIVER_SECONDARY_NOISE_SCALE,
   RIVER_WARP_AMP,
   RIVER_WARP_SCALE,
   RIVER_WIDTH_NOISE_SCALE,
@@ -77,7 +80,13 @@ import {
   smoothstep01,
   clamp01,
 } from './terrain/height-shaping'
-import { carveRiverHeight, getRiverCarveFactor, shouldUseRiverBiome } from './terrain/river-shaping'
+import {
+  applyFrozenRiverHeight,
+  carveRiverHeight,
+  getRiverCarveFactor,
+  shouldUseFrozenRiver,
+  shouldUseRiverBiome,
+} from './terrain/river-shaping'
 
 export type GetHeightFn = (x: number, z: number) => number
 
@@ -90,6 +99,10 @@ function createNoise(seed: number) {
 const RIVER_WARP_OFFSET_X = 193.7
 /** River warp noise offset for decorrelating X and Z warp channels. */
 const RIVER_WARP_OFFSET_Z = -89.1
+/** Secondary river signal offset so confluence widening samples a different channel family. */
+const RIVER_SECONDARY_OFFSET_X = 907.3
+/** Secondary river signal offset so confluence widening samples a different channel family. */
+const RIVER_SECONDARY_OFFSET_Z = -611.9
 
 // clamp01/smoothstep01/lerp are shared via terrain/height-shaping to avoid drift.
 
@@ -113,6 +126,7 @@ export function createTerrainSampling(seed: number) {
   const riverWarpNoise2D = createNoise(seed + 1601)
   const riverWidthNoise2D = createNoise(seed + 1602)
   const riverDepthNoise2D = createNoise(seed + 1603)
+  const riverFrozenNoise2D = createNoise(seed + 1604)
   const detailNoise2D = createNoise(seed + 456)
   const mountainMaskNoise2D = createNoise(seed + 789)
   const mountainHeightNoise2D = createNoise(seed + 101)
@@ -304,6 +318,19 @@ export function createTerrainSampling(seed: number) {
   }
 
   /**
+   * Samples secondary absolute river signal in [0,1] for confluence widening.
+   */
+  function getRiverSecondarySignalAbs(x: number, z: number): number {
+    const { xw, zw } = getRiverWarpedPos(x + RIVER_SECONDARY_OFFSET_X, z + RIVER_SECONDARY_OFFSET_Z)
+    return Math.abs(
+      riverNoise2D(
+        (xw + RIVER_SECONDARY_OFFSET_X) * RIVER_SECONDARY_NOISE_SCALE,
+        (zw + RIVER_SECONDARY_OFFSET_Z) * RIVER_SECONDARY_NOISE_SCALE,
+      ),
+    )
+  }
+
+  /**
    * Samples river width variation in [0,1].
    */
   function getRiverWidthNoise01(x: number, z: number): number {
@@ -318,11 +345,19 @@ export function createTerrainSampling(seed: number) {
   }
 
   /**
+   * Samples rare clustering noise in [0,1] used for frozen_river selection.
+   */
+  function getRiverFrozenNoise01(x: number, z: number): number {
+    return (riverFrozenNoise2D(x * RIVER_WIDTH_NOISE_SCALE, z * RIVER_WIDTH_NOISE_SCALE) + 1) * 0.5
+  }
+
+  /**
    * Computes river carve factor from river signals, continentalness, and pre-carve height.
    */
   function getRiverFactorAt(x: number, z: number, baseHeight: number): number {
     return getRiverCarveFactor({
       signalAbs: getRiverSignalAbs(x, z),
+      secondarySignalAbs: getRiverSecondarySignalAbs(x, z),
       widthNoise01: getRiverWidthNoise01(x, z),
       continentalness: getContinentalnessSmoothed(x, z),
       baseHeight,
@@ -344,7 +379,15 @@ export function createTerrainSampling(seed: number) {
       return base
     const heightWithoutRiver = getRawTerrainHeightNoRiver(x, z)
     const riverFactor = getRiverFactorAt(x, z, heightWithoutRiver)
-    return shouldUseRiverBiome(base, riverFactor) ? 'river' : base
+    if (!shouldUseRiverBiome(base, riverFactor)) return base
+    const carvedHeight = carveRiverHeight(heightWithoutRiver, riverFactor, getRiverDepthNoise01(x, z))
+    const frozen = shouldUseFrozenRiver({
+      temperature01: getTemperatureSmoothed(x, z),
+      riverFactor,
+      carvedHeight,
+      rareNoise01: getRiverFrozenNoise01(x, z),
+    })
+    return frozen ? 'frozen_river' : 'river'
   }
 
   function getMacroTerrain(x: number, z: number): number {
@@ -441,6 +484,17 @@ export function createTerrainSampling(seed: number) {
   }
 
   /**
+   * Returns true when a mountain/snow chain sits in a lukewarm climate neighborhood.
+   * Used to route warm highlands toward stony peaks and non-snowy slope biomes.
+   */
+  function isLukewarmMountainContext(x: number, z: number): boolean {
+    return (
+      getTemperatureSmoothed(x, z) >= LUKEWARM_MOUNTAIN_TEMP_MIN &&
+      getHumiditySmoothed(x, z) >= LUKEWARM_MOUNTAIN_HUMIDITY_MIN
+    )
+  }
+
+  /**
    * Terrain height at (x,z) before river carving.
    */
   function getRawTerrainHeightNoRiver(x: number, z: number): number {
@@ -530,7 +584,14 @@ export function createTerrainSampling(seed: number) {
   function getRawTerrainHeight(x: number, z: number): number {
     const baseHeight = getRawTerrainHeightNoRiver(x, z)
     const riverFactor = getRiverFactorAt(x, z, baseHeight)
-    return carveRiverHeight(baseHeight, riverFactor, getRiverDepthNoise01(x, z))
+    const carvedHeight = carveRiverHeight(baseHeight, riverFactor, getRiverDepthNoise01(x, z))
+    const frozen = shouldUseFrozenRiver({
+      temperature01: getTemperatureSmoothed(x, z),
+      riverFactor,
+      carvedHeight,
+      rareNoise01: getRiverFrozenNoise01(x, z),
+    })
+    return applyFrozenRiverHeight(carvedHeight, frozen)
   }
 
   function getSmoothedHeight(x: number, z: number): number {
@@ -575,7 +636,7 @@ export function createTerrainSampling(seed: number) {
     topY: number,
     getHeight: GetHeightFn,
   ): Biome {
-    if (resolved === 'ocean' || resolved === 'river') return resolved
+    if (resolved === 'ocean' || resolved === 'river' || resolved === 'frozen_river') return resolved
 
     const blend = getBiomeBlend(x, z)
     if (blend.primary !== 'ocean' || blend.secondary === 'ocean') return resolved
@@ -598,7 +659,9 @@ export function createTerrainSampling(seed: number) {
     const base = getBiome(x, z)
     const h = getHeight(x, z)
     const hFuzzy = h + getHeightTransitionOffset(x, z)
-    if (base === 'river') return 'river'
+    if (base === 'river' || base === 'frozen_river') return base
+    const lukewarmMountain =
+      (base === 'mountain' || base === 'snow') && isLukewarmMountainContext(x, z)
 
     let resolved: Biome
     if (base !== 'mountain' && base !== 'snow') {
@@ -615,6 +678,13 @@ export function createTerrainSampling(seed: number) {
       } else {
         resolved = base
       }
+    } else if (lukewarmMountain && hFuzzy < HIGHLAND_MEADOW_MAX) {
+      resolved = getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN ? 'forest' : 'savanna'
+    } else if (lukewarmMountain && hFuzzy < HIGHLAND_SNOWY_SLOPES_MAX) {
+      resolved =
+        getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN
+          ? 'windswept_forest'
+          : 'windswept_hills'
     } else if (hFuzzy < HIGHLAND_MEADOW_MAX) {
       const v =
         (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5
@@ -632,6 +702,8 @@ export function createTerrainSampling(seed: number) {
       resolved = v > 0.82 ? 'windswept_forest' : 'grove'
     } else if (hFuzzy < HIGHLAND_SNOWY_SLOPES_MAX) {
       resolved = 'snowy_slopes'
+    } else if (lukewarmMountain) {
+      resolved = 'stony_peaks'
     } else {
       const weirdnessSigned = getWeirdnessSmoothed(x, z)
       const peakBandFactor = getPeakBandFactor(weirdnessSigned)

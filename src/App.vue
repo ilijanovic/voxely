@@ -44,6 +44,16 @@ import { getKeyBinding, codeToDisplayName } from './key-settings'
 import { subscribeConnection } from './multiplayer'
 import type { ConnectionStatus } from './multiplayer/types'
 import type { BlockType } from './types'
+import { WORLD_SEED } from './game-terrain'
+import {
+  applyWorldSlotSeed,
+  createDefaultNamedWorldSlot,
+  ensureWorldSlots,
+  getStoredWorldSeed,
+  listWorldSlots,
+  setActiveWorldSlotId,
+  type WorldSlotMeta,
+} from './save'
 import { BLOCK_ICON, BLOCK_LABEL } from './hotbar-icons'
 import {
   getAllSlots,
@@ -53,7 +63,6 @@ import {
   moveSlots,
   craftOne,
   craftOne3x3,
-  clearCraftingGrid,
   returnCraftingGridToInventory,
   returnCraftingTableToInventory,
   moveToCraftingTable,
@@ -94,6 +103,94 @@ const connectionStatus = ref<ConnectionStatus>({ connected: false, playerCount: 
 const hintVisible = ref(true)
 /** True while the game is initializing (materials, scene, chunks) after mode selection. */
 const loadingRef = ref(false)
+/** World slots shown in the start menu (new world / continue world). */
+const worldSlotsRef = ref<WorldSlotMeta[]>([])
+/** Selected world id in start menu. */
+const selectedWorldIdRef = ref<string | null>(null)
+
+const PENDING_WORLD_LAUNCH_KEY = 'voxely-pending-world-launch'
+
+interface PendingWorldLaunch {
+  mode: 'singleplayer' | 'multiplayer'
+  worldId: string
+}
+
+/** Refreshes world slots from storage and keeps selection valid. */
+function refreshWorldSlots() {
+  const ensured = ensureWorldSlots()
+  worldSlotsRef.value = listWorldSlots()
+  if (worldSlotsRef.value.length === 0) {
+    selectedWorldIdRef.value = null
+    return
+  }
+  const selected = selectedWorldIdRef.value
+  if (selected && worldSlotsRef.value.some((world) => world.id === selected)) return
+  selectedWorldIdRef.value = ensured.activeWorldId ?? worldSlotsRef.value[0].id
+}
+
+/** Selects a world in the start menu and marks it active for save/load. */
+function selectWorld(worldId: string) {
+  selectedWorldIdRef.value = worldId
+  setActiveWorldSlotId(worldId)
+}
+
+/** Creates a new world slot and selects it. */
+function createWorldFromMenu() {
+  const world = createDefaultNamedWorldSlot()
+  refreshWorldSlots()
+  selectedWorldIdRef.value = world.id
+  setActiveWorldSlotId(world.id)
+}
+
+/**
+ * Stores pending launch intent for the next reload.
+ *
+ * @param pending - Pending mode + world selection
+ */
+function setPendingWorldLaunch(pending: PendingWorldLaunch) {
+  try {
+    sessionStorage.setItem(PENDING_WORLD_LAUNCH_KEY, JSON.stringify(pending))
+  } catch {
+    // Ignore session storage failures
+  }
+}
+
+/** Reads and clears pending launch intent left before a seed-switch reload. */
+function consumePendingWorldLaunch(): PendingWorldLaunch | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_WORLD_LAUNCH_KEY)
+    if (!raw) return null
+    sessionStorage.removeItem(PENDING_WORLD_LAUNCH_KEY)
+    const parsed = JSON.parse(raw) as PendingWorldLaunch
+    if (!parsed || (parsed.mode !== 'singleplayer' && parsed.mode !== 'multiplayer')) return null
+    if (typeof parsed.worldId !== 'string' || parsed.worldId.trim().length === 0) return null
+    return { mode: parsed.mode, worldId: parsed.worldId }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Starts game mode for selected world. If world seed differs from runtime seed, reloads once so terrain modules re-bootstrap with that seed.
+ *
+ * @param mode - Requested game mode
+ */
+function startGameFromMenu(mode: 'singleplayer' | 'multiplayer') {
+  const selectedId = selectedWorldIdRef.value ?? worldSlotsRef.value[0]?.id ?? null
+  if (!selectedId) return
+  const world =
+    worldSlotsRef.value.find((entry) => entry.id === selectedId) ?? worldSlotsRef.value[0]
+  if (!world) return
+  setActiveWorldSlotId(world.id)
+  const appliedSeed = applyWorldSlotSeed(world.id)
+  const storedSeed = getStoredWorldSeed()
+  if (appliedSeed != null && storedSeed === appliedSeed && appliedSeed !== WORLD_SEED) {
+    setPendingWorldLaunch({ mode, worldId: world.id })
+    window.location.reload()
+    return
+  }
+  gameMode.value = mode
+}
 
 /** Builds the controls hint from current key bindings so rebinded keys are shown correctly. */
 const controlsHintText = computed(() => {
@@ -142,11 +239,26 @@ function handleCraftingTableMove(fromIndex: number, toIndex: number, amount?: nu
   const invEnd = 35
   if (fromIndex >= 0 && fromIndex <= invEnd && toIndex >= 0 && toIndex <= invEnd) {
     moveSlots(fromIndex, toIndex, amount)
-  } else if (fromIndex >= 0 && fromIndex <= invEnd && toIndex >= TABLE_START && toIndex <= TABLE_START + 8) {
+  } else if (
+    fromIndex >= 0 &&
+    fromIndex <= invEnd &&
+    toIndex >= TABLE_START &&
+    toIndex <= TABLE_START + 8
+  ) {
     moveToCraftingTable(fromIndex, toIndex - TABLE_START, amount)
-  } else if (fromIndex >= TABLE_START && fromIndex <= TABLE_START + 8 && toIndex >= 0 && toIndex <= invEnd) {
+  } else if (
+    fromIndex >= TABLE_START &&
+    fromIndex <= TABLE_START + 8 &&
+    toIndex >= 0 &&
+    toIndex <= invEnd
+  ) {
     moveFromCraftingTable(fromIndex - TABLE_START, toIndex, amount)
-  } else if (fromIndex >= TABLE_START && fromIndex <= TABLE_START + 8 && toIndex >= TABLE_START && toIndex <= TABLE_START + 8) {
+  } else if (
+    fromIndex >= TABLE_START &&
+    fromIndex <= TABLE_START + 8 &&
+    toIndex >= TABLE_START &&
+    toIndex <= TABLE_START + 8
+  ) {
     moveWithinCraftingTable(fromIndex - TABLE_START, toIndex - TABLE_START, amount)
   }
 }
@@ -154,7 +266,7 @@ function handleCraftingTableMove(fromIndex: number, toIndex: number, amount?: nu
 /** Hides the controls hint when the user first presses WASD. */
 function hideHintOnFirstMove(e: KeyboardEvent) {
   if (gameMode.value === null) return
-  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code))   hintVisible.value = false
+  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) hintVisible.value = false
 }
 
 /** Global key handler: I = inventory, O = pause menu, Escape = close overlay or open pause. Skips when chat has focus. */
@@ -312,22 +424,24 @@ function refreshQuestList() {
 const questTrackerEntries = computed(() => {
   const tracked = questListRef.value.trackedQuestIds
   const active = questListRef.value.activeQuests
-  return tracked.map((questId) => {
-    const quest = getQuestById(questId)
-    const a = active.find((x) => x.questId === questId)
-    if (!quest || !a) return null
-    const objectives = quest.objectives.map((obj, i) => {
-      const progress = a.progress[i] ?? 0
-      const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
-      const done = progress >= need
-      const label =
-        obj.type === 'talk'
-          ? `${obj.label}: ${done ? 'Done' : '—'}`
-          : `${obj.label}: ${progress}/${need}`
-      return { label, progress, need, done }
+  return tracked
+    .map((questId) => {
+      const quest = getQuestById(questId)
+      const a = active.find((x) => x.questId === questId)
+      if (!quest || !a) return null
+      const objectives = quest.objectives.map((obj, i) => {
+        const progress = a.progress[i] ?? 0
+        const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
+        const done = progress >= need
+        const label =
+          obj.type === 'talk'
+            ? `${obj.label}: ${done ? 'Done' : '—'}`
+            : `${obj.label}: ${progress}/${need}`
+        return { label, progress, need, done }
+      })
+      return { questId, title: quest.title, objectives }
     })
-    return { questId, title: quest.title, objectives }
-  }).filter((e): e is NonNullable<typeof e> => e != null)
+    .filter((e): e is NonNullable<typeof e> => e != null)
 })
 
 /** Quest log props filtered by context: at NPC (questLogOfferedIds set) vs personal (Q). */
@@ -368,106 +482,108 @@ watch(gameMode, async (mode) => {
     const crackEl = document.getElementById('block-crack')
     setBlockCrackElement(crackEl)
     function openQuestLogFromNpc(questGiver: {
-    offeredQuestIds: string[]
-    prerequisiteQuestIds?: string[]
-  }) {
-    refreshQuestList()
-    questLogOfferedIds.value = [...questGiver.offeredQuestIds]
-    const active = getActiveQuests()
-    const available = getAvailableQuestIds()
-    const offeredQuestIds = questGiver.offeredQuestIds
-    const prereqsMet =
-      questGiver.prerequisiteQuestIds == null ||
-      questGiver.prerequisiteQuestIds.length === 0 ||
-      questGiver.prerequisiteQuestIds.every((id) =>
-        getCompletedQuestIds().includes(id),
-      )
-    const readyToTurnInId = offeredQuestIds.find((id) => {
-      const a = active.find((q) => q.questId === id)
-      if (!a) return false
-      const quest = getQuestById(id)
-      if (!quest) return false
-      return quest.objectives.every((obj, i) => {
-        const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
-        return a.progress[i] >= need
+      offeredQuestIds: string[]
+      prerequisiteQuestIds?: string[]
+    }) {
+      refreshQuestList()
+      questLogOfferedIds.value = [...questGiver.offeredQuestIds]
+      const active = getActiveQuests()
+      const available = getAvailableQuestIds()
+      const offeredQuestIds = questGiver.offeredQuestIds
+      const prereqsMet =
+        questGiver.prerequisiteQuestIds == null ||
+        questGiver.prerequisiteQuestIds.length === 0 ||
+        questGiver.prerequisiteQuestIds.every((id) => getCompletedQuestIds().includes(id))
+      const readyToTurnInId = offeredQuestIds.find((id) => {
+        const a = active.find((q) => q.questId === id)
+        if (!a) return false
+        const quest = getQuestById(id)
+        if (!quest) return false
+        return quest.objectives.every((obj, i) => {
+          const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
+          return a.progress[i] >= need
+        })
       })
-    })
-    const availableId =
-      prereqsMet ? offeredQuestIds.find((id) => available.includes(id)) : undefined
-    questLogInitialSelectedId.value = readyToTurnInId ?? availableId ?? null
-    questLogAtQuestGiver.value = true
-    document.exitPointerLock()
-    questLogOpen.value = true
-  }
+      const availableId = prereqsMet
+        ? offeredQuestIds.find((id) => available.includes(id))
+        : undefined
+      questLogInitialSelectedId.value = readyToTurnInId ?? availableId ?? null
+      questLogAtQuestGiver.value = true
+      document.exitPointerLock()
+      questLogOpen.value = true
+    }
 
-  const opts = {
-    multiplayer: mode === 'multiplayer',
-    onHotbarChange,
-    onCraftingTableUse: openCraftingTableMenu,
-    onQuestNpcInteract: openQuestLogFromNpc,
-  }
-  if (canvasContainer.value) {
-    await initGame(canvasContainer.value, opts)
-  } else {
-    await initGame(undefined, opts)
-  }
-  inventorySlots.value = getAllSlots()
-  craftingTableSlots.value = getCraftingTableSlots()
-  setOnInventoryChange(() => {
+    const opts = {
+      multiplayer: mode === 'multiplayer',
+      onHotbarChange,
+      onCraftingTableUse: openCraftingTableMenu,
+      onQuestNpcInteract: openQuestLogFromNpc,
+    }
+    if (canvasContainer.value) {
+      await initGame(canvasContainer.value, opts)
+    } else {
+      await initGame(undefined, opts)
+    }
     inventorySlots.value = getAllSlots()
     craftingTableSlots.value = getCraftingTableSlots()
-    const h = getHotbarSlots()
-    onHotbarChange(
-      h.map((s) => s.type ?? ''),
-      h.map((s) => s.count),
-    )
-    refreshQuestCollectObjectives()
-  })
-  const refreshEquipment = () => {
-    const eq: Record<string, { type: BlockType | null; count: number }> = {}
-    for (const slot of EQUIPMENT_SLOTS) {
-      const s = getEquipped(slot)
-      eq[slot] = { type: s.type, count: s.count }
+    setOnInventoryChange(() => {
+      inventorySlots.value = getAllSlots()
+      craftingTableSlots.value = getCraftingTableSlots()
+      const h = getHotbarSlots()
+      onHotbarChange(
+        h.map((s) => s.type ?? ''),
+        h.map((s) => s.count),
+      )
+      refreshQuestCollectObjectives()
+    })
+    const refreshEquipment = () => {
+      const eq: Record<string, { type: BlockType | null; count: number }> = {}
+      for (const slot of EQUIPMENT_SLOTS) {
+        const s = getEquipped(slot)
+        eq[slot] = { type: s.type, count: s.count }
+      }
+      equipmentSlotsRef.value = eq as Record<
+        EquipmentSlot,
+        { type: BlockType | null; count: number }
+      >
     }
-    equipmentSlotsRef.value = eq as Record<EquipmentSlot, { type: BlockType | null; count: number }>
-  }
-  refreshEquipment()
-  setOnEquipmentChange(refreshEquipment)
-  setOnGoldChange(() => {
+    refreshEquipment()
+    setOnEquipmentChange(refreshEquipment)
+    setOnGoldChange(() => {
+      playerGoldRef.value = getGold()
+    })
     playerGoldRef.value = getGold()
-  })
-  playerGoldRef.value = getGold()
-  previousLevelRef.value = null
-  if (levelXpInterval) clearInterval(levelXpInterval)
-  levelXpInterval = setInterval(() => {
-    const lvl = getPlayerLevel()
-    const xp = getPlayerExperience()
-    if (previousLevelRef.value !== null && lvl > previousLevelRef.value) {
-      levelUpDisplayRef.value = lvl
-      if (levelUpHideTimeout) clearTimeout(levelUpHideTimeout)
-      levelUpHideTimeout = setTimeout(() => {
-        levelUpDisplayRef.value = null
-        levelUpHideTimeout = null
-      }, LEVEL_UP_DISPLAY_MS)
-    }
-    previousLevelRef.value = lvl
-    playerLevelRef.value = lvl
-    xpProgressRef.value = getLevelProgress(lvl, xp)
-    playerHealthRef.value = getPlayerHealth()
-    playerMaxHealthRef.value = getPlayerMaxHealth()
-    playerHungerRef.value = getPlayerHunger()
-    playerMaxHungerRef.value = getPlayerMaxHunger()
-    playerGoldRef.value = getGold()
-    playerFactionRef.value = getFactionDisplayName(getPlayerFaction())
-    playerClassRef.value = getClassDisplayName(getPlayerClass())
-    const firstSkill = getFirstSkillForClass(getPlayerClass())
-    skillNameRef.value = firstSkill?.name ?? ''
-    skillCooldownRef.value = firstSkill ? getSkillCooldownRemaining(firstSkill.id) : 0
-    playerYawRef.value = getPlayerYaw()
-  }, 400)
-  unsubscribeConnection = subscribeConnection((status) => {
-    connectionStatus.value = status
-  })
+    previousLevelRef.value = null
+    if (levelXpInterval) clearInterval(levelXpInterval)
+    levelXpInterval = setInterval(() => {
+      const lvl = getPlayerLevel()
+      const xp = getPlayerExperience()
+      if (previousLevelRef.value !== null && lvl > previousLevelRef.value) {
+        levelUpDisplayRef.value = lvl
+        if (levelUpHideTimeout) clearTimeout(levelUpHideTimeout)
+        levelUpHideTimeout = setTimeout(() => {
+          levelUpDisplayRef.value = null
+          levelUpHideTimeout = null
+        }, LEVEL_UP_DISPLAY_MS)
+      }
+      previousLevelRef.value = lvl
+      playerLevelRef.value = lvl
+      xpProgressRef.value = getLevelProgress(lvl, xp)
+      playerHealthRef.value = getPlayerHealth()
+      playerMaxHealthRef.value = getPlayerMaxHealth()
+      playerHungerRef.value = getPlayerHunger()
+      playerMaxHungerRef.value = getPlayerMaxHunger()
+      playerGoldRef.value = getGold()
+      playerFactionRef.value = getFactionDisplayName(getPlayerFaction())
+      playerClassRef.value = getClassDisplayName(getPlayerClass())
+      const firstSkill = getFirstSkillForClass(getPlayerClass())
+      skillNameRef.value = firstSkill?.name ?? ''
+      skillCooldownRef.value = firstSkill ? getSkillCooldownRemaining(firstSkill.id) : 0
+      playerYawRef.value = getPlayerYaw()
+    }, 400)
+    unsubscribeConnection = subscribeConnection((status) => {
+      connectionStatus.value = status
+    })
   } finally {
     loadingRef.value = false
   }
@@ -475,6 +591,12 @@ watch(gameMode, async (mode) => {
 
 let hintTimeout: ReturnType<typeof setTimeout> | null = null
 onMounted(() => {
+  refreshWorldSlots()
+  const pendingLaunch = consumePendingWorldLaunch()
+  if (pendingLaunch) {
+    selectedWorldIdRef.value = pendingLaunch.worldId
+    startGameFromMenu(pendingLaunch.mode)
+  }
   document.addEventListener('keydown', onKeyDown, true)
   hintTimeout = setTimeout(() => {
     hintVisible.value = false
@@ -495,8 +617,12 @@ onUnmounted(() => {
     <!-- Menü: Singleplayer / Multiplayer -->
     <Menu
       v-if="gameMode === null"
-      :on-singleplayer="() => (gameMode = 'singleplayer')"
-      :on-multiplayer="() => (gameMode = 'multiplayer')"
+      :worlds="worldSlotsRef"
+      :selected-world-id="selectedWorldIdRef"
+      :on-select-world="selectWorld"
+      :on-create-world="createWorldFromMenu"
+      :on-singleplayer="() => startGameFromMenu('singleplayer')"
+      :on-multiplayer="() => startGameFromMenu('multiplayer')"
     />
 
     <!-- Game (after mode selection) -->
@@ -508,7 +634,9 @@ onUnmounted(() => {
         aria-live="polite"
         aria-busy="true"
       >
-        <span class="text-lg font-medium text-white" style="font-family: var(--ui-font)">Loading…</span>
+        <span class="text-lg font-medium text-white" style="font-family: var(--ui-font)"
+          >Loading…</span
+        >
       </div>
 
       <!-- Level + XP (top left) -->
@@ -518,7 +646,9 @@ onUnmounted(() => {
       >
         <div class="flex items-center justify-between text-xs font-semibold text-[var(--ui-text)]">
           <span>Lv {{ playerLevelRef }}</span>
-          <span v-if="playerLevelRef < MAX_LEVEL" class="text-[10px] opacity-80">{{ Math.round(xpProgressRef * 100) }}%</span>
+          <span v-if="playerLevelRef < MAX_LEVEL" class="text-[10px] opacity-80"
+            >{{ Math.round(xpProgressRef * 100) }}%</span
+          >
         </div>
         <div
           v-if="playerLevelRef < MAX_LEVEL"
@@ -533,7 +663,9 @@ onUnmounted(() => {
             :style="{ width: `${xpProgressRef * 100}%` }"
           />
         </div>
-        <div class="mt-1 text-[10px] text-[var(--ui-text)] opacity-90">Gold: {{ playerGoldRef }}</div>
+        <div class="mt-1 text-[10px] text-[var(--ui-text)] opacity-90">
+          Gold: {{ playerGoldRef }}
+        </div>
         <div class="mt-1 text-[10px] text-[var(--ui-text)] opacity-80">
           {{ playerFactionRef }} · {{ playerClassRef }}
         </div>
@@ -580,11 +712,7 @@ onUnmounted(() => {
         aria-label="Quest objectives"
         class="hud-panel fixed right-4 top-14 z-10 w-56 max-h-[50vh] overflow-y-auto rounded-[var(--ui-radius-md)] border-2 border-amber-800/50 px-2 py-1.5 text-[var(--ui-text)] pointer-events-none space-y-2"
       >
-        <div
-          v-for="entry in questTrackerEntries"
-          :key="entry.questId"
-          class="space-y-0.5"
-        >
+        <div v-for="entry in questTrackerEntries" :key="entry.questId" class="space-y-0.5">
           <div class="text-xs font-semibold text-amber-200 truncate" :title="entry.title">
             {{ entry.title }}
           </div>
@@ -692,13 +820,17 @@ onUnmounted(() => {
           <div
             class="h-2 flex-1 min-w-0 overflow-hidden rounded bg-black/40"
             role="progressbar"
-            :aria-valuenow="playerMaxHealthRef ? Math.round((playerHealthRef / playerMaxHealthRef) * 100) : 100"
+            :aria-valuenow="
+              playerMaxHealthRef ? Math.round((playerHealthRef / playerMaxHealthRef) * 100) : 100
+            "
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <div
               class="h-full rounded bg-red-500 transition-[width] duration-300"
-              :style="{ width: `${playerMaxHealthRef ? (playerHealthRef / playerMaxHealthRef) * 100 : 100}%` }"
+              :style="{
+                width: `${playerMaxHealthRef ? (playerHealthRef / playerMaxHealthRef) * 100 : 100}%`,
+              }"
             />
           </div>
         </div>
@@ -716,20 +848,28 @@ onUnmounted(() => {
               :style="{ width: `${xpProgressRef * 100}%` }"
             />
           </div>
-          <span v-if="playerLevelRef < MAX_LEVEL" class="shrink-0 text-[10px] opacity-80 text-[var(--ui-text)]">{{ Math.round(xpProgressRef * 100) }}%</span>
+          <span
+            v-if="playerLevelRef < MAX_LEVEL"
+            class="shrink-0 text-[10px] opacity-80 text-[var(--ui-text)]"
+            >{{ Math.round(xpProgressRef * 100) }}%</span
+          >
         </div>
         <div class="flex items-center gap-2">
           <span class="w-12 shrink-0 text-[10px] font-medium text-[var(--ui-text)]">Hunger</span>
           <div
             class="h-2 flex-1 min-w-0 overflow-hidden rounded bg-black/40"
             role="progressbar"
-            :aria-valuenow="playerMaxHungerRef ? Math.round((playerHungerRef / playerMaxHungerRef) * 100) : 100"
+            :aria-valuenow="
+              playerMaxHungerRef ? Math.round((playerHungerRef / playerMaxHungerRef) * 100) : 100
+            "
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <div
               class="h-full rounded bg-amber-600 transition-[width] duration-300"
-              :style="{ width: `${playerMaxHungerRef ? (playerHungerRef / playerMaxHungerRef) * 100 : 100}%` }"
+              :style="{
+                width: `${playerMaxHungerRef ? (playerHungerRef / playerMaxHungerRef) * 100 : 100}%`,
+              }"
             />
           </div>
         </div>
@@ -780,7 +920,10 @@ onUnmounted(() => {
           :can-equip="canEquip"
           :on-move="(from: number, to: number, amount?: number) => moveSlots(from, to, amount)"
           :on-craft-one="craftOne"
-          :on-equip-from-inventory="(invIndex: number, equipSlot: EquipmentSlot) => tryEquipFromInventory(invIndex, equipSlot, getPlayerClass())"
+          :on-equip-from-inventory="
+            (invIndex: number, equipSlot: EquipmentSlot) =>
+              tryEquipFromInventory(invIndex, equipSlot, getPlayerClass())
+          "
           :on-unequip="tryUnequipToInventory"
           @close="closeInventory"
         />
@@ -811,10 +954,33 @@ onUnmounted(() => {
           :available-quest-ids="questLogAvailableQuestIds"
           :completed-quest-ids="questLogCompletedQuestIds"
           :tracked-quest-ids="questListRef.trackedQuestIds"
-          :on-accept="(id) => { const ok = acceptQuest(id); if (ok) refreshQuestList(); return ok }"
-          :on-turn-in="(id, rewardChoiceIndex) => { const ok = claimQuestReward(id, rewardChoiceIndex); if (ok) refreshQuestList(); return ok }"
-          :on-abort="(id) => { const ok = abortQuest(id); if (ok) refreshQuestList(); return ok }"
-          :on-toggle-track="(id) => { toggleQuestTracked(id); refreshQuestList() }"
+          :on-accept="
+            (id) => {
+              const ok = acceptQuest(id)
+              if (ok) refreshQuestList()
+              return ok
+            }
+          "
+          :on-turn-in="
+            (id, rewardChoiceIndex) => {
+              const ok = claimQuestReward(id, rewardChoiceIndex)
+              if (ok) refreshQuestList()
+              return ok
+            }
+          "
+          :on-abort="
+            (id) => {
+              const ok = abortQuest(id)
+              if (ok) refreshQuestList()
+              return ok
+            }
+          "
+          :on-toggle-track="
+            (id) => {
+              toggleQuestTracked(id)
+              refreshQuestList()
+            }
+          "
           :initial-selected-quest-id="questLogInitialSelectedId"
           :at-quest-giver="questLogAtQuestGiver"
           :player-class="getPlayerClass()"

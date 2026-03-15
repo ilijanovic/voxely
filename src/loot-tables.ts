@@ -31,6 +31,10 @@ export const DROP_TABLES: Record<AnimalKind, DropEntry[]> = {
     { item: 'raw_porkchop', chance: 0.5, minCount: 0, maxCount: 1 },
   ],
   horse: [],
+  donkey: [],
+  rabbit: [
+    { item: 'raw_porkchop', chance: 0.6, minCount: 0, maxCount: 1 },
+  ],
   wolf: [
     { item: 'raw_porkchop', chance: 0.6, minCount: 0, maxCount: 1 },
   ],

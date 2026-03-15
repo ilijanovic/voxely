@@ -26,6 +26,7 @@ const ALL_BIOMES: Biome[] = [
   'jungle',
   'mountain',
   'snow',
+  'frozen_river',
   'snowy_beach',
   'meadow',
   'grove',

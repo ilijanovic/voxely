@@ -178,20 +178,20 @@ exports[`worldgen determinism snapshots > matches stored snapshot for all seeds 
   "seed_99999": {
     "-1,-1": {
       "biomeCounts": {
-        "cherry_grove": 36,
         "plains": 220,
+        "savanna": 36,
       },
       "blockCounts": {
         "air": 86454,
         "bedrock": 256,
         "diamond_ore": 185,
-        "dirt": 768,
+        "dirt": 732,
         "gold_ore": 846,
         "iron_ore": 1501,
         "sand": 256,
-        "stone": 8038,
+        "stone": 8074,
       },
-      "bufferHash": "be475875",
+      "bufferHash": "229dc475",
       "heightmapHash": "820139f5",
       "surfaceYMax": 57,
       "surfaceYMin": 52,

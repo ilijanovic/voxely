@@ -52,12 +52,18 @@ export const RIVER_WARP_AMP = 34
 export const RIVER_WIDTH_NOISE_SCALE = 0.0055
 /** Depth variation noise scale for river beds. */
 export const RIVER_DEPTH_NOISE_SCALE = 0.0041
+/** Secondary river centerline scale used for confluence widening. */
+export const RIVER_SECONDARY_NOISE_SCALE = 0.00195
 /** River half-width threshold in abs-noise space (minimum). */
 export const RIVER_WIDTH_MIN = 0.028
 /** River half-width threshold in abs-noise space (maximum). */
 export const RIVER_WIDTH_MAX = 0.065
 /** Soft edge size around the channel threshold in abs-noise space. */
 export const RIVER_EDGE_SOFTNESS = 0.014
+/** Minimum overlap between primary/secondary channels before confluence widening activates. */
+export const RIVER_CONFLUENCE_MIN_CORE = 0.18
+/** Extra carve factor added at confluences (wider basins where channels meet). */
+export const RIVER_CONFLUENCE_BOOST = 0.33
 /** Continentalness lower bound where inland rivers begin to appear (suppresses deep ocean). */
 export const RIVER_CONTINENTALNESS_MIN = -0.08
 /** Continentalness upper bound for full river allowance inland. */
@@ -74,6 +80,14 @@ export const RIVER_DEPTH_MAX = 7
 export const RIVER_CARVE_POWER = 1.15
 /** Minimum river factor required to classify a column as river biome. */
 export const RIVER_BIOME_FACTOR_THRESHOLD = 0.44
+/** Max smoothed temperature for frozen_river eligibility. */
+export const RIVER_FROZEN_TEMP_MAX = 0.19
+/** River factor required for frozen_river (keeps freezing mostly in channel cores). */
+export const RIVER_FROZEN_CORE_FACTOR_MIN = 0.58
+/** Only low-altitude rivers can become frozen_river. */
+export const RIVER_FROZEN_ALTITUDE_MAX = WATER_LEVEL + 8
+/** Rare-noise threshold for frozen_river clustering in cold regions. */
+export const RIVER_FROZEN_RARE_NOISE_THRESHOLD = 0.84
 
 /** Radius (blocks) around world origin (0,0) where climate is biased toward forest. */
 export const SPAWN_ORIGIN_FOREST_RADIUS = 64
@@ -140,6 +154,11 @@ export const HIGHLAND_SNOWY_SLOPES_MAX = WATER_LEVEL + 28
 /** Temperature thresholds for cold highland/upland variants. */
 export const COLD_HIGHLAND_TEMP_MAX = 0.42
 export const COLD_UPLAND_TEMP_MAX = 0.5
+
+/** Minimum smoothed temperature for lukewarm mountain routing to stony peaks. */
+export const LUKEWARM_MOUNTAIN_TEMP_MIN = 0.4
+/** Minimum smoothed humidity for lukewarm mountain routing (savanna/forest/jungle neighborhood). */
+export const LUKEWARM_MOUNTAIN_HUMIDITY_MIN = 0.35
 
 /** Highland variant noise scale (meadow/grove/windswept/cherry). */
 export const HIGHLAND_VARIANT_SCALE = 0.004

@@ -32,6 +32,8 @@ export const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97
 export const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
 /** Very sparse trees on snowy_slopes (high threshold so only a few conifers appear). */
 export const TREE_PLACEMENT_SNOWY_SLOPES_THRESHOLD = 0.88
+/** Chance for a meadow tree to get a bee nest attachment. */
+export const MEADOW_BEE_NEST_CHANCE = 0.08
 
 /** Max height difference between column and 4 neighbours for tree placement. */
 export const TREE_MAX_SLOPE = 2
@@ -48,6 +50,7 @@ export const BIOMES_WITHOUT_GRASS_SNOW: ReadonlySet<Biome> = new Set([
   'plains',
   'frozen_peaks',
   'jagged_peaks',
+  'frozen_river',
   'snowy_slopes',
   'snowy_beach',
   'badlands',

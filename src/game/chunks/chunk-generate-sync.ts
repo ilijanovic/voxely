@@ -75,6 +75,7 @@ let _snowGrowthAccumulator = 0
 
 const COLD_BIOMES: Set<Biome> = new Set([
   'snow',
+  'frozen_river',
   'snowy_beach',
   'grove',
   'snowy_slopes',
@@ -293,7 +294,7 @@ export function getTallGrassPositions(
     for (const p of positions) {
       const lx = p.x - worldX
       const lz = p.z - worldZ
-      const keyAbove = localKey(lx, p.y + 1, lz)
+      const keyAbove = localKey(lx, p.y + 1 - WORLD_MIN_Y, lz)
       if (voxelMap.has(keyAbove)) continue
       const chance =
         getBiome && (getBiome(p.x, p.z) === 'forest' || getBiome(p.x, p.z) === 'jungle')
@@ -757,7 +758,7 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
     for (let twz = minZ; twz <= maxZ; twz++) {
       if (!shouldPlaceTree(twx, twz, treeCaches)) continue
       const baseY = getHeight(twx, twz)
-      const { wood, leaves } = generateTree(twx, baseY, twz)
+      const { wood, leaves, beeNests } = generateTree(twx, baseY, twz)
       for (const b of wood) {
         if (
           b.x >= worldX &&
@@ -779,6 +780,17 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
           b.y > getHeight(b.x, b.z)
         ) {
           voxelMap.set(localKey(b.x - worldX, b.y - WORLD_MIN_Y, b.z - worldZ), 'leaves')
+        }
+      }
+      for (const b of beeNests) {
+        if (
+          b.x >= worldX &&
+          b.x < worldX + CHUNK_SIZE &&
+          b.z >= worldZ &&
+          b.z < worldZ + CHUNK_SIZE &&
+          blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== 'air'
+        ) {
+          voxelMap.set(localKey(b.x - worldX, b.y - WORLD_MIN_Y, b.z - worldZ), 'bee_nest')
         }
       }
     }

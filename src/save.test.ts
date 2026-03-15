@@ -5,9 +5,17 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   SAVE_KEY,
   SAVE_VERSION,
+  applyWorldSlotSeed,
+  createDefaultNamedWorldSlot,
+  createWorldSlot,
+  ensureWorldSlots,
+  getActiveWorldSlotId,
+  getStoredWorldSeed,
+  listWorldSlots,
   VALID_BLOCK_TYPES,
   loadFromStorage,
   saveToStorage,
+  setActiveWorldSlotId,
   type SaveData,
 } from './save'
 
@@ -32,10 +40,14 @@ function createStorageMock(initialStore: Record<string, string> = {}) {
     setItem: (key: string, value: string) => {
       store[key] = value
     },
+    removeItem: (key: string) => {
+      delete store[key]
+    },
     setGetItem: (value: string | null) => {
       if (value === null) delete store[SAVE_KEY]
       else store[SAVE_KEY] = value
     },
+    getStore: () => ({ ...store }),
   }
 }
 
@@ -189,5 +201,82 @@ describe('save versioning (load older)', () => {
     expect(loaded!.player.x).toBe(0)
     expect(loaded!.removedBlocks).toEqual([])
     expect(loaded!.placedBlocks).toEqual([])
+  })
+})
+
+describe('world slots', () => {
+  beforeEach(() => {
+    const mock = createStorageMock()
+    vi.stubGlobal('localStorage', mock)
+  })
+
+  it('migrates legacy save to first world slot', () => {
+    const legacyData: SaveData = {
+      ...validPayload,
+      worldSeed: 777,
+      player: {
+        ...validPayload.player,
+        x: 12,
+      },
+    }
+    const legacyRaw = JSON.stringify(legacyData)
+    const mock = createStorageMock({ [SAVE_KEY]: legacyRaw })
+    vi.stubGlobal('localStorage', mock)
+
+    const ensured = ensureWorldSlots()
+    expect(ensured.worlds).toHaveLength(1)
+    expect(ensured.activeWorldId).toBeTruthy()
+    expect(getActiveWorldSlotId()).toBe(ensured.activeWorldId)
+    expect(ensured.worlds[0].hasSave).toBe(true)
+
+    const store = mock.getStore()
+    const worldSaveKey = `${SAVE_KEY}:${ensured.worlds[0].id}`
+    expect(store[worldSaveKey]).toBe(legacyRaw)
+  })
+
+  it('creates a default-named world and selects it', () => {
+    ensureWorldSlots()
+    const created = createDefaultNamedWorldSlot()
+    const worlds = listWorldSlots()
+
+    expect(worlds.some((world) => world.id === created.id)).toBe(true)
+    expect(created.name.startsWith('World')).toBe(true)
+    expect(getActiveWorldSlotId()).toBe(created.id)
+  })
+
+  it('keeps saves isolated per active world slot', () => {
+    ensureWorldSlots()
+    const first = createWorldSlot('Alpha', 111)
+    const second = createWorldSlot('Bravo', 222)
+
+    const firstSave: SaveData = {
+      ...validPayload,
+      worldSeed: first.seed,
+      player: { ...validPayload.player, x: 1 },
+    }
+    const secondSave: SaveData = {
+      ...validPayload,
+      worldSeed: second.seed,
+      player: { ...validPayload.player, x: 2 },
+    }
+
+    setActiveWorldSlotId(first.id)
+    saveToStorage(firstSave)
+    setActiveWorldSlotId(second.id)
+    saveToStorage(secondSave)
+
+    setActiveWorldSlotId(first.id)
+    expect(loadFromStorage()).toEqual(firstSave)
+    setActiveWorldSlotId(second.id)
+    expect(loadFromStorage()).toEqual(secondSave)
+  })
+
+  it('applies selected world seed to seed storage', () => {
+    ensureWorldSlots()
+    const world = createWorldSlot('Seed world', 987654)
+    const applied = applyWorldSlotSeed(world.id)
+
+    expect(applied).toBe(987654)
+    expect(getStoredWorldSeed()).toBe(987654)
   })
 })

@@ -7,7 +7,15 @@
 import type { Biome, BlockType } from '../types'
 import { WATER_LEVEL } from '../constants'
 import { BIOME_REGISTRY } from './biomes'
-import { BADLANDS_BAND_BLOCK_COUNT } from './surface-constants'
+import {
+  BADLANDS_BAND_BLOCK_COUNT,
+  RIVER_BANK_BLEND_MAX_HEIGHT,
+  RIVER_BANK_GRAVEL_SLOPE_MIN,
+  RIVER_BANK_NEAR_WATER_GRAVEL_NOISE_MAX,
+  RIVER_BANK_SAND_MAX_HEIGHT,
+  RIVER_BANK_UPPER_GRAVEL_NOISE_MAX,
+  RIVER_BANK_UPPER_SAND_NOISE_MAX,
+} from './surface-constants'
 import { getSurfaceBlockFromRules } from './surface-rules'
 
 /** Badlands band block types (Minecraft-style bands). Order defines which noise bucket maps to which block. */
@@ -64,6 +72,11 @@ export interface SurfaceResolverParams {
    * Omit for non-badlands or simplified path.
    */
   badlandsBandNoise?: number
+  /**
+   * River bank blend noise [0..1] for sand/gravel transition.
+   * Omit for non-river biomes or simplified path.
+   */
+  riverBankNoise?: number
 }
 
 /**
@@ -85,6 +98,7 @@ export function resolveSurfaceBlock(params: SurfaceResolverParams): BlockType {
     ditherNoiseCoast = 0.5,
     ditherNoiseLand = 0.5,
     badlandsBandNoise,
+    riverBankNoise = 0.5,
   } = params
 
   const def = BIOME_REGISTRY[biome]
@@ -118,6 +132,19 @@ export function resolveSurfaceBlock(params: SurfaceResolverParams): BlockType {
   // Badlands banding (Minecraft-style): noise-based bands (red_sand, sandstone, terracotta).
   if (biome === 'badlands' && badlandsBandNoise !== undefined) {
     surface = getBadlandsBlockFromNoise(badlandsBandNoise)
+  }
+
+  // River banks (Minecraft-like): sand/gravel mix near water with slope + dither.
+  if (biome === 'river') {
+    if (topY <= RIVER_BANK_SAND_MAX_HEIGHT) {
+      if (slope >= RIVER_BANK_GRAVEL_SLOPE_MIN) return 'gravel'
+      return riverBankNoise < RIVER_BANK_NEAR_WATER_GRAVEL_NOISE_MAX ? 'gravel' : 'sand'
+    }
+    if (topY <= RIVER_BANK_BLEND_MAX_HEIGHT) {
+      if (slope >= RIVER_BANK_GRAVEL_SLOPE_MIN + 1 || riverBankNoise < RIVER_BANK_UPPER_GRAVEL_NOISE_MAX)
+        return 'gravel'
+      if (riverBankNoise < RIVER_BANK_UPPER_SAND_NOISE_MAX) return 'sand'
+    }
   }
 
   return getSurfaceBlockFromRules(biome, topY, surface, {

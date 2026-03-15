@@ -484,6 +484,14 @@ const _refChickenLeg = { current: null as THREE.MeshStandardMaterial | null }
 const _refHorseBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refHorseHead = { current: null as THREE.MeshStandardMaterial | null }
 const _refHorseLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refDonkeyBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refDonkeyHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refDonkeyLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refDonkeyEar = { current: null as THREE.MeshStandardMaterial | null }
+const _refRabbitBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refRabbitHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refRabbitLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refRabbitEar = { current: null as THREE.MeshStandardMaterial | null }
 
 /** Zombie: simple humanoid (green skin, upright). Used for hostile mob spawn at night. */
 const ZOMBIE_GREEN = 0x3d5c34
@@ -667,6 +675,147 @@ function createHorseMesh(): THREE.Group {
   return group
 }
 
+/** Donkey: horse-like but smaller, with longer ears and gray coat. */
+function createDonkeyMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refDonkeyBody, 0x8b8680)
+  const matHead = getMat(_refDonkeyHead, 0x6f6b66)
+  const matLeg = getMat(_refDonkeyLeg, 0x2f2f2f)
+  const matEar = getMat(_refDonkeyEar, 0x8b8680)
+
+  const body = new THREE.Mesh(boxBody, matBody)
+  body.position.y = 0.48
+  body.scale.set(1.05, 1.15, 1.25)
+  body.castShadow = true
+  body.receiveShadow = true
+
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 0.69, 0.37)
+  head.scale.set(0.88, 1.05, 1.15)
+  head.castShadow = true
+  head.receiveShadow = true
+
+  const earL = new THREE.Mesh(boxEar, matEar)
+  earL.position.set(-0.12, 0.88, 0.34)
+  earL.scale.set(0.7, 2.6, 0.9)
+  earL.castShadow = true
+  earL.receiveShadow = true
+
+  const earR = new THREE.Mesh(boxEar, matEar)
+  earR.position.set(0.12, 0.88, 0.34)
+  earR.scale.set(0.7, 2.6, 0.9)
+  earR.castShadow = true
+  earR.receiveShadow = true
+
+  const leg1 = new THREE.Mesh(boxLeg, matLeg)
+  leg1.position.set(-0.19, 0.19, 0.19)
+  leg1.scale.y = 1.35
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+
+  const leg2 = new THREE.Mesh(boxLeg, matLeg)
+  leg2.position.set(0.19, 0.19, 0.19)
+  leg2.scale.y = 1.35
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+
+  const leg3 = new THREE.Mesh(boxLeg, matLeg)
+  leg3.position.set(-0.19, 0.19, -0.19)
+  leg3.scale.y = 1.35
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+
+  const leg4 = new THREE.Mesh(boxLeg, matLeg)
+  leg4.position.set(0.19, 0.19, -0.19)
+  leg4.scale.y = 1.35
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+
+  group.add(body)
+  group.add(head)
+  group.add(earL)
+  group.add(earR)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(1.1, 1.2, 1.1)
+  return group
+}
+
+/** Rabbit: compact body with short legs and tall ears. */
+function createRabbitMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refRabbitBody, 0xd9d4cb)
+  const matHead = getMat(_refRabbitHead, 0xb8b2a8)
+  const matLeg = getMat(_refRabbitLeg, 0x9e998f)
+  const matEar = getMat(_refRabbitEar, 0xd9d4cb)
+
+  const boxRabbitBody = new THREE.BoxGeometry(0.28 * BLOCK, 0.2 * BLOCK, 0.34 * BLOCK)
+  const boxRabbitHead = new THREE.BoxGeometry(0.18 * BLOCK, 0.18 * BLOCK, 0.2 * BLOCK)
+  const boxRabbitEar = new THREE.BoxGeometry(0.05 * BLOCK, 0.18 * BLOCK, 0.04 * BLOCK)
+  const boxRabbitLeg = new THREE.BoxGeometry(0.08 * BLOCK, 0.1 * BLOCK, 0.08 * BLOCK)
+
+  const body = new THREE.Mesh(boxRabbitBody, matBody)
+  body.position.y = 0.12
+  body.castShadow = true
+  body.receiveShadow = true
+
+  const head = new THREE.Mesh(boxRabbitHead, matHead)
+  head.position.set(0, 0.2, 0.14)
+  head.castShadow = true
+  head.receiveShadow = true
+
+  const earL = new THREE.Mesh(boxRabbitEar, matEar)
+  earL.position.set(-0.05, 0.31, 0.14)
+  earL.castShadow = true
+  earL.receiveShadow = true
+
+  const earR = new THREE.Mesh(boxRabbitEar, matEar)
+  earR.position.set(0.05, 0.31, 0.14)
+  earR.castShadow = true
+  earR.receiveShadow = true
+
+  const leg1 = new THREE.Mesh(boxRabbitLeg, matLeg)
+  leg1.position.set(-0.09, 0.06, 0.1)
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+
+  const leg2 = new THREE.Mesh(boxRabbitLeg, matLeg)
+  leg2.position.set(0.09, 0.06, 0.1)
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+
+  const leg3 = new THREE.Mesh(boxRabbitLeg, matLeg)
+  leg3.position.set(-0.09, 0.06, -0.1)
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+
+  const leg4 = new THREE.Mesh(boxRabbitLeg, matLeg)
+  leg4.position.set(0.09, 0.06, -0.1)
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+
+  group.add(body)
+  group.add(head)
+  group.add(earL)
+  group.add(earR)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(0.9, 0.9, 0.9)
+  return group
+}
+
 /** Registry of mesh factories per animal kind. Add a new entry when adding a new AnimalKind. */
 export const ANIMAL_MESH_FACTORY: Record<AnimalKind, () => THREE.Group> = {
   sheep: createSheepMesh,
@@ -674,6 +823,8 @@ export const ANIMAL_MESH_FACTORY: Record<AnimalKind, () => THREE.Group> = {
   cow: createCowMesh,
   chicken: createChickenMesh,
   horse: createHorseMesh,
+  donkey: createDonkeyMesh,
+  rabbit: createRabbitMesh,
   wolf: createWolfMesh,
   villager: createVillagerMesh,
   zombie: createZombieMesh,

@@ -13,6 +13,7 @@ import { DEFAULT_BIOME_RARITY_WEIGHT } from './types'
 import { desertDefinition } from './desert'
 import { oceanDefinition } from './ocean'
 import { riverDefinition } from './river'
+import { frozenRiverDefinition } from './frozen_river'
 import { beachDefinition } from './beach'
 import { stonyShoreDefinition } from './stony_shore'
 import { snowyBeachDefinition } from './snowy_beach'
@@ -41,6 +42,7 @@ export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   plains: plainsDefinition,
   ocean: oceanDefinition,
   river: riverDefinition,
+  frozen_river: frozenRiverDefinition,
   beach: beachDefinition,
   stony_shore: stonyShoreDefinition,
   snowy_beach: snowyBeachDefinition,

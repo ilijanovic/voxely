@@ -51,7 +51,7 @@ watch(
 
 const selectedQuest = computed((): Quest | null => {
   const id = selectedId.value
-  return id ? getQuestById(id) ?? null : null
+  return id ? (getQuestById(id) ?? null) : null
 })
 
 const selectedProgress = computed((): number[] | null => {
@@ -140,7 +140,10 @@ function categoryLabel(category: QuestCategory | undefined): string {
 
 /** Groups active quests by zone for the quest list. */
 const activeQuestsByZone = computed(() => {
-  const zones = new Map<string, { zoneId: string; zoneName: string; quests: typeof props.activeQuests }>()
+  const zones = new Map<
+    string,
+    { zoneId: string; zoneName: string; quests: typeof props.activeQuests }
+  >()
   const otherKey = '__other'
   for (const a of props.activeQuests) {
     const quest = getQuestById(a.questId)
@@ -187,19 +190,23 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
 
 <template>
   <div
-    class="quest-log fixed inset-0 z-20 flex items-center justify-center bg-black/50 p-4"
+    class="quest-log fixed inset-0 z-20 flex items-center justify-center bg-[#05070d]/70 p-4 backdrop-blur-[2px]"
     @click.self="emit('close')"
   >
     <div
-      class="quest-log-panel flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border-2 border-amber-800/80 bg-stone-900 text-stone-100 shadow-xl"
+      class="quest-log-panel flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-[var(--ui-radius-lg)] border text-stone-100 shadow-[0_24px_55px_rgba(0,0,0,0.62)]"
+      style="
+        border-color: rgba(173, 148, 93, 0.52);
+        background: linear-gradient(180deg, rgba(33, 30, 24, 0.97) 0%, rgba(24, 21, 17, 0.97) 100%);
+      "
       role="dialog"
       aria-label="Quest log"
     >
-      <div class="flex items-center justify-between border-b border-stone-600 px-4 py-2">
+      <div class="flex items-center justify-between border-b border-stone-600/90 px-4 py-2.5">
         <h2 class="text-lg font-bold">Quest Log</h2>
         <button
           type="button"
-          class="rounded px-2 py-1 text-sm hover:bg-stone-700"
+          class="rounded-[var(--ui-radius-sm)] border border-stone-500/70 bg-stone-800/65 px-2.5 py-1 text-sm text-stone-200 transition-[background,border-color] duration-150 hover:bg-stone-700/75 hover:border-stone-400"
           @click="emit('close')"
         >
           Close
@@ -207,7 +214,7 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
       </div>
       <div class="flex flex-1 min-h-0">
         <!-- List -->
-        <div class="w-48 shrink-0 overflow-y-auto border-r border-stone-600 p-2">
+        <div class="w-56 shrink-0 overflow-y-auto border-r border-stone-600/90 p-2.5">
           <div v-if="activeQuests.length > 0" class="mb-2">
             <div class="text-xs font-semibold uppercase text-amber-400">Active</div>
             <template v-for="zone in activeQuestsByZone" :key="zone.zoneId">
@@ -218,8 +225,8 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
                 v-for="a in zone.quests"
                 :key="a.questId"
                 type="button"
-                class="mt-1 flex w-full items-start gap-1.5 rounded px-2 py-1.5 text-left hover:bg-stone-700"
-                :class="{ 'bg-stone-700': selectedId === a.questId }"
+                class="mt-1 flex w-full items-start gap-1.5 rounded-[var(--ui-radius-sm)] border border-transparent px-2 py-1.5 text-left transition-[background,border-color] duration-100 hover:bg-stone-700/80 hover:border-stone-500/80"
+                :class="{ 'bg-stone-700/80 border-stone-500/80': selectedId === a.questId }"
                 @click="selectedId = a.questId"
               >
                 <span class="min-w-0 flex-1">
@@ -228,7 +235,9 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
                     :class="questTitleColorClass(getQuestById(a.questId))"
                   >
                     {{ getQuestById(a.questId)?.title ?? a.questId }}
-                    <template v-if="getQuestById(a.questId)?.level != null"> ({{ getQuestById(a.questId)!.level }})</template>
+                    <template v-if="getQuestById(a.questId)?.level != null">
+                      ({{ getQuestById(a.questId)!.level }})</template
+                    >
                   </span>
                   <span
                     v-if="getLocationHint(getQuestById(a.questId))"
@@ -258,8 +267,8 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
                 v-for="id in zone.questIds"
                 :key="id"
                 type="button"
-                class="mt-1 block w-full rounded px-2 py-1.5 text-left hover:bg-stone-700"
-                :class="{ 'bg-stone-700': selectedId === id }"
+                class="mt-1 block w-full rounded-[var(--ui-radius-sm)] border border-transparent px-2 py-1.5 text-left transition-[background,border-color] duration-100 hover:bg-stone-700/80 hover:border-stone-500/80"
+                :class="{ 'bg-stone-700/80 border-stone-500/80': selectedId === id }"
                 @click="selectedId = id"
               >
                 <span
@@ -267,7 +276,9 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
                   :class="questTitleColorClass(getQuestById(id))"
                 >
                   {{ getQuestById(id)?.title ?? id }}
-                  <template v-if="getQuestById(id)?.level != null"> ({{ getQuestById(id)!.level }})</template>
+                  <template v-if="getQuestById(id)?.level != null">
+                    ({{ getQuestById(id)!.level }})</template
+                  >
                 </span>
                 <span
                   v-if="getLocationHint(getQuestById(id))"
@@ -290,24 +301,25 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
           </div>
         </div>
         <!-- Detail -->
-        <div class="flex-1 overflow-y-auto p-4">
+        <div class="flex-1 overflow-y-auto p-4 md:p-5">
           <template v-if="selectedQuest">
             <h3 class="text-base font-bold" :class="questTitleColorClass(selectedQuest)">
               {{ selectedQuest.title }}
-              <template v-if="selectedQuest.level != null"> — Level {{ selectedQuest.level }}</template>
+              <template v-if="selectedQuest.level != null">
+                — Level {{ selectedQuest.level }}</template
+              >
             </h3>
-            <p v-if="selectedQuest.category" class="mt-0.5 text-xs uppercase tracking-wide text-stone-500">
+            <p
+              v-if="selectedQuest.category"
+              class="mt-0.5 text-xs uppercase tracking-wide text-stone-500"
+            >
               {{ categoryLabel(selectedQuest.category) }} Quest
             </p>
             <p class="mt-2 text-sm text-stone-300">{{ selectedQuest.description }}</p>
             <div class="mt-3">
               <div class="text-xs font-semibold uppercase text-stone-500">Objectives</div>
               <ul class="mt-1 space-y-1">
-                <li
-                  v-for="(obj, i) in selectedQuest.objectives"
-                  :key="i"
-                  class="text-sm"
-                >
+                <li v-for="(obj, i) in selectedQuest.objectives" :key="i" class="text-sm">
                   {{ objectiveLabel(obj, selectedProgress?.[i] ?? 0) }}
                 </li>
               </ul>
@@ -316,21 +328,29 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
               <template v-if="availableQuestIds.includes(selectedQuest.id)">
                 <button
                   type="button"
-                  class="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium hover:bg-amber-500"
+                  class="rounded-[var(--ui-radius-sm)] border border-amber-300/40 bg-amber-600 px-3 py-1.5 text-sm font-medium text-amber-50 transition-[background,border-color] duration-150 hover:bg-amber-500 hover:border-amber-200/70"
                   @click="accept(selectedQuest.id)"
                 >
                   Accept
                 </button>
               </template>
-              <template v-else-if="selectedQuest && activeQuests.some((a) => a.questId === selectedQuest?.id) && isSelectedComplete">
+              <template
+                v-else-if="
+                  selectedQuest &&
+                  activeQuests.some((a) => a.questId === selectedQuest?.id) &&
+                  isSelectedComplete
+                "
+              >
                 <template v-if="atQuestGiver">
-                  <template v-if="selectedQuest.rewardChoices && selectedQuest.rewardChoices.length > 0">
+                  <template
+                    v-if="selectedQuest.rewardChoices && selectedQuest.rewardChoices.length > 0"
+                  >
                     <div class="flex flex-wrap gap-2">
                       <button
                         v-for="(choice, idx) in selectedQuest.rewardChoices"
                         :key="idx"
                         type="button"
-                        class="inline-flex items-center gap-1.5 rounded bg-green-700 px-3 py-1.5 text-sm font-medium hover:bg-green-600"
+                        class="inline-flex items-center gap-1.5 rounded-[var(--ui-radius-sm)] border border-green-300/30 bg-green-700 px-3 py-1.5 text-sm font-medium text-green-50 transition-[background,border-color] duration-150 hover:bg-green-600 hover:border-green-200/60"
                         @click="selectedQuest ? turnIn(selectedQuest.id, idx) : undefined"
                       >
                         <img
@@ -339,14 +359,18 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
                           :alt="getBlockLabel(choice.items[0].type)"
                           class="h-4 w-4 rounded object-contain"
                         />
-                        <span>{{ choice.items?.[0] ? getBlockLabel(choice.items[0].type) : `Option ${idx + 1}` }}</span>
+                        <span>{{
+                          choice.items?.[0]
+                            ? getBlockLabel(choice.items[0].type)
+                            : `Option ${idx + 1}`
+                        }}</span>
                       </button>
                     </div>
                   </template>
                   <button
                     v-else
                     type="button"
-                    class="rounded bg-green-700 px-3 py-1.5 text-sm font-medium hover:bg-green-600"
+                    class="rounded-[var(--ui-radius-sm)] border border-green-300/30 bg-green-700 px-3 py-1.5 text-sm font-medium text-green-50 transition-[background,border-color] duration-150 hover:bg-green-600 hover:border-green-200/60"
                     @click="selectedQuest ? turnIn(selectedQuest.id) : undefined"
                   >
                     Turn in
@@ -356,20 +380,34 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
                   Return to the quest giver to turn in.
                 </p>
               </template>
-              <template v-if="selectedQuest && activeQuests.some((a) => a.questId === selectedQuest?.id) && onToggleTrack">
+              <template
+                v-if="
+                  selectedQuest &&
+                  activeQuests.some((a) => a.questId === selectedQuest?.id) &&
+                  onToggleTrack
+                "
+              >
                 <button
                   type="button"
-                  class="rounded border border-stone-500 bg-stone-700 px-3 py-1.5 text-sm text-stone-300 hover:bg-stone-600"
-                  :title="isTracked(selectedQuest.id) ? 'Remove from tracker' : 'Show on HUD tracker'"
+                  class="rounded-[var(--ui-radius-sm)] border border-stone-500/90 bg-stone-700 px-3 py-1.5 text-sm text-stone-300 transition-[background,border-color] duration-150 hover:bg-stone-600 hover:border-stone-400"
+                  :title="
+                    isTracked(selectedQuest.id) ? 'Remove from tracker' : 'Show on HUD tracker'
+                  "
                   @click="selectedQuest ? onToggleTrack(selectedQuest.id) : undefined"
                 >
                   {{ isTracked(selectedQuest.id) ? 'Untrack' : 'Track' }}
                 </button>
               </template>
-              <template v-if="selectedQuest && activeQuests.some((a) => a.questId === selectedQuest?.id) && onAbort">
+              <template
+                v-if="
+                  selectedQuest &&
+                  activeQuests.some((a) => a.questId === selectedQuest?.id) &&
+                  onAbort
+                "
+              >
                 <button
                   type="button"
-                  class="rounded border border-stone-500 bg-stone-700 px-3 py-1.5 text-sm text-stone-300 hover:bg-stone-600"
+                  class="rounded-[var(--ui-radius-sm)] border border-stone-500/90 bg-stone-700 px-3 py-1.5 text-sm text-stone-300 transition-[background,border-color] duration-150 hover:bg-stone-600 hover:border-stone-400"
                   @click="selectedQuest ? abort(selectedQuest.id) : undefined"
                 >
                   Abort
@@ -377,12 +415,26 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
               </template>
             </div>
             <div
-              v-if="selectedReward && (selectedReward.xp || selectedReward.gold || (selectedReward.items?.length ?? 0) > 0 || (selectedQuest?.rewardChoices?.length ?? 0) > 0)"
+              v-if="
+                selectedReward &&
+                (selectedReward.xp ||
+                  selectedReward.gold ||
+                  (selectedReward.items?.length ?? 0) > 0 ||
+                  (selectedQuest?.rewardChoices?.length ?? 0) > 0)
+              "
               class="mt-2 text-xs text-stone-500"
             >
               Reward:
               <template v-if="selectedReward.xp">{{ selectedReward.xp }} XP</template>
-              <template v-if="selectedReward.xp && (selectedReward.gold || (selectedReward.items?.length ?? 0) > 0 || (selectedQuest?.rewardChoices?.length ?? 0) > 0)">, </template>
+              <template
+                v-if="
+                  selectedReward.xp &&
+                  (selectedReward.gold ||
+                    (selectedReward.items?.length ?? 0) > 0 ||
+                    (selectedQuest?.rewardChoices?.length ?? 0) > 0)
+                "
+                >,
+              </template>
               <template v-if="selectedReward.gold">{{ selectedReward.gold }} silver</template>
               <template v-if="(selectedQuest?.rewardChoices?.length ?? 0) > 0">
                 <template v-if="selectedReward.xp || selectedReward.gold">, </template>
@@ -401,7 +453,11 @@ function getRewardItemTooltipLines(type: string, count: number): string[] {
                       />
                       <span>{{ getBlockLabel(choice.items[0].type) }}</span>
                     </template>
-                    <span v-if="cIdx < (selectedQuest.rewardChoices?.length ?? 0) - 1" class="mx-0.5">or</span>
+                    <span
+                      v-if="cIdx < (selectedQuest.rewardChoices?.length ?? 0) - 1"
+                      class="mx-0.5"
+                      >or</span
+                    >
                   </span>
                 </span>
               </template>
