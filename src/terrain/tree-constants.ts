@@ -26,6 +26,8 @@ export const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0
 /** Lower than forest so jungle has noticeably more trees (denser canopy). */
 export const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.88
 export const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93
+/** Meadow trees are rarer than plains to preserve open flower fields. */
+export const TREE_PLACEMENT_MEADOW_THRESHOLD = 0.98
 export const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97
 export const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
 /** Very sparse trees on snowy_slopes (high threshold so only a few conifers appear). */
@@ -47,6 +49,7 @@ export const BIOMES_WITHOUT_GRASS_SNOW: ReadonlySet<Biome> = new Set([
   'frozen_peaks',
   'jagged_peaks',
   'snowy_slopes',
+  'snowy_beach',
   'badlands',
   'mushroom_fields',
   'mangrove_swamp',
@@ -65,7 +68,7 @@ export const TREE_PLACEMENT_CONFIG: Partial<Record<Biome, TreePlacementConfig>> 
   jungle: { useForestDensity: true, threshold: TREE_PLACEMENT_JUNGLE_THRESHOLD },
   mountain: { useForestDensity: false, threshold: TREE_PLACEMENT_MOUNTAIN_THRESHOLD },
   plains: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
-  meadow: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
+  meadow: { useForestDensity: false, threshold: TREE_PLACEMENT_MEADOW_THRESHOLD },
   savanna: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
   cherry_grove: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
   windswept_forest: { useForestDensity: true, threshold: TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD },

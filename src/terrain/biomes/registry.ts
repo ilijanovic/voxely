@@ -12,6 +12,10 @@ import type {
 import { DEFAULT_BIOME_RARITY_WEIGHT } from './types'
 import { desertDefinition } from './desert'
 import { oceanDefinition } from './ocean'
+import { riverDefinition } from './river'
+import { beachDefinition } from './beach'
+import { stonyShoreDefinition } from './stony_shore'
+import { snowyBeachDefinition } from './snowy_beach'
 import { plainsDefinition } from './plains'
 import { savannaDefinition } from './savanna'
 import { forestDefinition } from './forest'
@@ -36,6 +40,10 @@ import { oldGrowthTaigaDefinition } from './old_growth_taiga'
 export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   plains: plainsDefinition,
   ocean: oceanDefinition,
+  river: riverDefinition,
+  beach: beachDefinition,
+  stony_shore: stonyShoreDefinition,
+  snowy_beach: snowyBeachDefinition,
   desert: desertDefinition,
   savanna: savannaDefinition,
   forest: forestDefinition,

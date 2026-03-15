@@ -19,6 +19,7 @@ const SEED_OFFSET = 12345
 
 const COLD_BIOMES: Set<Biome> = new Set([
   'snow',
+  'snowy_beach',
   'grove',
   'snowy_slopes',
   'frozen_peaks',

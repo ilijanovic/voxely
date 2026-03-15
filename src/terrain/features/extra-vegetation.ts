@@ -160,11 +160,17 @@ export function createSweetBerryBushFeature(): FeatureFn {
   }
 }
 
-const PUMPKIN_MELON_BIOMES: Partial<Record<Biome, boolean>> = {
+const PUMPKIN_BIOMES: Partial<Record<Biome, boolean>> = {
   plains: true,
   forest: true,
   savanna: true,
   meadow: true,
+}
+
+const MELON_BIOMES: Partial<Record<Biome, boolean>> = {
+  plains: true,
+  forest: true,
+  savanna: true,
 }
 
 /**
@@ -182,7 +188,7 @@ export function createPumpkinFeature(): FeatureFn {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const topY = heightmap[lx][lz]
         if (topY <= WATER_LEVEL) continue
-        if (!PUMPKIN_MELON_BIOMES[biomeMap[lx][lz]]) continue
+        if (!PUMPKIN_BIOMES[biomeMap[lx][lz]]) continue
 
         const surfaceLy = topY - WORLD_MIN_Y
         const surfaceKey = localKey(lx, surfaceLy, lz)
@@ -203,7 +209,7 @@ export function createPumpkinFeature(): FeatureFn {
 }
 
 /**
- * Places melon on grass/dirt in plains/forest/savanna/meadow.
+ * Places melon on grass/dirt in plains/forest/savanna.
  */
 export function createMelonFeature(): FeatureFn {
   return function melonFeature(ctx: ChunkContext): void {
@@ -217,7 +223,7 @@ export function createMelonFeature(): FeatureFn {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const topY = heightmap[lx][lz]
         if (topY <= WATER_LEVEL) continue
-        if (!PUMPKIN_MELON_BIOMES[biomeMap[lx][lz]]) continue
+        if (!MELON_BIOMES[biomeMap[lx][lz]]) continue
 
         const surfaceLy = topY - WORLD_MIN_Y
         const surfaceKey = localKey(lx, surfaceLy, lz)

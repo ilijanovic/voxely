@@ -8,7 +8,9 @@ import type { Biome, BlockType } from './types'
 import { WATER_LEVEL } from './constants'
 import {
   BASE_HEIGHT,
+  BEACH_MAX_HEIGHT,
   COAST_BLEND_BAND,
+  COAST_EDGE_MIN_COAST_BLEND_T,
   COLD_HIGHLAND_TEMP_MAX,
   COLD_UPLAND_TEMP_MAX,
   EROSION_AMPLITUDE,
@@ -41,11 +43,20 @@ import {
   PEAK_JAGGED_FACTOR_MIN,
   PEAK_Y_MIN,
   PEAK_Y_RANGE,
+  RIVER_DEPTH_NOISE_SCALE,
+  RIVER_NOISE_SCALE,
+  RIVER_WARP_AMP,
+  RIVER_WARP_SCALE,
+  RIVER_WIDTH_NOISE_SCALE,
+  SNOWY_BEACH_MAX_HEIGHT,
+  SNOWY_BEACH_MAX_TEMPERATURE,
   SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
   SPAWN_ORIGIN_FOREST_HUMIDITY,
   SPAWN_ORIGIN_FOREST_RADIUS_SQ,
   SPAWN_ORIGIN_FOREST_TEMP,
   SNOW_BIOME_HEIGHT_BOOST,
+  STONY_SHORE_MAX_HEIGHT,
+  STONY_SHORE_MIN_SLOPE,
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './terrain/constants'
 import {
@@ -66,6 +77,7 @@ import {
   smoothstep01,
   clamp01,
 } from './terrain/height-shaping'
+import { carveRiverHeight, getRiverCarveFactor, shouldUseRiverBiome } from './terrain/river-shaping'
 
 export type GetHeightFn = (x: number, z: number) => number
 
@@ -73,6 +85,11 @@ export type GetHeightFn = (x: number, z: number) => number
 function createNoise(seed: number) {
   return createNoise2D(makeSeededRandom(seed))
 }
+
+/** River warp noise offset for decorrelating X and Z warp channels. */
+const RIVER_WARP_OFFSET_X = 193.7
+/** River warp noise offset for decorrelating X and Z warp channels. */
+const RIVER_WARP_OFFSET_Z = -89.1
 
 // clamp01/smoothstep01/lerp are shared via terrain/height-shaping to avoid drift.
 
@@ -92,6 +109,10 @@ export function createTerrainSampling(seed: number) {
   const humidityNoise2D = createNoise(seed + 600)
   const continentalNoise2D = createNoise(seed + 123)
   const climateWarpNoise2D = createNoise(seed + 31337)
+  const riverNoise2D = createNoise(seed + 1600)
+  const riverWarpNoise2D = createNoise(seed + 1601)
+  const riverWidthNoise2D = createNoise(seed + 1602)
+  const riverDepthNoise2D = createNoise(seed + 1603)
   const detailNoise2D = createNoise(seed + 456)
   const mountainMaskNoise2D = createNoise(seed + 789)
   const mountainHeightNoise2D = createNoise(seed + 101)
@@ -255,11 +276,75 @@ export function createTerrainSampling(seed: number) {
   }
 
   /**
-   * Base biome at (x,z). Uses smoothed climate and coast-blend logic to match worker getBaseBiomeAt.
+   * Returns the climate/ocean base biome before river overlay.
    */
-  function getBiome(x: number, z: number): Biome {
+  function getBaseLandBiome(x: number, z: number): Biome {
     const blend = getBiomeBlend(x, z)
     return blend.primary === 'ocean' ? (blend.t < 0.5 ? 'ocean' : blend.secondary) : blend.primary
+  }
+
+  /**
+   * Returns domain-warped coordinates for river centerline sampling.
+   */
+  function getRiverWarpedPos(x: number, z: number): { xw: number; zw: number } {
+    const wx = riverWarpNoise2D(x * RIVER_WARP_SCALE, z * RIVER_WARP_SCALE)
+    const wz = riverWarpNoise2D(
+      x * RIVER_WARP_SCALE + RIVER_WARP_OFFSET_X,
+      z * RIVER_WARP_SCALE + RIVER_WARP_OFFSET_Z,
+    )
+    return { xw: x + wx * RIVER_WARP_AMP, zw: z + wz * RIVER_WARP_AMP }
+  }
+
+  /**
+   * Samples absolute river centerline signal in [0,1].
+   */
+  function getRiverSignalAbs(x: number, z: number): number {
+    const { xw, zw } = getRiverWarpedPos(x, z)
+    return Math.abs(riverNoise2D(xw * RIVER_NOISE_SCALE, zw * RIVER_NOISE_SCALE))
+  }
+
+  /**
+   * Samples river width variation in [0,1].
+   */
+  function getRiverWidthNoise01(x: number, z: number): number {
+    return (riverWidthNoise2D(x * RIVER_WIDTH_NOISE_SCALE, z * RIVER_WIDTH_NOISE_SCALE) + 1) * 0.5
+  }
+
+  /**
+   * Samples river depth variation in [0,1].
+   */
+  function getRiverDepthNoise01(x: number, z: number): number {
+    return (riverDepthNoise2D(x * RIVER_DEPTH_NOISE_SCALE, z * RIVER_DEPTH_NOISE_SCALE) + 1) * 0.5
+  }
+
+  /**
+   * Computes river carve factor from river signals, continentalness, and pre-carve height.
+   */
+  function getRiverFactorAt(x: number, z: number, baseHeight: number): number {
+    return getRiverCarveFactor({
+      signalAbs: getRiverSignalAbs(x, z),
+      widthNoise01: getRiverWidthNoise01(x, z),
+      continentalness: getContinentalnessSmoothed(x, z),
+      baseHeight,
+    })
+  }
+
+  /**
+   * Base biome at (x,z) with river overlay, matching worker logic.
+   */
+  function getBiome(x: number, z: number): Biome {
+    const base = getBaseLandBiome(x, z)
+    if (base === 'ocean') return base
+    const coastalBlend = getBiomeBlend(x, z)
+    if (
+      coastalBlend.primary === 'ocean' &&
+      coastalBlend.secondary !== 'ocean' &&
+      coastalBlend.t >= COAST_EDGE_MIN_COAST_BLEND_T
+    )
+      return base
+    const heightWithoutRiver = getRawTerrainHeightNoRiver(x, z)
+    const riverFactor = getRiverFactorAt(x, z, heightWithoutRiver)
+    return shouldUseRiverBiome(base, riverFactor) ? 'river' : base
   }
 
   function getMacroTerrain(x: number, z: number): number {
@@ -355,7 +440,10 @@ export function createTerrainSampling(seed: number) {
     )
   }
 
-  function getRawTerrainHeight(x: number, z: number): number {
+  /**
+   * Terrain height at (x,z) before river carving.
+   */
+  function getRawTerrainHeightNoRiver(x: number, z: number): number {
     const blend = getBiomeBlend(x, z)
     const pA = BIOME_TERRAIN[blend.primary]
     const pB = BIOME_TERRAIN[blend.secondary]
@@ -436,6 +524,15 @@ export function createTerrainSampling(seed: number) {
     return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - erosion
   }
 
+  /**
+   * Terrain height at (x,z) after river carving.
+   */
+  function getRawTerrainHeight(x: number, z: number): number {
+    const baseHeight = getRawTerrainHeightNoRiver(x, z)
+    const riverFactor = getRiverFactorAt(x, z, baseHeight)
+    return carveRiverHeight(baseHeight, riverFactor, getRiverDepthNoise01(x, z))
+  }
+
   function getSmoothedHeight(x: number, z: number): number {
     const h00 = getRawTerrainHeight(x - 1, z - 1)
     const h01 = getRawTerrainHeight(x - 1, z)
@@ -449,58 +546,115 @@ export function createTerrainSampling(seed: number) {
     return h11 * 0.25 + (h01 + h21 + h10 + h12) * 0.125 + (h00 + h02 + h20 + h22) * 0.0625
   }
 
+  /**
+   * Max cardinal slope around (x, z) using the provided height sampler.
+   * Used for coastal edge biome classification (stony_shore vs beach).
+   */
+  function getCoastalSlope(x: number, z: number, centerY: number, getHeight: GetHeightFn): number {
+    const n = getHeight(x, z - 1)
+    const s = getHeight(x, z + 1)
+    const w = getHeight(x - 1, z)
+    const e = getHeight(x + 1, z)
+    return Math.max(
+      Math.abs(n - centerY),
+      Math.abs(s - centerY),
+      Math.abs(w - centerY),
+      Math.abs(e - centerY),
+    )
+  }
+
+  /**
+   * Resolves coastal edge biomes (beach, stony_shore, snowy_beach) near ocean boundaries.
+   * Runs after highland resolution so inland mountain/snow logic is preserved away from coasts.
+   */
+  function resolveCoastalEdgeBiome(
+    base: Biome,
+    resolved: Biome,
+    x: number,
+    z: number,
+    topY: number,
+    getHeight: GetHeightFn,
+  ): Biome {
+    if (resolved === 'ocean' || resolved === 'river') return resolved
+
+    const blend = getBiomeBlend(x, z)
+    if (blend.primary !== 'ocean' || blend.secondary === 'ocean') return resolved
+    if (blend.t < COAST_EDGE_MIN_COAST_BLEND_T) return resolved
+
+    const temp = getTemperatureSmoothed(x, z)
+    if (topY <= SNOWY_BEACH_MAX_HEIGHT && temp <= SNOWY_BEACH_MAX_TEMPERATURE)
+      return 'snowy_beach'
+
+    const slope = getCoastalSlope(x, z, topY, getHeight)
+    if ((base === 'mountain' || slope >= STONY_SHORE_MIN_SLOPE) && topY <= STONY_SHORE_MAX_HEIGHT)
+      return 'stony_shore'
+
+    if (base === 'badlands' || base === 'mushroom_fields') return resolved
+    if (topY <= BEACH_MAX_HEIGHT) return 'beach'
+    return resolved
+  }
+
   function getResolvedBiome(x: number, z: number, getHeight: GetHeightFn): Biome {
     const base = getBiome(x, z)
     const h = getHeight(x, z)
     const hFuzzy = h + getHeightTransitionOffset(x, z)
+    if (base === 'river') return 'river'
+
+    let resolved: Biome
     if (base !== 'mountain' && base !== 'snow') {
       const temp = getTemperatureSmoothed(x, z)
       if (temp <= COLD_HIGHLAND_TEMP_MAX) {
-        if (hFuzzy >= HIGHLAND_SNOWY_SLOPES_MAX) return 'snowy_slopes'
-        if (hFuzzy >= HIGHLAND_GROVE_MAX) return 'grove'
+        if (hFuzzy >= HIGHLAND_SNOWY_SLOPES_MAX) resolved = 'snowy_slopes'
+        else if (hFuzzy >= HIGHLAND_GROVE_MAX) resolved = 'grove'
+        else resolved = base
+      } else if (temp <= COLD_UPLAND_TEMP_MAX && hFuzzy >= HIGHLAND_MEADOW_MAX + 4) {
+        resolved =
+          getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN
+            ? 'windswept_forest'
+            : 'windswept_hills'
+      } else {
+        resolved = base
       }
-      if (temp <= COLD_UPLAND_TEMP_MAX && hFuzzy >= HIGHLAND_MEADOW_MAX + 4)
-        return getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN
-          ? 'windswept_forest'
-          : 'windswept_hills'
-      return base
-    }
-    if (hFuzzy < HIGHLAND_MEADOW_MAX) {
+    } else if (hFuzzy < HIGHLAND_MEADOW_MAX) {
       const v =
         (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5
       if (v < 0.25)
-        return getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN
+        resolved =
+          getHumidity(x, z) >= WINDSWEPT_FOREST_HUMIDITY_MIN
           ? 'windswept_forest'
           : 'windswept_hills'
-      if (v < 0.5) return 'windswept_gravelly_hills'
-      if (v < 0.75) return 'cherry_grove'
-      return 'meadow'
-    }
-    if (hFuzzy < HIGHLAND_GROVE_MAX) {
+      else if (v < 0.5) resolved = 'windswept_gravelly_hills'
+      else if (v < 0.75) resolved = 'cherry_grove'
+      else resolved = 'meadow'
+    } else if (hFuzzy < HIGHLAND_GROVE_MAX) {
       const v =
         (highlandVariantNoise2D(x * HIGHLAND_VARIANT_SCALE, z * HIGHLAND_VARIANT_SCALE) + 1) * 0.5
-      if (v > 0.82) return 'windswept_forest'
-      return 'grove'
+      resolved = v > 0.82 ? 'windswept_forest' : 'grove'
+    } else if (hFuzzy < HIGHLAND_SNOWY_SLOPES_MAX) {
+      resolved = 'snowy_slopes'
+    } else {
+      const weirdnessSigned = getWeirdnessSmoothed(x, z)
+      const peakBandFactor = getPeakBandFactor(weirdnessSigned)
+      const jaggedPeakFactor = getJaggedPeakFactor(weirdnessSigned)
+      const erosionSigned = getErosionSignedSmoothed(x, z)
+      if (
+        peakBandFactor >= PEAK_JAGGED_BAND_MIN &&
+        jaggedPeakFactor >= PEAK_JAGGED_FACTOR_MIN &&
+        erosionSigned <= PEAK_JAGGED_EROSION_MAX
+      )
+        resolved = 'jagged_peaks'
+      else
+        resolved = getPeakBiomeByMultiNoise({
+          continentalness: getContinentalness(x, z),
+          erosion: erosionSigned,
+          temperature: getTemperatureSignedSmoothed(x, z),
+          humidity: getHumiditySignedSmoothed(x, z),
+          weirdness: weirdnessSigned,
+          y: getPeakY01(hFuzzy),
+        })
     }
-    if (hFuzzy < HIGHLAND_SNOWY_SLOPES_MAX) return 'snowy_slopes'
-    const weirdnessSigned = getWeirdnessSmoothed(x, z)
-    const peakBandFactor = getPeakBandFactor(weirdnessSigned)
-    const jaggedPeakFactor = getJaggedPeakFactor(weirdnessSigned)
-    const erosionSigned = getErosionSignedSmoothed(x, z)
-    if (
-      peakBandFactor >= PEAK_JAGGED_BAND_MIN &&
-      jaggedPeakFactor >= PEAK_JAGGED_FACTOR_MIN &&
-      erosionSigned <= PEAK_JAGGED_EROSION_MAX
-    )
-      return 'jagged_peaks'
-    return getPeakBiomeByMultiNoise({
-      continentalness: getContinentalness(x, z),
-      erosion: erosionSigned,
-      temperature: getTemperatureSignedSmoothed(x, z),
-      humidity: getHumiditySignedSmoothed(x, z),
-      weirdness: weirdnessSigned,
-      y: getPeakY01(hFuzzy),
-    })
+
+    return resolveCoastalEdgeBiome(base, resolved, x, z, h, getHeight)
   }
 
   function isShore(topY: number): boolean {

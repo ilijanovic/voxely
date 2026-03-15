@@ -30,8 +30,7 @@ const BIOME_GROUND_FEATURES: Partial<Record<Biome, GroundFeatureConfig[]>> = {
     { block: 'grass_path', minThreshold: 0.92, maxThreshold: 0.98 },
   ],
   meadow: [
-    { block: 'tall_grass', minThreshold: 0.3, maxThreshold: 0.9 },
-    { block: 'hay_block', minThreshold: 0.9, maxThreshold: 0.96 },
+    { block: 'tall_grass', minThreshold: 0.22, maxThreshold: 0.96 },
   ],
   forest: [{ block: 'tall_grass', minThreshold: 0.25, maxThreshold: 0.8 }],
   jungle: [

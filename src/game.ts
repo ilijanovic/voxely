@@ -2388,9 +2388,9 @@ function updateDayCycleAndAtmosphere(dt: number): void {
     // If underwater, atmosphere sets a short fog range; keep that.
     if (scene.fog.far > 50) {
       const rd = getRenderDistance()
-      const farStart = Math.max(2, rd - 2)
+      const farStart = Math.max(2, rd - 1)
       scene.fog.near = Math.max(10, farStart * CHUNK_SIZE * FOG_NEAR_CHUNK_FACTOR)
-      scene.fog.far = Math.max(scene.fog.near + 10, rd * CHUNK_SIZE * FOG_FAR_CHUNK_FACTOR)
+      scene.fog.far = Math.max(scene.fog.near + 12, rd * CHUNK_SIZE * FOG_FAR_CHUNK_FACTOR)
     }
   }
   syncTerrainFogFromSceneFog(scene)

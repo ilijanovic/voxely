@@ -7,12 +7,16 @@ import { WATER_LEVEL, WORLD_HEIGHT } from './constants'
 const ALL_BIOMES: Biome[] = [
   'plains',
   'ocean',
+  'river',
+  'beach',
+  'stony_shore',
   'desert',
   'savanna',
   'forest',
   'jungle',
   'mountain',
   'snow',
+  'snowy_beach',
   'meadow',
   'grove',
   'snowy_slopes',
@@ -152,6 +156,31 @@ describe('createTerrainSampling().getResolvedBiome', () => {
     }
   })
 
+  it('finds snowy_beach on at least one cold coast sample', () => {
+    const seeds = [42, 1337, 24680]
+    const min = -2048
+    const max = 2048
+    const step = 24
+    const coastHeight = () => WATER_LEVEL + 2
+    let found = false
+
+    for (const seed of seeds) {
+      const sampling = createTerrainSampling(seed)
+      for (let x = min; x <= max; x += step) {
+        for (let z = min; z <= max; z += step) {
+          if (sampling.getResolvedBiome(x, z, coastHeight) === 'snowy_beach') {
+            found = true
+            break
+          }
+        }
+        if (found) break
+      }
+      if (found) break
+    }
+
+    expect(found).toBe(true)
+  })
+
   it('resolves highland biomes for high elevations in mountain/snow base', () => {
     const highlandBiomes: Biome[] = [
       'meadow',
@@ -276,5 +305,43 @@ describe('pipeline vs terrain-sampling biome parity', () => {
         ).toBe(samplingBiome)
       }
     }
+  })
+})
+
+describe('river generation', () => {
+  const SEED = 7331
+
+  it('produces river biome columns in a broad inland scan', () => {
+    const gen = createChunkGenerator(SEED)
+    let riverCount = 0
+
+    for (let x = -1024; x <= 1024; x += 16) {
+      for (let z = -1024; z <= 1024; z += 16) {
+        if (gen.getResolvedBiome(x, z) === 'river') riverCount++
+      }
+    }
+
+    expect(riverCount).toBeGreaterThan(40)
+  })
+
+  it('keeps river beds near sea level and often underwater', () => {
+    const gen = createChunkGenerator(SEED)
+    let riverCount = 0
+    let underwaterRiverCount = 0
+    let highestRiverY = -Infinity
+
+    for (let x = -1024; x <= 1024; x += 16) {
+      for (let z = -1024; z <= 1024; z += 16) {
+        if (gen.getResolvedBiome(x, z) !== 'river') continue
+        riverCount++
+        const y = gen.getHeight(x, z)
+        highestRiverY = Math.max(highestRiverY, y)
+        if (y < WATER_LEVEL) underwaterRiverCount++
+      }
+    }
+
+    expect(riverCount).toBeGreaterThan(0)
+    expect(underwaterRiverCount).toBeGreaterThan(20)
+    expect(highestRiverY).toBeLessThanOrEqual(WATER_LEVEL + 12)
   })
 })

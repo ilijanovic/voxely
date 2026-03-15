@@ -31,7 +31,6 @@ const FERN_PLACE_THRESHOLD_JUNGLE = 0.68
 
 const BIOME_FERN: Partial<Record<Biome, boolean>> = {
   plains: true,
-  meadow: true,
   forest: true,
   jungle: true,
   grove: true,

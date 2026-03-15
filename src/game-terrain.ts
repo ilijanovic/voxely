@@ -266,7 +266,14 @@ const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
 const SPAWN_OCEAN_BUFFER_CHUNKS = 5
 
 /** Biomes that count as snow for grass → grass_snow neighbor rule. Must match terrain worker. */
-const SNOW_BIOMES: Biome[] = ['snow', 'grove', 'snowy_slopes', 'frozen_peaks', 'jagged_peaks']
+const SNOW_BIOMES: Biome[] = [
+  'snow',
+  'snowy_beach',
+  'grove',
+  'snowy_slopes',
+  'frozen_peaks',
+  'jagged_peaks',
+]
 
 /** Max cardinal height delta for slope (cliff) detection. */
 function getMaxSlopeDelta(x: number, z: number): number {

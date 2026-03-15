@@ -119,30 +119,36 @@ export function initLightsAndSky(scene: THREE.Scene, shadowRadius: number): Ligh
     opacity: 0.75,
     depthWrite: false,
   })
-  const cloudHeight = 120
+  const cloudLayerBottomY = 192
+  const cloudLayerTopY = 196
+  const cloudHeight = (cloudLayerBottomY + cloudLayerTopY) * 0.5
+  const cloudHeightJitter = 0.8
   const cloudArea = 420
   const cloudCount = 125
+  const cloudWestSpeed = 1
+  clouds.userData.cloudArea = cloudArea
+  clouds.userData.cloudWestSpeed = cloudWestSpeed
   for (let i = 0; i < cloudCount; i++) {
     const cloud = new THREE.Group()
     const blocks = randomInt(12, 25)
     const cloudSpread = 18 + randomFloat() * 12
     for (let j = 0; j < blocks; j++) {
       const w = 5 + randomFloat() * 6
-      const h = 1.2 + randomFloat() * 0.8
+      const h = 0.8 + randomFloat() * 0.5
       const d = 5 + randomFloat() * 6
       const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), cloudMaterial)
       box.castShadow = false
       box.receiveShadow = false
       box.position.set(
         (randomFloat() - 0.5) * cloudSpread,
-        (randomFloat() - 0.3) * 2,
+        (randomFloat() - 0.5) * 1.4,
         (randomFloat() - 0.5) * cloudSpread,
       )
       cloud.add(box)
     }
     cloud.position.set(
       (randomFloat() - 0.5) * cloudArea,
-      cloudHeight + (randomFloat() - 0.5) * 8,
+      cloudHeight + (randomFloat() - 0.5) * cloudHeightJitter,
       (randomFloat() - 0.5) * cloudArea,
     )
     clouds.add(cloud)

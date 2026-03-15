@@ -39,7 +39,7 @@ Related docs:
 | windswept_forest | Highland variant | Height + humidity/variant noise |
 | windswept_gravelly_hills | Highland variant | Height + highland variant noise |
 
-**Base land (11)** are chosen by nearest-match in 2D climate (temperature, humidity). **Ocean** is chosen when signed continentalness is below `OCEAN_CONTINENTALNESS_THRESHOLD` (see `src/terrain/constants.ts`; current value `-0.24`, vanilla-aligned signed range `[-1.2, 1]`). **Highland variants** appear mainly when the base biome is mountain or snow above certain world Y thresholds (see section 5); some variants (grove, snowy_slopes, frozen_peaks, windswept_*) can also appear for other bases at cold temperature and high elevation.
+**Base land (11)** are chosen by nearest-match in 2D climate (temperature, humidity). **Ocean** is chosen when signed continentalness is below `OCEAN_CONTINENTALNESS_THRESHOLD` (see `src/terrain/constants.ts`; current value `-0.32`, vanilla-aligned signed range `[-1.2, 1]`). **Highland variants** appear mainly when the base biome is mountain or snow above certain world Y thresholds (see section 5); some variants (grove, snowy_slopes, frozen_peaks, windswept_*) can also appear for other bases at cold temperature and high elevation.
 
 ---
 

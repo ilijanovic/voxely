@@ -25,10 +25,55 @@ export const CONTINENTALNESS_VANILLA_MAX = 1
  * Vanilla uses about -0.19; we bias slightly toward inland so oceans stay
  * significant but do not dominate large sampled regions.
  */
-export const OCEAN_CONTINENTALNESS_THRESHOLD = -0.24
+export const OCEAN_CONTINENTALNESS_THRESHOLD = -0.32
 
 /** Width of ocean/land blend in continentalness space; wider band softens coast height edges. */
 export const COAST_BLEND_BAND = 0.1
+/** Minimum land-side blend weight required to classify a coastal land column as edge biome. */
+export const COAST_EDGE_MIN_COAST_BLEND_T = 0.3
+/** Highest surface Y where warm/temperate coasts can convert into beach. */
+export const BEACH_MAX_HEIGHT = WATER_LEVEL + 8
+/** Highest surface Y where rocky coasts can convert into stony_shore. */
+export const STONY_SHORE_MAX_HEIGHT = WATER_LEVEL + 20
+/** Minimum cardinal slope at coast for stony_shore conversion. */
+export const STONY_SHORE_MIN_SLOPE = 4
+/** Highest surface Y where snow coasts can convert into snowy_beach. */
+export const SNOWY_BEACH_MAX_HEIGHT = WATER_LEVEL + 8
+/** Max smoothed temperature for snowy_beach conversion. */
+export const SNOWY_BEACH_MAX_TEMPERATURE = 0.3
+
+/** River channel centerline noise (abs simplex) scale; lower values make longer meanders. */
+export const RIVER_NOISE_SCALE = 0.0018
+/** Domain-warp scale for river centerline distortion (avoid straight contour-like rivers). */
+export const RIVER_WARP_SCALE = 0.0027
+/** Domain-warp amplitude in blocks for river meandering. */
+export const RIVER_WARP_AMP = 34
+/** Width variation noise scale for river channels. */
+export const RIVER_WIDTH_NOISE_SCALE = 0.0055
+/** Depth variation noise scale for river beds. */
+export const RIVER_DEPTH_NOISE_SCALE = 0.0041
+/** River half-width threshold in abs-noise space (minimum). */
+export const RIVER_WIDTH_MIN = 0.028
+/** River half-width threshold in abs-noise space (maximum). */
+export const RIVER_WIDTH_MAX = 0.065
+/** Soft edge size around the channel threshold in abs-noise space. */
+export const RIVER_EDGE_SOFTNESS = 0.014
+/** Continentalness lower bound where inland rivers begin to appear (suppresses deep ocean). */
+export const RIVER_CONTINENTALNESS_MIN = -0.08
+/** Continentalness upper bound for full river allowance inland. */
+export const RIVER_CONTINENTALNESS_MAX = 0.62
+/** Start fading rivers out above this absolute terrain height (pre-carve), in world Y. */
+export const RIVER_ALTITUDE_FADE_START = WATER_LEVEL + 10
+/** Fully fade rivers out above this absolute terrain height (pre-carve), in world Y. */
+export const RIVER_ALTITUDE_FADE_END = WATER_LEVEL + 34
+/** Minimum river bed depth below water level in blocks. */
+export const RIVER_DEPTH_MIN = 2.5
+/** Maximum river bed depth below water level in blocks. */
+export const RIVER_DEPTH_MAX = 7
+/** Non-linear falloff for river carving intensity (1 = linear). */
+export const RIVER_CARVE_POWER = 1.15
+/** Minimum river factor required to classify a column as river biome. */
+export const RIVER_BIOME_FACTOR_THRESHOLD = 0.44
 
 /** Radius (blocks) around world origin (0,0) where climate is biased toward forest. */
 export const SPAWN_ORIGIN_FOREST_RADIUS = 64

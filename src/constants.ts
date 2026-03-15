@@ -53,11 +53,11 @@ export const BLOCK_OUTLINE_SCALE = 1.002
 
 /**
  * Fog range is scaled with render distance (chunks). Near = start of fog; far = full fog at horizon.
- * Higher FOG_NEAR_CHUNK_FACTOR starts fog later so the blue haze is confined to the far distance (avoids terrain looking foggy while trees stay clear).
+ * Higher FOG_NEAR_CHUNK_FACTOR starts fog later so haze stays near the horizon instead of tinting mid-distance terrain.
  */
-export const FOG_NEAR_CHUNK_FACTOR = 0.95
-/** Multiplier for fog far distance in chunks (slightly beyond render distance for smooth fade). */
-export const FOG_FAR_CHUNK_FACTOR = 1.15
+export const FOG_NEAR_CHUNK_FACTOR = 1.05
+/** Multiplier for fog far distance in chunks (further beyond render distance to avoid a dense fog wall at high chunk distance). */
+export const FOG_FAR_CHUNK_FACTOR = 1.35
 
 /** Global water level (block Y). Vanilla 1.18+ sea level. */
 export const WATER_LEVEL = 62
@@ -182,6 +182,10 @@ export const AUTOSAVE_INTERVAL_MS = 10000
 export const MAP_BIOME_COLORS: Record<string, string> = {
   plains: '#6b8c5d',
   ocean: '#3a7eb8',
+  river: '#4a8ec6',
+  beach: '#e3d39a',
+  stony_shore: '#8f8f8f',
+  snowy_beach: '#dfe7ed',
   desert: '#e3d39a',
   savanna: '#bdb25f',
   forest: '#4a7c47',

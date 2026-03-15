@@ -7,6 +7,10 @@ export type BlockType = string
 export type Biome =
   | 'plains'
   | 'ocean'
+  | 'river'
+  | 'beach'
+  | 'stony_shore'
+  | 'snowy_beach'
   | 'desert'
   | 'savanna'
   | 'forest'
