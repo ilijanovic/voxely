@@ -124,6 +124,17 @@ export const MOUNTAIN_THRESHOLD = 0.34
 export const MOUNTAIN_TRANSITION_WIDTH = 0.22
 export const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.2
 export const SNOW_BIOME_HEIGHT_BOOST = 3.8
+/** Extra mountain contribution for badlands to form mesa walls/plateaus. */
+export const BADLANDS_MESA_HEIGHT_BOOST = 2.9
+/** Mountain-mask range where badlands valley-floor flattening starts and reaches full effect. */
+export const BADLANDS_VALLEY_MASK_FLOOR_MIN = 0.08
+export const BADLANDS_VALLEY_MASK_FLOOR_MAX = 0.4
+/** Erosion threshold where badlands basin flattening starts (higher erosion => flatter valley floors). */
+export const BADLANDS_VALLEY_EROSION_START = 0.02
+/** Additional height reduction (blocks) for badlands valley floors. */
+export const BADLANDS_VALLEY_DEPTH = 8.5
+/** Reduces local relief in badlands valley floors so basins look flatter. */
+export const BADLANDS_VALLEY_RELIEF_REDUCTION = 0.62
 /** Non-core mountain-enabled biomes (forest, jungle, taiga) get reduced mountain strength. */
 export const MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST = 0.9
 /** Additional height gain when the weirdness signal is in a peak band. */
@@ -219,6 +230,23 @@ export const CHEESE_THRESHOLD = 0.27
 export const NOODLE_SCALE = 0.04
 /** Noodle caves: carve where both ridged values (1 - |noise|) exceed this threshold. */
 export const NOODLE_THRESHOLD = 0.5
+
+/**
+ * Overhang carver: density-like near-surface carving on steep slopes.
+ * This approximates 3D density overhang silhouettes while keeping the 2D heightmap base terrain.
+ */
+/** Overhang carver horizontal sampling scale. */
+export const OVERHANG_SCALE_XZ = 0.032
+/** Overhang carver vertical sampling scale. */
+export const OVERHANG_SCALE_Y = 0.075
+/** Overhang carver base threshold (higher => fewer overhang cavities). */
+export const OVERHANG_THRESHOLD = 0.69
+/** Minimum local slope (max cardinal delta) required before overhang carving activates. */
+export const OVERHANG_MIN_SLOPE = 4
+/** Start overhang carving this many blocks below the surface. */
+export const OVERHANG_MIN_DEPTH_BELOW_SURFACE = 3
+/** Stop overhang carving this many blocks below the surface. */
+export const OVERHANG_MAX_DEPTH_BELOW_SURFACE = 12
 
 /**
  * Numerical stability (Far Lands): at very large |x|/|z|, floating point can degrade.

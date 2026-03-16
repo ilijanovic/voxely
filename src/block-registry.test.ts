@@ -22,6 +22,9 @@ import {
   getFenceCollisionBoxesLocal,
   getFenceConnectionMask,
   getBlockTextureNames,
+  getBlockFlammability,
+  getBlockBurnability,
+  getBlockPistonBehavior,
 } from './block-registry'
 import { VALID_BLOCK_TYPES } from './save'
 
@@ -176,6 +179,24 @@ describe('Block registry invariants', () => {
     expect(isFluidBlock('water_source')).toBe(true)
     expect(isFluidBlock('water_flowing_1')).toBe(true)
     expect(isFluidBlock('stone')).toBe(false)
+  })
+
+  it('exposes fire metadata for common families (wood/leaves/plants)', () => {
+    expect(getBlockFlammability('stone')).toBe(0)
+    expect(getBlockBurnability('stone')).toBe(0)
+    expect(getBlockFlammability('oak_planks')).toBe(5)
+    expect(getBlockBurnability('oak_planks')).toBe(20)
+    expect(getBlockFlammability('oak_leaves')).toBe(30)
+    expect(getBlockBurnability('oak_leaves')).toBe(60)
+    expect(getBlockFlammability('dandelion')).toBe(60)
+    expect(getBlockBurnability('dandelion')).toBe(100)
+  })
+
+  it('exposes piston behavior metadata', () => {
+    expect(getBlockPistonBehavior('stone')).toBe('normal')
+    expect(getBlockPistonBehavior('dandelion')).toBe('destroy')
+    expect(getBlockPistonBehavior('water_source')).toBe('block')
+    expect(getBlockPistonBehavior('bedrock')).toBe('block')
   })
 })
 

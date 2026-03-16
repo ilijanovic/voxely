@@ -36,8 +36,6 @@ import {
 } from './terrain/tree-constants'
 import { CAVE_THRESHOLD } from './terrain/constants'
 import {
-  BADLANDS_BAND_SCALE_XZ,
-  BADLANDS_BAND_SCALE_Y,
   SURFACE_RIVER_BANK_OFFSET_X,
   SURFACE_RIVER_BANK_OFFSET_Z,
   SURFACE_RIVER_BANK_SCALE,
@@ -54,6 +52,7 @@ import {
   SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
   SURFACE_FROZEN_PEAKS_N_SCALE,
 } from './terrain/surface-constants'
+import { getBadlandsBandNoise } from './terrain/badlands-band-noise'
 import { makeSeededRandom } from './terrain/utils'
 
 export type { Biome }
@@ -346,12 +345,7 @@ export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: nu
   }
   const badlandsBandNoise =
     biome === 'badlands'
-      ? (getDetailNoise2D(
-          wx * BADLANDS_BAND_SCALE_XZ + topY * BADLANDS_BAND_SCALE_Y,
-          wz * BADLANDS_BAND_SCALE_XZ,
-        ) +
-          1) *
-        0.5
+      ? getBadlandsBandNoise(wx, wz, topY, getDetailNoise2D)
       : undefined
   return resolveSurfaceBlock({
     topY,

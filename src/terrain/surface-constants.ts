@@ -56,11 +56,22 @@ export const SURFACE_FROZEN_PEAKS_BLOB_OFFSET_X = -211.1
 export const SURFACE_FROZEN_PEAKS_BLOB_OFFSET_Z = 97.7
 
 /**
- * Badlands banding: noise-based variation (red_sand, sandstone, terracotta).
- * Sampled at (x, z, topY); pass result as badlandsBandNoise in SurfaceResolverParams.
+ * Badlands banding (Minecraft-like mesa strata):
+ * - world-Y drives horizontal strata
+ * - low-frequency warp/noise offsets break perfectly straight lines
  */
-export const BADLANDS_BAND_SCALE_XZ = 0.02
-export const BADLANDS_BAND_SCALE_Y = 0.08
+export const BADLANDS_BAND_SCALE_XZ = 0.028
+export const BADLANDS_BAND_SCALE_Y = 0.055
+/** Low-frequency warp for strata offsets (in block units). */
+export const BADLANDS_BAND_WARP_SCALE = 0.017
+export const BADLANDS_BAND_WARP_AMPLITUDE = 2.8
+export const BADLANDS_BAND_WARP_OFFSET_X = -57.2
+export const BADLANDS_BAND_WARP_OFFSET_Z = 83.1
+/** Blend weights for strata-vs-noise mix (must sum to 1). */
+export const BADLANDS_BAND_STRATA_WEIGHT = 0.82
+export const BADLANDS_BAND_NOISE_WEIGHT = 0.18
+/** How deep below the surface badlands keeps terracotta bands before transitioning to stone. */
+export const BADLANDS_BAND_SUBSURFACE_DEPTH = 42
 /** Number of band block types (red_sand, sandstone, orange/yellow/red/white terracotta). */
 export const BADLANDS_BAND_BLOCK_COUNT = 6
 

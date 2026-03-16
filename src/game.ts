@@ -202,6 +202,10 @@ import {
   setBlockModification,
 } from './chunk-runtime'
 import { isWaterBlock, getWaterLevel, computeWaterSpread } from './game/fluid/water-flow'
+import {
+  isFallingBlockType,
+  computeFallingBlockMoves,
+} from './game/world-interactions/falling-blocks'
 import { isOccludingBlock as isBlockTypeOccluding } from './block-registry'
 import { isPendingSpawnReady } from './game/player/pending-spawn'
 import { applyBlockChangeToLoadedChunk as applyBlockChangeToLoadedChunkCore } from './game/world-interactions/apply-block-change'
@@ -810,7 +814,12 @@ let lastPlaceRejectMessageTime = 0
 /** Block tick interval (e.g. crop growth) in seconds. */
 const BLOCK_TICK_INTERVAL = 5
 const WHEAT_GROWTH_PROBABILITY = 0.2
+/** Interval for one-step gravity updates of falling blocks (sand/gravel). */
+const FALLING_BLOCK_INTERVAL_SEC = 0.1
+/** Safety cap to avoid too many falling-block updates in one frame. */
+const FALLING_BLOCK_MAX_MOVES_PER_TICK = 64
 let lastBlockTickTime = 0
+let lastFallingBlockTime = 0
 let lastWaterSpreadTime = 0
 
 const _direction = new THREE.Vector3()
@@ -2436,13 +2445,11 @@ function updateChunkVisibility(): void {
 const WATER_ENTRY_OFFSET = PLAYER_HEIGHT * 0.2
 
 /**
- * True when the player is considered submerged in water. Requires both being below the global water surface and
- * actually occupying a water voxel (so caves below sea level are not treated as water).
+ * True when the player is considered submerged in water.
+ * Supports both voxel water (placed/flowing) and natural ocean columns while avoiding cave false positives.
  */
 function isPlayerInWater(): boolean {
   const waterSurfaceY = WATER_LEVEL + WATER_BLOCK_HEIGHT
-  if (player.position.y + WATER_ENTRY_OFFSET >= waterSurfaceY) return false
-
   const bx = Math.floor(player.position.x)
   const bz = Math.floor(player.position.z)
   const byFeet = Math.floor(player.position.y)
@@ -2452,7 +2459,12 @@ function isPlayerInWater(): boolean {
     const block = getBlockAt(bx, by, bz)
     if (block !== null && isWaterBlock(block)) return true
   }
-  return false
+
+  // Ocean/lake plane water: only below sea surface and above the local terrain top in this column.
+  if (player.position.y + WATER_ENTRY_OFFSET >= waterSurfaceY) return false
+  const topY = getHeight(bx, bz)
+  if (topY >= WATER_LEVEL) return false
+  return player.position.y + WATER_ENTRY_OFFSET > topY
 }
 
 /**
@@ -3000,6 +3012,73 @@ function runBlockTick(time: number): void {
   for (const { bx, by, bz, next } of changes) {
     setBlockModification(bx, by, bz, next)
     applyBlockChangeToLoadedChunk({ bx, by, bz, next })
+  }
+}
+
+/**
+ * Runs gravity updates for falling blocks (sand/red_sand/gravel): unsupported blocks move down by one cell.
+ */
+function runFallingBlocksTick(time: number): void {
+  if (time - lastFallingBlockTime < FALLING_BLOCK_INTERVAL_SEC) return
+  lastFallingBlockTime = time
+
+  const candidates: Array<{ bx: number; by: number; bz: number }> = []
+  const seen = new Set<string>()
+
+  for (const [, data] of chunks) {
+    const worldX = data.cx * CHUNK_SIZE
+    const worldZ = data.cz * CHUNK_SIZE
+    for (const [key, type] of data.voxelMap) {
+      if (!isFallingBlockType(type)) continue
+      const { lx, ly, lz } = decodeLocalKey(key)
+      const bx = worldX + lx
+      const by = WORLD_MIN_Y + ly
+      const bz = worldZ + lz
+      const keyStr = `${bx},${by},${bz}`
+      if (seen.has(keyStr)) continue
+      const effective = getBlockAt(bx, by, bz)
+      if (effective === null || effective === 'air' || !isFallingBlockType(effective)) continue
+      seen.add(keyStr)
+      candidates.push({ bx, by, bz })
+    }
+  }
+
+  for (const [keyStr, value] of blockModifications) {
+    if (!isFallingBlockType(value)) continue
+    const parts = keyStr.split(',')
+    const bx = Number(parts[0])
+    const by = Number(parts[1])
+    const bz = Number(parts[2])
+    const cx = Math.floor(bx / CHUNK_SIZE)
+    const cz = Math.floor(bz / CHUNK_SIZE)
+    if (!chunks.has(chunkKeyNumeric(cx, cz))) continue
+    if (seen.has(keyStr)) continue
+    seen.add(keyStr)
+    candidates.push({ bx, by, bz })
+  }
+
+  const moves = computeFallingBlockMoves({
+    getBlockAt,
+    candidates,
+    maxMovesPerTick: FALLING_BLOCK_MAX_MOVES_PER_TICK,
+  })
+
+  for (const move of moves) {
+    setBlockModification(move.fromX, move.fromY, move.fromZ, 'air')
+    applyBlockChangeToLoadedChunk({
+      bx: move.fromX,
+      by: move.fromY,
+      bz: move.fromZ,
+      next: 'air',
+    })
+
+    setBlockModification(move.toX, move.toY, move.toZ, move.blockType)
+    applyBlockChangeToLoadedChunk({
+      bx: move.toX,
+      by: move.toY,
+      bz: move.toZ,
+      next: move.blockType,
+    })
   }
 }
 
@@ -3676,6 +3755,7 @@ function animate(): void {
   updateCameraAndViewMode(time, dt)
   updateDropsAndPickup(time, dt)
   runBlockTick(time)
+  runFallingBlocksTick(time)
   runWaterFlowTick(time)
   updateBlockBreakAndPlace(dt, time)
   updateShadowAndRender(dt)

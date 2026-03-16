@@ -194,7 +194,7 @@ The generator tracks vertical distance to surface above (`stoneDepthAbove`), cav
 | **above_preliminary_surface** | Yes | We only assign surface at heightmap topY; carved cells are air, so no grass in caves. |
 | **stone_depth**          | Partial | We use per-biome **subsurfaceDepth** (fixed layers of dirt/sand below grass). We do **not** use vanilla’s formula `floor(surface(X,0,Z)×2.75+3+...)` or secondary surface depth. |
 | **vertical_gradient**    | Partial | We use hard Y thresholds (SURFACE_STONE_HEIGHT, etc.), not a smooth probability gradient. No deepslate-style gradient. |
-| **bandlands**            | Partial | We have a badlands biome (red_sand/sandstone); we do **not** place terracotta bands. |
+| **bandlands**            | Partial | We place badlands terracotta-style bands (world-Y strata with XZ warp/noise) on surface and deep subsurface, but not the full vanilla surface-rule stack/palette. |
 | **hole**                 | No     | Not used (column surface depth 0). |
 | **not**                  | N/A    | Can be expressed by branch order. |
 | Surface depth formula    | No     | We use constant subsurfaceDepth per biome, not `minecraft:surface` noise formula. |

@@ -52,6 +52,9 @@ import {
   LUKEWARM_MOUNTAIN_HUMIDITY_MIN,
   LUKEWARM_MOUNTAIN_TEMP_MIN,
   MOUNTAIN_AMPLITUDE,
+  BADLANDS_MESA_HEIGHT_BOOST,
+  BADLANDS_VALLEY_DEPTH,
+  BADLANDS_VALLEY_RELIEF_REDUCTION,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
   MOUNTAIN_JAGGED_BOOST,
@@ -61,9 +64,16 @@ import {
   MOUNTAIN_PEAK_BAND_BOOST,
   MOUNTAIN_THRESHOLD,
   MOUNTAIN_TRANSITION_WIDTH,
+  NOISE_COORD_WRAP,
   BEACH_MAX_HEIGHT,
   COAST_EDGE_MIN_COAST_BLEND_T,
   OCEAN_CONTINENTALNESS_THRESHOLD,
+  OVERHANG_MAX_DEPTH_BELOW_SURFACE,
+  OVERHANG_MIN_DEPTH_BELOW_SURFACE,
+  OVERHANG_MIN_SLOPE,
+  OVERHANG_SCALE_XZ,
+  OVERHANG_SCALE_Y,
+  OVERHANG_THRESHOLD,
   SNOWY_BEACH_MAX_HEIGHT,
   SNOWY_BEACH_MAX_TEMPERATURE,
   STONY_SHORE_MAX_HEIGHT,
@@ -87,8 +97,7 @@ import {
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './constants'
 import {
-  BADLANDS_BAND_SCALE_XZ,
-  BADLANDS_BAND_SCALE_Y,
+  BADLANDS_BAND_SUBSURFACE_DEPTH,
   SURFACE_RIVER_BANK_OFFSET_X,
   SURFACE_RIVER_BANK_OFFSET_Z,
   SURFACE_RIVER_BANK_SCALE,
@@ -105,6 +114,7 @@ import {
   SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
   SURFACE_FROZEN_PEAKS_N_SCALE,
 } from './surface-constants'
+import { getBadlandsBandNoise } from './badlands-band-noise'
 import { getBadlandsBlockFromNoise, resolveSurfaceBlock } from './surface-resolver'
 import {
   SNOW_LAYER_FLAT_SLOPE_MAX,
@@ -119,8 +129,10 @@ import {
   getPeakBiomeByMultiNoise,
 } from './biomes'
 import { createClimateSampler } from './climate-sampler'
-import { makeSeededRandom, clamp } from './utils'
+import { makeSeededRandom, clamp, wrapNoiseCoord } from './utils'
 import {
+  getBadlandsBlendFactor,
+  getBadlandsValleyFactor,
   getJaggedPeakFactor,
   getMacroTerrainOffset,
   getPeakBandFactor,
@@ -289,30 +301,56 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     string,
     Array<{ centerX: number; centerZ: number }>
   >()
-  const temperatureNoise2D = createNoise2D(makeSeededRandom(seed + 500))
-  const humidityNoise2D = createNoise2D(makeSeededRandom(seed + 600))
-  const continentalNoise2D = createNoise2D(makeSeededRandom(seed + 123))
-  const climateWarpNoise2D = createNoise2D(makeSeededRandom(seed + 31337))
-  const riverNoise2D = createNoise2D(makeSeededRandom(seed + 1600))
-  const riverWarpNoise2D = createNoise2D(makeSeededRandom(seed + 1601))
-  const riverWidthNoise2D = createNoise2D(makeSeededRandom(seed + 1602))
-  const riverDepthNoise2D = createNoise2D(makeSeededRandom(seed + 1603))
-  const riverFrozenNoise2D = createNoise2D(makeSeededRandom(seed + 1604))
-  const detailNoise2D = createNoise2D(makeSeededRandom(seed + 456))
-  const mountainMaskNoise2D = createNoise2D(makeSeededRandom(seed + 789))
-  const mountainHeightNoise2D = createNoise2D(makeSeededRandom(seed + 101))
-  const highlandVariantNoise2D = createNoise2D(makeSeededRandom(seed + 1717))
-  const erosionNoise2D = createNoise2D(makeSeededRandom(seed + 202))
-  const flatNoise2D = createNoise2D(makeSeededRandom(seed + 303))
-  const weirdnessNoise2D = createNoise2D(makeSeededRandom(seed + 909))
-  const forestDensityNoise2D = createNoise2D(makeSeededRandom(seed + 777))
-  const treePlacementNoise2D = createNoise2D(makeSeededRandom(seed + 888))
-  const treeShapeNoise2D = createNoise2D(makeSeededRandom(seed + 999))
-  const caveNoise3D = createNoise3D(makeSeededRandom(seed + 400))
-  const cheeseNoise3D = createNoise3D(makeSeededRandom(seed + 401))
-  const noodleNoiseA3D = createNoise3D(makeSeededRandom(seed + 402))
-  const noodleNoiseB3D = createNoise3D(makeSeededRandom(seed + 403))
-  const oreDensityNoise3DRaw = createNoise3D(makeSeededRandom(seed + 5000))
+
+  /**
+   * Creates a wrapped 2D simplex sampler so very large coordinates stay stable.
+   *
+   * @param seedOffset - Offset added to world seed
+   * @returns Wrapped 2D noise sampler
+   */
+  function createWrappedNoise2D(seedOffset: number): (x: number, z: number) => number {
+    const raw = createNoise2D(makeSeededRandom(seed + seedOffset))
+    return (x: number, z: number) =>
+      raw(wrapNoiseCoord(x, NOISE_COORD_WRAP), wrapNoiseCoord(z, NOISE_COORD_WRAP))
+  }
+
+  /**
+   * Creates a wrapped 3D simplex sampler (x/z wrapped, y unchanged).
+   *
+   * @param seedOffset - Offset added to world seed
+   * @returns Wrapped 3D noise sampler
+   */
+  function createWrappedNoise3D(seedOffset: number): (x: number, y: number, z: number) => number {
+    const raw = createNoise3D(makeSeededRandom(seed + seedOffset))
+    return (x: number, y: number, z: number) =>
+      raw(wrapNoiseCoord(x, NOISE_COORD_WRAP), y, wrapNoiseCoord(z, NOISE_COORD_WRAP))
+  }
+
+  const temperatureNoise2D = createWrappedNoise2D(500)
+  const humidityNoise2D = createWrappedNoise2D(600)
+  const continentalNoise2D = createWrappedNoise2D(123)
+  const climateWarpNoise2D = createWrappedNoise2D(31337)
+  const riverNoise2D = createWrappedNoise2D(1600)
+  const riverWarpNoise2D = createWrappedNoise2D(1601)
+  const riverWidthNoise2D = createWrappedNoise2D(1602)
+  const riverDepthNoise2D = createWrappedNoise2D(1603)
+  const riverFrozenNoise2D = createWrappedNoise2D(1604)
+  const detailNoise2D = createWrappedNoise2D(456)
+  const mountainMaskNoise2D = createWrappedNoise2D(789)
+  const mountainHeightNoise2D = createWrappedNoise2D(101)
+  const highlandVariantNoise2D = createWrappedNoise2D(1717)
+  const erosionNoise2D = createWrappedNoise2D(202)
+  const flatNoise2D = createWrappedNoise2D(303)
+  const weirdnessNoise2D = createWrappedNoise2D(909)
+  const forestDensityNoise2D = createWrappedNoise2D(777)
+  const treePlacementNoise2D = createWrappedNoise2D(888)
+  const treeShapeNoise2D = createWrappedNoise2D(999)
+  const caveNoise3D = createWrappedNoise3D(400)
+  const cheeseNoise3D = createWrappedNoise3D(401)
+  const noodleNoiseA3D = createWrappedNoise3D(402)
+  const noodleNoiseB3D = createWrappedNoise3D(403)
+  const overhangNoise3D = createWrappedNoise3D(404)
+  const oreDensityNoise3DRaw = createWrappedNoise3D(5000)
   /** Ore density in [0, 1]. Used by ore feature for vein placement (Vanilla-style). */
   const oreDensityNoise3D = (x: number, y: number, z: number) =>
     (oreDensityNoise3DRaw(x, y, z) + 1) * 0.5
@@ -324,7 +362,9 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     let sampler = featureNoiseCache.get(seedOffset)
     if (sampler === undefined) {
       const noise2D = createNoise2D(makeSeededRandom(seed + seedOffset))
-      sampler = (x: number, z: number) => (noise2D(x, z) + 1) * 0.5
+      sampler = (x: number, z: number) =>
+        (noise2D(wrapNoiseCoord(x, NOISE_COORD_WRAP), wrapNoiseCoord(z, NOISE_COORD_WRAP)) + 1) *
+        0.5
       featureNoiseCache.set(seedOffset, sampler)
     }
     return sampler
@@ -688,6 +728,13 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = detailAmp * (flatness + (1 - flatness) * smooth)
     const erosionSigned = getErosionSigned(x, z)
+    const mountainMask = (mountainMaskNoise2D(x * MOUNTAIN_MASK_SCALE, z * MOUNTAIN_MASK_SCALE) + 1) * 0.5
+    const badlandsBlendFactor = getBadlandsBlendFactor(blend.primary, blend.secondary, t)
+    const badlandsValleyFactor = getBadlandsValleyFactor(
+      badlandsBlendFactor,
+      mountainMask,
+      erosionSigned,
+    )
     const jaggednessT = smoothstep01(
       (-erosionSigned - EROSION_JAGGEDNESS_START) / (1 - EROSION_JAGGEDNESS_START),
     )
@@ -698,15 +745,15 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       1 +
       jaggednessT * (EROSION_DETAIL_BOOST_MAX - 1) +
       jaggedPeakFactor * MOUNTAIN_JAGGED_DETAIL_BOOST
+    effectiveAmp *= 1 - badlandsValleyFactor * BADLANDS_VALLEY_RELIEF_REDUCTION
     const local = n * effectiveAmp
 
     let mountain = 0
     if (mountainAllowedFactor > 0) {
-      const mask = (mountainMaskNoise2D(x * MOUNTAIN_MASK_SCALE, z * MOUNTAIN_MASK_SCALE) + 1) * 0.5
       const tMaskSmooth = smoothstep01(
-        (mask - MOUNTAIN_THRESHOLD) / Math.max(MOUNTAIN_TRANSITION_WIDTH, 1e-6),
+        (mountainMask - MOUNTAIN_THRESHOLD) / Math.max(MOUNTAIN_TRANSITION_WIDTH, 1e-6),
       )
-      const tMaskRamp = clamp01((mask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD))
+      const tMaskRamp = clamp01((mountainMask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD))
       if (tMaskSmooth > 0) {
         const m =
           (mountainHeightNoise2D(x * MOUNTAIN_HEIGHT_SCALE, z * MOUNTAIN_HEIGHT_SCALE) + 1) * 0.5
@@ -715,6 +762,8 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
             : blend.primary === 'snow'
               ? SNOW_BIOME_HEIGHT_BOOST
+              : blend.primary === 'badlands'
+                ? BADLANDS_MESA_HEIGHT_BOOST
               : pA.mountainAllowed
                 ? MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST
                 : 0
@@ -723,6 +772,8 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
             : blend.secondary === 'snow'
               ? SNOW_BIOME_HEIGHT_BOOST
+              : blend.secondary === 'badlands'
+                ? BADLANDS_MESA_HEIGHT_BOOST
               : pB.mountainAllowed
                 ? MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST
                 : 0
@@ -741,7 +792,8 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     }
 
     const ridgeTerm = getRidgeTerm(weirdnessSigned, mountainAllowedFactor)
-    return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - getErosion(x, z)
+    const valleyDepth = badlandsValleyFactor * BADLANDS_VALLEY_DEPTH
+    return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - getErosion(x, z) - valleyDepth
   }
 
   /**
@@ -1459,6 +1511,16 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
       getHeightAt: getHeight,
     },
+    overhang: {
+      overhangNoise3D,
+      scaleXZ: OVERHANG_SCALE_XZ,
+      scaleY: OVERHANG_SCALE_Y,
+      threshold: OVERHANG_THRESHOLD,
+      minSlope: OVERHANG_MIN_SLOPE,
+      minDepthBelowSurface: OVERHANG_MIN_DEPTH_BELOW_SURFACE,
+      maxDepthBelowSurface: OVERHANG_MAX_DEPTH_BELOW_SURFACE,
+      getHeightAt: getHeight,
+    },
   })
 
   /** Max cardinal height delta for slope (cliff) detection. */
@@ -1547,12 +1609,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     }
     const badlandsBandNoise =
       biome === 'badlands'
-        ? (detailNoise2D(
-            wx * BADLANDS_BAND_SCALE_XZ + topY * BADLANDS_BAND_SCALE_Y,
-            wz * BADLANDS_BAND_SCALE_XZ,
-          ) +
-            1) *
-          0.5
+        ? getBadlandsBandNoise(wx, wz, topY, detailNoise2D)
         : undefined
     return resolveSurfaceBlock({
       topY,
@@ -1569,7 +1626,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     })
   }
 
-  /** For badlands, top 2 layers below surface use the same band noise as surface (Minecraft-style bands). */
+  /** For badlands, deep subsurface keeps terracotta bands (Minecraft-like mesa cliffs). */
   function getSubsurfaceBlock(
     ctx: ChunkContext,
     lx: number,
@@ -1579,17 +1636,12 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const topY = ctx.heightmap[lx][lz]
     const biome = ctx.biomeMap[lx][lz]
     if (biome !== 'badlands') return null
-    if (ly < topY - 2 || ly >= topY) return null
+    const depthFromSurface = topY - ly
+    if (depthFromSurface <= 0 || depthFromSurface > BADLANDS_BAND_SUBSURFACE_DEPTH) return null
     const wx = ctx.worldX + lx
     const wz = ctx.worldZ + lz
-    const depthFromSurface = topY - ly
-    const noise =
-      (detailNoise2D(
-        wx * BADLANDS_BAND_SCALE_XZ + depthFromSurface * BADLANDS_BAND_SCALE_Y,
-        wz * BADLANDS_BAND_SCALE_XZ,
-      ) +
-        1) *
-      0.5
+    const worldY = WORLD_MIN_Y + ly
+    const noise = getBadlandsBandNoise(wx, wz, worldY, detailNoise2D)
     return getBadlandsBlockFromNoise(noise)
   }
 

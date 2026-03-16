@@ -6,6 +6,9 @@
  * (`src/terrain-sampling.ts`) without introducing drift.
  */
 import {
+  BADLANDS_VALLEY_EROSION_START,
+  BADLANDS_VALLEY_MASK_FLOOR_MAX,
+  BADLANDS_VALLEY_MASK_FLOOR_MIN,
   MACRO_TERRAIN_DEEP_OCEAN_MAX,
   MACRO_TERRAIN_FAR_INLAND_MIN,
   MACRO_TERRAIN_MID_INLAND_MIN,
@@ -18,6 +21,29 @@ import {
   WEIRDNESS_RIDGE_AMP,
   WEIRDNESS_VANILLA_RANGE_SCALE,
 } from './constants'
+import type { Biome } from '../types'
+
+/** Single knot in a 1D macro-terrain profile spline. */
+interface MacroTerrainKnot {
+  /** Continentalness position in vanilla-aligned signed space. */
+  c: number
+  /** Height offset in blocks at this continentalness position. */
+  h: number
+}
+
+/**
+ * Piecewise-smooth macro profile (continentalness -> macro height).
+ * Keep this ordered by `c` ascending.
+ */
+const MACRO_TERRAIN_SPLINE: readonly MacroTerrainKnot[] = [
+  { c: -1.2, h: -24 },
+  { c: MACRO_TERRAIN_DEEP_OCEAN_MAX, h: -24 },
+  { c: OCEAN_CONTINENTALNESS_THRESHOLD, h: -10 },
+  { c: MACRO_TERRAIN_NEAR_INLAND_MIN, h: 2 },
+  { c: MACRO_TERRAIN_MID_INLAND_MIN, h: 16 },
+  { c: MACRO_TERRAIN_FAR_INLAND_MIN, h: 26 },
+  { c: 1, h: 26 },
+]
 
 /**
  * Linearly interpolates between two values.
@@ -76,6 +102,67 @@ export function getJaggedPeakFactor(weirdnessSigned: number): number {
 }
 
 /**
+ * Returns how much of a biome blend belongs to badlands.
+ *
+ * @param primary - Primary biome
+ * @param secondary - Secondary biome
+ * @param t - Secondary blend weight in [0,1]
+ * @returns Badlands blend factor in [0,1]
+ */
+export function getBadlandsBlendFactor(primary: Biome, secondary: Biome, t: number): number {
+  const primaryWeight = primary === 'badlands' ? 1 - t : 0
+  const secondaryWeight = secondary === 'badlands' ? t : 0
+  return clamp01(primaryWeight + secondaryWeight)
+}
+
+/**
+ * Computes badlands valley-floor factor from biome blend, mountain mask, and erosion.
+ * Higher output means stronger flattening/lowering for basin floors.
+ *
+ * @param badlandsBlendFactor - Badlands presence in the biome blend [0,1]
+ * @param mountainMask - Mountain mask sample in [0,1]
+ * @param erosionSigned - Signed erosion noise in [-1,1]
+ * @returns Valley-floor factor in [0,1]
+ */
+export function getBadlandsValleyFactor(
+  badlandsBlendFactor: number,
+  mountainMask: number,
+  erosionSigned: number,
+): number {
+  if (badlandsBlendFactor <= 0) return 0
+  const floorMaskWidth = Math.max(BADLANDS_VALLEY_MASK_FLOOR_MAX - BADLANDS_VALLEY_MASK_FLOOR_MIN, 1e-6)
+  const lowMaskT = smoothstep01((BADLANDS_VALLEY_MASK_FLOOR_MAX - mountainMask) / floorMaskWidth)
+  const erosionWidth = Math.max(1 - BADLANDS_VALLEY_EROSION_START, 1e-6)
+  const erosionT = smoothstep01((erosionSigned - BADLANDS_VALLEY_EROSION_START) / erosionWidth)
+  return clamp01(badlandsBlendFactor * lowMaskT * erosionT)
+}
+
+/**
+ * Samples a piecewise smoothstep curve from ordered control points.
+ *
+ * @param points - Ordered spline knots (ascending x)
+ * @param x - Query position
+ * @returns Interpolated y value
+ */
+function samplePiecewiseSmoothSpline(points: readonly MacroTerrainKnot[], x: number): number {
+  const first = points[0]
+  const last = points[points.length - 1]
+  if (x <= first.c) return first.h
+  if (x >= last.c) return last.h
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    if (x > b.c) continue
+    const width = b.c - a.c
+    if (width <= 1e-9) return b.h
+    const t = smoothstep01((x - a.c) / width)
+    return lerp(a.h, b.h, t)
+  }
+  return last.h
+}
+
+/**
  * Maps signed continentalness (vanilla-aligned range) to a macro height offset.
  * This is the main lever for continents, shelves, and inland ramping.
  *
@@ -83,22 +170,7 @@ export function getJaggedPeakFactor(weirdnessSigned: number): number {
  * @returns Macro height offset in blocks (relative to BASE_HEIGHT/sea level)
  */
 export function getMacroTerrainOffset(continentalnessSigned: number): number {
-  const c = continentalnessSigned
-  const s = (a: number, b: number, v: number) => smoothstep01((v - a) / (b - a))
-
-  // Deep ocean basin
-  if (c < MACRO_TERRAIN_DEEP_OCEAN_MAX) return -24
-  // Ocean shelf up to the ocean/land threshold
-  if (c < OCEAN_CONTINENTALNESS_THRESHOLD)
-    return lerp(-24, -10, s(MACRO_TERRAIN_DEEP_OCEAN_MAX, OCEAN_CONTINENTALNESS_THRESHOLD, c))
-  // Near-inland ramp (beach/coast band)
-  if (c < MACRO_TERRAIN_NEAR_INLAND_MIN)
-    return lerp(-10, 2, s(OCEAN_CONTINENTALNESS_THRESHOLD, MACRO_TERRAIN_NEAR_INLAND_MIN, c))
-  // Mid inland
-  if (c < MACRO_TERRAIN_MID_INLAND_MIN)
-    return lerp(2, 16, s(MACRO_TERRAIN_NEAR_INLAND_MIN, MACRO_TERRAIN_MID_INLAND_MIN, c))
-  // Far inland plateau
-  return lerp(16, 26, s(MACRO_TERRAIN_MID_INLAND_MIN, MACRO_TERRAIN_FAR_INLAND_MIN, c))
+  return samplePiecewiseSmoothSpline(MACRO_TERRAIN_SPLINE, continentalnessSigned)
 }
 
 /**

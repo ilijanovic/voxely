@@ -174,4 +174,54 @@ describe('computeWaterSpread', () => {
     const changes = computeWaterSpread(opts)
     expect(changes.some((c) => c.bx === 6 && c.by === 10 && c.bz === 5)).toBe(false)
   })
+
+  it('recedes unsupported flowing water to air when no source feeds it', () => {
+    const map = new Map<string, string>()
+    map.set('5,10,5', 'water_flowing_3')
+    map.set('5,9,5', 'stone')
+    const opts = makeOptions({
+      getBlockAt: (bx, by, bz) => (map.get(`${bx},${by},${bz}`) ?? 'air') as import('../../types').BlockType | 'air',
+      isSolid: (t) => t === 'stone' || (t !== 'air' && !t.startsWith('water_')),
+      waterPositions: [{ bx: 5, by: 10, bz: 5 }],
+    })
+    const changes = computeWaterSpread(opts)
+    expect(changes).toContainEqual({ bx: 5, by: 10, bz: 5, value: 'air' })
+  })
+
+  it('resets falling flow to level 1 in deep waterfalls', () => {
+    const map = new Map<string, string>()
+    map.set('5,11,5', 'water_source')
+    map.set('5,10,5', 'water_flowing_7')
+    const opts = makeOptions({
+      getBlockAt: (bx, by, bz) => (map.get(`${bx},${by},${bz}`) ?? 'air') as import('../../types').BlockType | 'air',
+      waterPositions: [
+        { bx: 5, by: 11, bz: 5 },
+        { bx: 5, by: 10, bz: 5 },
+      ],
+    })
+    const changes = computeWaterSpread(opts)
+    expect(changes).toContainEqual({ bx: 5, by: 10, bz: 5, value: 'water_flowing_1' })
+    expect(changes).toContainEqual({ bx: 5, by: 9, bz: 5, value: 'water_flowing_1' })
+  })
+
+  it('upgrades existing flowing_1 to source when two adjacent sources and solid below', () => {
+    const map = new Map<string, string>()
+    map.set('5,10,5', 'water_source')
+    map.set('7,10,5', 'water_source')
+    map.set('6,10,5', 'water_flowing_1')
+    map.set('5,9,5', 'stone')
+    map.set('6,9,5', 'stone')
+    map.set('7,9,5', 'stone')
+    const opts = makeOptions({
+      getBlockAt: (bx, by, bz) => (map.get(`${bx},${by},${bz}`) ?? 'air') as import('../../types').BlockType | 'air',
+      isSolid: (t) => t === 'stone' || (t !== 'air' && !t.startsWith('water_')),
+      waterPositions: [
+        { bx: 5, by: 10, bz: 5 },
+        { bx: 6, by: 10, bz: 5 },
+        { bx: 7, by: 10, bz: 5 },
+      ],
+    })
+    const changes = computeWaterSpread(opts)
+    expect(changes).toContainEqual({ bx: 6, by: 10, bz: 5, value: 'water_source' })
+  })
 })

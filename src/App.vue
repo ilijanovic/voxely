@@ -43,15 +43,26 @@ import { MAX_LEVEL, LEVEL_UP_DISPLAY_MS } from './constants'
 import { getKeyBinding, codeToDisplayName } from './key-settings'
 import { subscribeConnection } from './multiplayer'
 import type { ConnectionStatus } from './multiplayer/types'
-import type { BlockType } from './types'
+import type { Biome, BlockType } from './types'
 import { WORLD_SEED } from './game-terrain'
+import { createTerrainSampling } from './terrain-sampling'
 import {
+  addWorldPlaytime,
   applyWorldSlotSeed,
-  createDefaultNamedWorldSlot,
+  createWorldSlot,
+  duplicateWorldSlot,
+  deleteWorldSlot,
   ensureWorldSlots,
+  exportWorldSlot,
   getStoredWorldSeed,
+  importWorldSlot,
+  loadWorldSave,
   listWorldSlots,
+  markWorldLaunched,
+  renameWorldSlot,
   setActiveWorldSlotId,
+  setWorldPinned,
+  type ImportConflictStrategy,
   type WorldSlotMeta,
 } from './save'
 import { BLOCK_ICON, BLOCK_LABEL } from './hotbar-icons'
@@ -107,6 +118,12 @@ const loadingRef = ref(false)
 const worldSlotsRef = ref<WorldSlotMeta[]>([])
 /** Selected world id in start menu. */
 const selectedWorldIdRef = ref<string | null>(null)
+/** Last known biome snapshots keyed by world id. */
+const worldLastBiomeByIdRef = ref<Record<string, Biome | null>>({})
+/** Currently running world id for launcher playtime tracking. */
+const activeSessionWorldIdRef = ref<string | null>(null)
+/** Last time we flushed accumulated playtime to storage. */
+const lastPlaytimeFlushAtRef = ref(0)
 
 const PENDING_WORLD_LAUNCH_KEY = 'voxely-pending-world-launch'
 
@@ -119,6 +136,7 @@ interface PendingWorldLaunch {
 function refreshWorldSlots() {
   const ensured = ensureWorldSlots()
   worldSlotsRef.value = listWorldSlots()
+  worldLastBiomeByIdRef.value = resolveWorldLastBiomes(worldSlotsRef.value)
   if (worldSlotsRef.value.length === 0) {
     selectedWorldIdRef.value = null
     return
@@ -128,18 +146,173 @@ function refreshWorldSlots() {
   selectedWorldIdRef.value = ensured.activeWorldId ?? worldSlotsRef.value[0].id
 }
 
+/**
+ * Resolves last known player biome per world using saved player coordinates.
+ *
+ * @param worlds - Launcher world metadata
+ * @returns Biome mapping keyed by world id
+ */
+function resolveWorldLastBiomes(worlds: WorldSlotMeta[]): Record<string, Biome | null> {
+  const biomeByWorldId: Record<string, Biome | null> = {}
+  const samplingBySeed = new Map<number, ReturnType<typeof createTerrainSampling>>()
+  for (const world of worlds) {
+    const save = loadWorldSave(world.id)
+    if (!save || !save.player) {
+      biomeByWorldId[world.id] = null
+      continue
+    }
+    const px = Number.isFinite(save.player.x) ? Math.floor(save.player.x) : null
+    const pz = Number.isFinite(save.player.z) ? Math.floor(save.player.z) : null
+    if (px == null || pz == null) {
+      biomeByWorldId[world.id] = null
+      continue
+    }
+    const seed =
+      typeof save.worldSeed === 'number' && Number.isFinite(save.worldSeed)
+        ? Math.floor(save.worldSeed) >>> 0
+        : world.seed
+    const sampling =
+      samplingBySeed.get(seed) ??
+      (() => {
+        const created = createTerrainSampling(seed)
+        samplingBySeed.set(seed, created)
+        return created
+      })()
+    biomeByWorldId[world.id] = sampling.getResolvedBiome(px, pz, sampling.getSmoothedHeight)
+  }
+  return biomeByWorldId
+}
+
 /** Selects a world in the start menu and marks it active for save/load. */
 function selectWorld(worldId: string) {
   selectedWorldIdRef.value = worldId
   setActiveWorldSlotId(worldId)
 }
 
-/** Creates a new world slot and selects it. */
-function createWorldFromMenu() {
-  const world = createDefaultNamedWorldSlot()
+/**
+ * Creates a new world slot from launcher form data and selects it.
+ *
+ * @param name - Requested world name
+ * @param seedInput - Optional numeric seed from launcher form
+ */
+function createWorldFromMenu(name: string, seedInput?: number) {
+  const world = createWorldSlot(name, seedInput)
   refreshWorldSlots()
   selectedWorldIdRef.value = world.id
   setActiveWorldSlotId(world.id)
+}
+
+/**
+ * Renames a world from launcher actions.
+ *
+ * @param worldId - Slot id
+ * @param name - New world name
+ */
+function renameWorldFromMenu(worldId: string, name: string) {
+  if (!renameWorldSlot(worldId, name)) return
+  refreshWorldSlots()
+  selectedWorldIdRef.value = worldId
+}
+
+/**
+ * Deletes a world from launcher actions.
+ *
+ * @param worldId - Slot id
+ */
+function deleteWorldFromMenu(worldId: string) {
+  if (!deleteWorldSlot(worldId)) return
+  refreshWorldSlots()
+}
+
+/**
+ * Pins or unpins a world from launcher actions.
+ *
+ * @param worldId - Slot id
+ * @param pinned - Pin state
+ */
+function setWorldPinnedFromMenu(worldId: string, pinned: boolean) {
+  if (!setWorldPinned(worldId, pinned)) return
+  refreshWorldSlots()
+  selectedWorldIdRef.value = worldId
+}
+
+/**
+ * Duplicates a world and switches selection to the duplicate.
+ *
+ * @param worldId - Source world id
+ */
+function duplicateWorldFromMenu(worldId: string) {
+  const duplicated = duplicateWorldSlot(worldId)
+  if (!duplicated) return
+  refreshWorldSlots()
+  selectedWorldIdRef.value = duplicated.id
+}
+
+/**
+ * Exports one world slot as a JSON download.
+ *
+ * @param worldId - Slot id
+ */
+function exportWorldFromMenu(worldId: string) {
+  const json = exportWorldSlot(worldId)
+  if (!json) return
+
+  const world = worldSlotsRef.value.find((entry) => entry.id === worldId)
+  const safeName = (world?.name ?? 'world').replace(/[^a-z0-9_-]+/gi, '_').toLowerCase()
+  const filename = `voxely-world-${safeName || 'world'}.json`
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Imports a world from exported JSON content.
+ *
+ * @param json - Export file content
+ * @returns true when import succeeded
+ */
+function importWorldFromMenu(
+  json: string,
+  conflictStrategy: ImportConflictStrategy = 'rename',
+): boolean {
+  const imported = importWorldSlot(json, conflictStrategy)
+  if (!imported) return false
+  refreshWorldSlots()
+  selectedWorldIdRef.value = imported.id
+  return true
+}
+
+/**
+ * Flushes elapsed session time into the active world metadata.
+ */
+function flushSessionPlaytime(): void {
+  const worldId = activeSessionWorldIdRef.value
+  if (!worldId) return
+  const now = Date.now()
+  if (!Number.isFinite(lastPlaytimeFlushAtRef.value) || lastPlaytimeFlushAtRef.value <= 0) {
+    lastPlaytimeFlushAtRef.value = now
+    return
+  }
+  const delta = now - lastPlaytimeFlushAtRef.value
+  if (delta <= 0) return
+  addWorldPlaytime(worldId, delta)
+  lastPlaytimeFlushAtRef.value = now
+}
+
+/** Starts selected world using its last played mode (defaults to singleplayer). */
+function continueSelectedWorld() {
+  const selectedId = selectedWorldIdRef.value ?? worldSlotsRef.value[0]?.id ?? null
+  if (!selectedId) return
+  const world =
+    worldSlotsRef.value.find((entry) => entry.id === selectedId) ?? worldSlotsRef.value[0]
+  if (!world) return
+  startGameFromMenu(world.lastMode ?? 'singleplayer')
 }
 
 /**
@@ -181,6 +354,7 @@ function startGameFromMenu(mode: 'singleplayer' | 'multiplayer') {
   const world =
     worldSlotsRef.value.find((entry) => entry.id === selectedId) ?? worldSlotsRef.value[0]
   if (!world) return
+  markWorldLaunched(world.id, mode)
   setActiveWorldSlotId(world.id)
   const appliedSeed = applyWorldSlotSeed(world.id)
   const storedSeed = getStoredWorldSeed()
@@ -189,6 +363,8 @@ function startGameFromMenu(mode: 'singleplayer' | 'multiplayer') {
     window.location.reload()
     return
   }
+  activeSessionWorldIdRef.value = world.id
+  lastPlaytimeFlushAtRef.value = Date.now()
   gameMode.value = mode
 }
 
@@ -590,6 +766,7 @@ watch(gameMode, async (mode) => {
 })
 
 let hintTimeout: ReturnType<typeof setTimeout> | null = null
+let playtimeFlushInterval: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   refreshWorldSlots()
   const pendingLaunch = consumePendingWorldLaunch()
@@ -601,8 +778,13 @@ onMounted(() => {
   hintTimeout = setTimeout(() => {
     hintVisible.value = false
   }, 8000)
+  playtimeFlushInterval = setInterval(() => {
+    flushSessionPlaytime()
+  }, 30000)
 })
 onUnmounted(() => {
+  flushSessionPlaytime()
+  if (playtimeFlushInterval) clearInterval(playtimeFlushInterval)
   if (hintTimeout) clearTimeout(hintTimeout)
   if (levelUpHideTimeout) clearTimeout(levelUpHideTimeout)
   if (levelXpInterval) clearInterval(levelXpInterval)
@@ -618,9 +800,17 @@ onUnmounted(() => {
     <Menu
       v-if="gameMode === null"
       :worlds="worldSlotsRef"
+      :world-last-biome-by-id="worldLastBiomeByIdRef"
       :selected-world-id="selectedWorldIdRef"
       :on-select-world="selectWorld"
       :on-create-world="createWorldFromMenu"
+      :on-rename-world="renameWorldFromMenu"
+      :on-delete-world="deleteWorldFromMenu"
+      :on-set-world-pinned="setWorldPinnedFromMenu"
+      :on-duplicate-world="duplicateWorldFromMenu"
+      :on-export-world="exportWorldFromMenu"
+      :on-import-world="importWorldFromMenu"
+      :on-continue="continueSelectedWorld"
       :on-singleplayer="() => startGameFromMenu('singleplayer')"
       :on-multiplayer="() => startGameFromMenu('multiplayer')"
     />

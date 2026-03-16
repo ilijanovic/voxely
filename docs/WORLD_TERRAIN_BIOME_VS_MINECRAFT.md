@@ -66,7 +66,7 @@ Conceptually this is close to Minecraft (multi-scale noise, same controls); geom
   - frozen_peaks: packed_ice/ice by height/slope/noise, else snow.
   - jagged_peaks / snowy_slopes: stone on steep slope.
   - Snow at altitude → grass_snow; savanna → grass_savanna; snow neighbor → grass_snow.
-  - **Badlands banding:** noise-based bands (red_sand, sandstone, orange/yellow/red/white terracotta). Subsurface: top 2 layers below surface use the same band noise ([stratigraphy](../src/terrain/stages/stratigraphy.ts) with `getSubsurfaceBlock`).
+  - **Badlands banding:** world-Y-driven strata with XZ warp/noise (red_sand, sandstone, orange/yellow/red/white terracotta). Subsurface keeps these bands through deep mesa layers before stone ([stratigraphy](../src/terrain/stages/stratigraphy.ts) with `getSubsurfaceBlock`).
 
 Biome block sets (surface, subsurface, shore, underwater) come from [BIOME_REGISTRY](../src/terrain/biomes/registry.ts) and per-biome files — analogous to Minecraft surface rules.
 

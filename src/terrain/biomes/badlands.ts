@@ -1,21 +1,22 @@
 import type { TerrainParams, BiomeDefinition } from './types'
+import { BADLANDS_BAND_SUBSURFACE_DEPTH } from '../surface-constants'
 
 /**
  * Badlands biome: red sand and terracotta-like surface, hot and dry (Minecraft-style).
  */
 export const badlandsTerrain: TerrainParams = {
-  baseOffset: -0.5,
-  detailAmp: 1.2,
-  detailFreq: 0.012,
-  flatness: 0.9,
-  mountainAllowed: false,
+  baseOffset: 0.75,
+  detailAmp: 2.8,
+  detailFreq: 0.0088,
+  flatness: 0.58,
+  mountainAllowed: true,
 }
 
 export const badlandsDefinition: BiomeDefinition = {
   blocks: {
     surface: 'red_sand',
     subsurface: 'sandstone',
-    subsurfaceDepth: 4,
+    subsurfaceDepth: BADLANDS_BAND_SUBSURFACE_DEPTH,
     shore: 'red_sand',
     underwater: 'red_sand',
   },

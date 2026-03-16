@@ -11,6 +11,7 @@ export const ACTIVE_WORLD_SLOT_KEY = 'voxel-active-world-slot'
 export const WORLD_SEED_STORAGE_KEY = 'voxel-world-seed'
 
 const WORLD_SLOTS_VERSION = 1
+const WORLD_EXPORT_VERSION = 1
 const WORLD_NAME_MAX_LENGTH = 40
 const DEFAULT_WORLD_NAME_PREFIX = 'World'
 
@@ -19,6 +20,9 @@ const DEFAULT_WORLD_NAME_PREFIX = 'World'
  * Policy: add a roundtrip test in save.test.ts for new optional fields; keep OLD_SAVE_FIXTURE_* for previous version.
  */
 export const SAVE_VERSION = 8
+
+/** Play mode used when launching a world. */
+export type WorldMode = 'singleplayer' | 'multiplayer'
 
 /** One inventory slot (hotbar or main; crafting grid not persisted). */
 export interface SaveInventorySlot {
@@ -82,11 +86,35 @@ export interface WorldSlotMeta {
   createdAt: number
   updatedAt: number
   hasSave: boolean
+  lastMode?: WorldMode
+  isPinned: boolean
+  playtimeMs: number
 }
 
 interface StoredWorldSlotsPayload {
   version: number
   worlds: WorldSlotMeta[]
+}
+
+/** Serializable world metadata included in export files. */
+interface ExportWorldMeta {
+  name: string
+  seed: number
+  lastMode?: WorldMode
+  isPinned?: boolean
+  playtimeMs?: number
+}
+
+/** Conflict strategy when importing into an existing world name. */
+export type ImportConflictStrategy = 'rename' | 'replace' | 'merge'
+
+/** Versioned export payload for one world. */
+interface WorldExportPayload {
+  format: 'voxely-world'
+  version: number
+  exportedAt: number
+  world: ExportWorldMeta
+  saveData: SaveData | null
 }
 
 /**
@@ -187,6 +215,48 @@ function sanitizeWorldName(rawName: string | undefined, fallbackIndex: number): 
 }
 
 /**
+ * Normalizes a world name for case-insensitive conflict checks.
+ *
+ * @param name - Display name
+ * @returns Lowercased compact key
+ */
+function normalizeWorldName(name: string): string {
+  return name.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+/**
+ * Computes a unique world name by appending " (N)" when needed.
+ *
+ * @param baseName - Preferred name
+ * @param existingWorlds - Current world list
+ * @returns Unique display name respecting max length
+ */
+function getUniqueWorldName(baseName: string, existingWorlds: WorldSlotMeta[]): string {
+  const compactBase = sanitizeWorldName(baseName, existingWorlds.length + 1)
+  const taken = new Set(existingWorlds.map((world) => normalizeWorldName(world.name)))
+  if (!taken.has(normalizeWorldName(compactBase))) return compactBase
+
+  for (let i = 2; i < 1000; i++) {
+    const suffix = ` (${i})`
+    const maxBaseLength = Math.max(1, WORLD_NAME_MAX_LENGTH - suffix.length)
+    const candidate = `${compactBase.slice(0, maxBaseLength)}${suffix}`
+    if (!taken.has(normalizeWorldName(candidate))) return candidate
+  }
+  return sanitizeWorldName(`${compactBase} Copy`, existingWorlds.length + 1)
+}
+
+/**
+ * Coerces potentially invalid playtime values to a non-negative integer.
+ *
+ * @param value - Any incoming playtime value
+ * @returns Clamped milliseconds
+ */
+function sanitizePlaytimeMs(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0
+  return Math.floor(value)
+}
+
+/**
  * Parses and validates stored world slot metadata.
  *
  * @param raw - Raw JSON from WORLD_SLOTS_KEY
@@ -220,6 +290,12 @@ function parseWorldSlots(raw: string | null): WorldSlotMeta[] {
         createdAt,
         updatedAt,
         hasSave: candidate.hasSave === true,
+        lastMode:
+          candidate.lastMode === 'singleplayer' || candidate.lastMode === 'multiplayer'
+            ? candidate.lastMode
+            : undefined,
+        isPinned: candidate.isPinned === true,
+        playtimeMs: sanitizePlaytimeMs(candidate.playtimeMs),
       })
       seenIds.add(id)
     }
@@ -337,6 +413,8 @@ export function ensureWorldSlots(): { worlds: WorldSlotMeta[]; activeWorldId: st
       createdAt: now,
       updatedAt: now,
       hasSave: legacySave != null,
+      isPinned: false,
+      playtimeMs: 0,
     }
     worlds = [firstWorld]
     writeWorldSlots(worlds)
@@ -374,6 +452,9 @@ export function createWorldSlot(name?: string, seed?: number): WorldSlotMeta {
     createdAt: now,
     updatedAt: now,
     hasSave: false,
+    lastMode: undefined,
+    isPinned: false,
+    playtimeMs: 0,
   }
   const nextWorlds = [...worlds, world]
   writeWorldSlots(nextWorlds)
@@ -392,6 +473,40 @@ export function createDefaultNamedWorldSlot(): WorldSlotMeta {
 }
 
 /**
+ * Duplicates an existing world slot, including save payload when present.
+ *
+ * @param worldId - Source world id
+ * @returns Newly created duplicated world, or null when source is missing
+ */
+export function duplicateWorldSlot(worldId: string): WorldSlotMeta | null {
+  const { worlds } = ensureWorldSlots()
+  const source = worlds.find((world) => world.id === worldId)
+  if (!source) return null
+
+  const now = Date.now()
+  const sourceRaw = readStorageKey(getWorldSaveKey(source.id))
+  const sourceSave = parseSavePayload(sourceRaw)
+  const duplicated: WorldSlotMeta = {
+    id: generateWorldId(),
+    name: getUniqueWorldName(`${source.name} Copy`, worlds),
+    seed: source.seed,
+    createdAt: now,
+    updatedAt: now,
+    hasSave: sourceSave != null,
+    lastMode: source.lastMode,
+    isPinned: source.isPinned,
+    playtimeMs: source.playtimeMs,
+  }
+
+  writeWorldSlots([...worlds, duplicated])
+  if (sourceSave != null && sourceRaw != null) {
+    writeStorageKey(getWorldSaveKey(duplicated.id), sourceRaw)
+  }
+  setActiveWorldSlotId(duplicated.id)
+  return duplicated
+}
+
+/**
  * Applies the selected world's seed to storage so the next app bootstrap uses it.
  *
  * @param worldId - Slot id
@@ -402,6 +517,297 @@ export function applyWorldSlotSeed(worldId: string): number | null {
   if (!world) return null
   setStoredWorldSeed(world.seed)
   return world.seed
+}
+
+/**
+ * Builds a world export JSON string for download/share.
+ *
+ * @param worldId - Slot id to export
+ * @returns Pretty JSON export payload or null when world is missing
+ */
+export function exportWorldSlot(worldId: string): string | null {
+  const world = getWorldSlot(worldId)
+  if (!world) return null
+  const saveData = parseSavePayload(readStorageKey(getWorldSaveKey(world.id)))
+  const payload: WorldExportPayload = {
+    format: 'voxely-world',
+    version: WORLD_EXPORT_VERSION,
+    exportedAt: Date.now(),
+    world: {
+      name: world.name,
+      seed: world.seed,
+      lastMode: world.lastMode,
+      isPinned: world.isPinned,
+      playtimeMs: world.playtimeMs,
+    },
+    saveData,
+  }
+  return JSON.stringify(payload, null, 2)
+}
+
+interface ParsedWorldImport {
+  name: string
+  seed: number
+  lastMode?: WorldMode
+  isPinned: boolean
+  playtimeMs: number
+  saveData: SaveData | null
+}
+
+/**
+ * Parses an exported world payload and validates known fields.
+ *
+ * @param exportedJson - JSON string from export
+ * @returns Parsed payload summary or null when invalid
+ */
+function parseWorldImport(exportedJson: string): ParsedWorldImport | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(exportedJson)
+  } catch {
+    return null
+  }
+
+  if (!parsed || typeof parsed !== 'object') return null
+  const payload = parsed as Partial<WorldExportPayload>
+  if (payload.format !== 'voxely-world' || payload.version !== WORLD_EXPORT_VERSION) return null
+  if (!payload.world || typeof payload.world !== 'object') return null
+
+  const world = payload.world as Partial<ExportWorldMeta>
+  const name = sanitizeWorldName(world.name, 1)
+  const seed =
+    typeof world.seed === 'number' && Number.isFinite(world.seed)
+      ? Math.floor(world.seed) >>> 0
+      : generateWorldSeed()
+  const serializedSave =
+    payload.saveData == null ? null : JSON.stringify(payload.saveData as SaveData)
+  return {
+    name,
+    seed,
+    lastMode:
+      world.lastMode === 'singleplayer' || world.lastMode === 'multiplayer'
+        ? world.lastMode
+        : undefined,
+    isPinned: world.isPinned === true,
+    playtimeMs: sanitizePlaytimeMs(world.playtimeMs),
+    saveData: parseSavePayload(serializedSave),
+  }
+}
+
+/**
+ * Imports a world from an exported JSON payload and activates it.
+ *
+ * @param exportedJson - JSON string from export
+ * @param conflictStrategy - How to resolve same-name conflicts
+ * @returns Imported world metadata or null when payload is invalid
+ */
+export function importWorldSlot(
+  exportedJson: string,
+  conflictStrategy: ImportConflictStrategy = 'rename',
+): WorldSlotMeta | null {
+  const importedPayload = parseWorldImport(exportedJson)
+  if (!importedPayload) return null
+
+  const worlds = listWorldSlots()
+  const conflict = worlds.find(
+    (world) => normalizeWorldName(world.name) === normalizeWorldName(importedPayload.name),
+  )
+
+  if (conflict && conflictStrategy !== 'rename') {
+    const conflictIndex = worlds.findIndex((world) => world.id === conflict.id)
+    if (conflictIndex < 0) return null
+    const now = Date.now()
+    const keepSeed = conflictStrategy === 'merge'
+    const mergedSeed = keepSeed ? conflict.seed : importedPayload.seed
+
+    if (importedPayload.saveData != null) {
+      const normalizedSave: SaveData = {
+        ...importedPayload.saveData,
+        worldSeed: mergedSeed,
+      }
+      writeStorageKey(getWorldSaveKey(conflict.id), JSON.stringify(normalizedSave))
+    } else if (conflictStrategy === 'replace') {
+      removeStorageKey(getWorldSaveKey(conflict.id))
+    }
+
+    const mergedLastMode = importedPayload.lastMode ?? worlds[conflictIndex].lastMode
+    const mergedHasSave =
+      conflictStrategy === 'replace'
+        ? importedPayload.saveData != null
+        : worlds[conflictIndex].hasSave || importedPayload.saveData != null
+    const mergedPinned =
+      conflictStrategy === 'replace'
+        ? importedPayload.isPinned
+        : worlds[conflictIndex].isPinned || importedPayload.isPinned
+    const mergedPlaytimeMs =
+      conflictStrategy === 'replace'
+        ? importedPayload.playtimeMs
+        : worlds[conflictIndex].playtimeMs + importedPayload.playtimeMs
+
+    worlds[conflictIndex] = {
+      ...worlds[conflictIndex],
+      name: conflictStrategy === 'replace' ? importedPayload.name : worlds[conflictIndex].name,
+      seed: mergedSeed,
+      hasSave: mergedHasSave,
+      updatedAt: now,
+      lastMode: mergedLastMode,
+      isPinned: mergedPinned,
+      playtimeMs: mergedPlaytimeMs,
+    }
+    writeWorldSlots(worlds)
+    setActiveWorldSlotId(conflict.id)
+    return getWorldSlot(conflict.id)
+  }
+
+  const importName =
+    conflict && conflictStrategy === 'rename'
+      ? getUniqueWorldName(importedPayload.name, worlds)
+      : importedPayload.name
+  const imported = createWorldSlot(importName, importedPayload.seed)
+  const importedSave = importedPayload.saveData
+  if (importedSave) {
+    const normalizedSave: SaveData = {
+      ...importedSave,
+      worldSeed: imported.seed,
+    }
+    writeStorageKey(getWorldSaveKey(imported.id), JSON.stringify(normalizedSave))
+  }
+
+  const nextWorlds = listWorldSlots()
+  const index = nextWorlds.findIndex((world) => world.id === imported.id)
+  if (index >= 0) {
+    nextWorlds[index] = {
+      ...nextWorlds[index],
+      hasSave: importedSave != null,
+      lastMode: importedPayload.lastMode ?? nextWorlds[index].lastMode,
+      isPinned: importedPayload.isPinned,
+      playtimeMs: importedPayload.playtimeMs,
+    }
+    writeWorldSlots(nextWorlds)
+  }
+
+  setActiveWorldSlotId(imported.id)
+  return getWorldSlot(imported.id)
+}
+
+/**
+ * Renames a world slot.
+ *
+ * @param worldId - Slot id
+ * @param name - New display name
+ * @returns true when renamed, false when id/name is invalid
+ */
+export function renameWorldSlot(worldId: string, name: string): boolean {
+  const compact = name.replace(/\s+/g, ' ').trim()
+  if (!compact) return false
+
+  const worlds = listWorldSlots()
+  const index = worlds.findIndex((world) => world.id === worldId)
+  if (index < 0) return false
+
+  worlds[index] = {
+    ...worlds[index],
+    name: compact.slice(0, WORLD_NAME_MAX_LENGTH),
+  }
+  writeWorldSlots(worlds)
+  return true
+}
+
+/**
+ * Pins or unpins a world for launcher sorting and quick access.
+ *
+ * @param worldId - Slot id
+ * @param pinned - Pin state
+ * @returns true when world exists and was updated
+ */
+export function setWorldPinned(worldId: string, pinned: boolean): boolean {
+  const worlds = listWorldSlots()
+  const index = worlds.findIndex((world) => world.id === worldId)
+  if (index < 0) return false
+  worlds[index] = { ...worlds[index], isPinned: pinned }
+  writeWorldSlots(worlds)
+  return true
+}
+
+/**
+ * Adds session playtime to one world.
+ *
+ * @param worldId - Slot id
+ * @param deltaMs - Elapsed milliseconds to add
+ */
+export function addWorldPlaytime(worldId: string, deltaMs: number): void {
+  const increment = sanitizePlaytimeMs(deltaMs)
+  if (increment <= 0) return
+  const worlds = listWorldSlots()
+  const index = worlds.findIndex((world) => world.id === worldId)
+  if (index < 0) return
+  worlds[index] = {
+    ...worlds[index],
+    playtimeMs: worlds[index].playtimeMs + increment,
+  }
+  writeWorldSlots(worlds)
+}
+
+/**
+ * Deletes a world slot and its persisted save payload.
+ * Keeps at least one slot available by creating a fresh fallback when needed.
+ *
+ * @param worldId - Slot id
+ * @returns true when deleted, false when world id does not exist
+ */
+export function deleteWorldSlot(worldId: string): boolean {
+  const { worlds } = ensureWorldSlots()
+  const index = worlds.findIndex((world) => world.id === worldId)
+  if (index < 0) return false
+
+  let nextWorlds = worlds.filter((world) => world.id !== worldId)
+  removeStorageKey(getWorldSaveKey(worldId))
+
+  if (nextWorlds.length === 0) {
+    const now = Date.now()
+    nextWorlds = [
+      {
+        id: generateWorldId(),
+        name: `${DEFAULT_WORLD_NAME_PREFIX} 1`,
+        seed: getStoredWorldSeed() ?? generateWorldSeed(),
+        createdAt: now,
+        updatedAt: now,
+        hasSave: false,
+        isPinned: false,
+        playtimeMs: 0,
+      },
+    ]
+  }
+
+  writeWorldSlots(nextWorlds)
+  const activeWorldId = getActiveWorldSlotId()
+  if (
+    !activeWorldId ||
+    activeWorldId === worldId ||
+    !nextWorlds.some((world) => world.id === activeWorldId)
+  ) {
+    setActiveWorldSlotId(nextWorlds[0].id)
+  }
+  return true
+}
+
+/**
+ * Stores the latest launch mode for quick continue.
+ *
+ * @param worldId - Slot id
+ * @param mode - Last launched mode
+ */
+export function markWorldLaunched(worldId: string, mode: WorldMode): void {
+  const worlds = listWorldSlots()
+  const index = worlds.findIndex((world) => world.id === worldId)
+  if (index < 0) return
+
+  worlds[index] = {
+    ...worlds[index],
+    lastMode: mode,
+    updatedAt: Date.now(),
+  }
+  writeWorldSlots(worlds)
 }
 
 /**
@@ -489,4 +895,15 @@ export function loadFromStorage(): SaveData | null {
   writeStorageKey(worldSaveKey, legacyRaw as string)
   touchActiveWorldOnSave()
   return parsedLegacy
+}
+
+/**
+ * Loads save data for a specific world slot id.
+ *
+ * @param worldId - Slot id
+ * @returns Parsed world save payload or null when missing/invalid
+ */
+export function loadWorldSave(worldId: string): SaveData | null {
+  if (!worldId || worldId.trim().length === 0) return null
+  return parseSavePayload(readStorageKey(getWorldSaveKey(worldId)))
 }

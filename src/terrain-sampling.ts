@@ -30,6 +30,9 @@ import {
   LUKEWARM_MOUNTAIN_HUMIDITY_MIN,
   LUKEWARM_MOUNTAIN_TEMP_MIN,
   MOUNTAIN_AMPLITUDE,
+  BADLANDS_MESA_HEIGHT_BOOST,
+  BADLANDS_VALLEY_DEPTH,
+  BADLANDS_VALLEY_RELIEF_REDUCTION,
   MOUNTAIN_BIOME_HEIGHT_BOOST,
   MOUNTAIN_HEIGHT_SCALE,
   MOUNTAIN_JAGGED_BOOST,
@@ -39,6 +42,7 @@ import {
   MOUNTAIN_PEAK_BAND_BOOST,
   MOUNTAIN_THRESHOLD,
   MOUNTAIN_TRANSITION_WIDTH,
+  NOISE_COORD_WRAP,
   OCEAN_CONTINENTALNESS_THRESHOLD,
   PEAK_JAGGED_BAND_MIN,
   PEAK_JAGGED_EROSION_MAX,
@@ -69,9 +73,11 @@ import {
 } from './terrain/biomes'
 import { BIOME_LAYERS, BIOME_TERRAIN, BIOME_VALUE } from './terrain/biomes'
 import { getSurfaceBlockFromRules } from './terrain/surface-rules'
-import { makeSeededRandom } from './terrain/utils'
+import { makeSeededRandom, wrapNoiseCoord } from './terrain/utils'
 import { createClimateSampler } from './terrain/climate-sampler'
 import {
+  getBadlandsBlendFactor,
+  getBadlandsValleyFactor,
   getJaggedPeakFactor,
   getMacroTerrainOffset,
   getPeakBandFactor,
@@ -92,7 +98,9 @@ export type GetHeightFn = (x: number, z: number) => number
 
 /** Creates a 2D simplex noise function with the given seed. */
 function createNoise(seed: number) {
-  return createNoise2D(makeSeededRandom(seed))
+  const raw = createNoise2D(makeSeededRandom(seed))
+  return (x: number, z: number) =>
+    raw(wrapNoiseCoord(x, NOISE_COORD_WRAP), wrapNoiseCoord(z, NOISE_COORD_WRAP))
 }
 
 /** River warp noise offset for decorrelating X and Z warp channels. */
@@ -522,6 +530,13 @@ export function createTerrainSampling(seed: number) {
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = detailAmp * (flatness + (1 - flatness) * smooth)
     const erosionSigned = getErosionSigned(x, z)
+    const mountainMask = (mountainMaskNoise2D(x * MOUNTAIN_MASK_SCALE, z * MOUNTAIN_MASK_SCALE) + 1) * 0.5
+    const badlandsBlendFactor = getBadlandsBlendFactor(blend.primary, blend.secondary, t)
+    const badlandsValleyFactor = getBadlandsValleyFactor(
+      badlandsBlendFactor,
+      mountainMask,
+      erosionSigned,
+    )
     const jaggednessT = smoothstep01(
       (-erosionSigned - EROSION_JAGGEDNESS_START) / (1 - EROSION_JAGGEDNESS_START),
     )
@@ -532,15 +547,15 @@ export function createTerrainSampling(seed: number) {
       1 +
       jaggednessT * (EROSION_DETAIL_BOOST_MAX - 1) +
       jaggedPeakFactor * MOUNTAIN_JAGGED_DETAIL_BOOST
+    effectiveAmp *= 1 - badlandsValleyFactor * BADLANDS_VALLEY_RELIEF_REDUCTION
     const local = n * effectiveAmp
 
     let mountain = 0
     if (mountainAllowedFactor > 0) {
-      const mask = (mountainMaskNoise2D(x * MOUNTAIN_MASK_SCALE, z * MOUNTAIN_MASK_SCALE) + 1) * 0.5
       const tMaskSmooth = smoothstep01(
-        (mask - MOUNTAIN_THRESHOLD) / Math.max(MOUNTAIN_TRANSITION_WIDTH, 1e-6),
+        (mountainMask - MOUNTAIN_THRESHOLD) / Math.max(MOUNTAIN_TRANSITION_WIDTH, 1e-6),
       )
-      const tMaskRamp = clamp01((mask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD))
+      const tMaskRamp = clamp01((mountainMask - MOUNTAIN_THRESHOLD) / (1 - MOUNTAIN_THRESHOLD))
       if (tMaskSmooth > 0) {
         const m =
           (mountainHeightNoise2D(x * MOUNTAIN_HEIGHT_SCALE, z * MOUNTAIN_HEIGHT_SCALE) + 1) * 0.5
@@ -549,6 +564,8 @@ export function createTerrainSampling(seed: number) {
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
             : blend.primary === 'snow'
               ? SNOW_BIOME_HEIGHT_BOOST
+              : blend.primary === 'badlands'
+                ? BADLANDS_MESA_HEIGHT_BOOST
               : pA.mountainAllowed
                 ? MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST
                 : 0
@@ -557,6 +574,8 @@ export function createTerrainSampling(seed: number) {
             ? MOUNTAIN_BIOME_HEIGHT_BOOST
             : blend.secondary === 'snow'
               ? SNOW_BIOME_HEIGHT_BOOST
+              : blend.secondary === 'badlands'
+                ? BADLANDS_MESA_HEIGHT_BOOST
               : pB.mountainAllowed
                 ? MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST
                 : 0
@@ -575,7 +594,8 @@ export function createTerrainSampling(seed: number) {
     }
     const erosion = getErosion(x, z)
     const ridgeTerm = getRidgeTerm(weirdnessSigned, mountainAllowedFactor)
-    return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - erosion
+    const valleyDepth = badlandsValleyFactor * BADLANDS_VALLEY_DEPTH
+    return BASE_HEIGHT + baseOffset + macro + local + mountain + ridgeTerm - erosion - valleyDepth
   }
 
   /**

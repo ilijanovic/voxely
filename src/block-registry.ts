@@ -45,6 +45,12 @@ export interface BlockDefinition {
   placeable?: boolean
   /** Face culling: block hides adjacent block faces (opaque). Default: same as solid. Set false for leaves, ice, glass. */
   occludes?: boolean
+  /** Fire spread chance (Minecraft-like). 0 = never catches from adjacent fire. */
+  flammability?: number
+  /** How strongly this block burns once ignited (Minecraft-like). 0 = effectively non-burnable. */
+  burnability?: number
+  /** Piston push reaction: normal push, destroy-on-push, or immovable. */
+  pistonBehavior?: 'normal' | 'destroy' | 'block'
   /** When set, block is a fluid (source + flowing levels). Used for flow logic and height. */
   fluid?: BlockFluidKind
   /** Seconds of holding to break; 0 = instant (one "hit"). Omitted => DEFAULT_BREAK_TIME_SECONDS. */
@@ -75,7 +81,10 @@ export interface BlockDefinition {
 
 /** Default: solid true, transparent false, unbreakable false, placeable/occludes derived from solid. */
 const D = (
-  def: Omit<BlockDefinition, 'solid' | 'transparent' | 'unbreakable' | 'placeable' | 'occludes'> &
+  def: Omit<
+    BlockDefinition,
+    'solid' | 'transparent' | 'unbreakable' | 'placeable' | 'occludes' | 'pistonBehavior'
+  > &
     Partial<
       Pick<
         BlockDefinition,
@@ -84,6 +93,9 @@ const D = (
         | 'unbreakable'
         | 'placeable'
         | 'occludes'
+        | 'flammability'
+        | 'burnability'
+        | 'pistonBehavior'
         | 'breakTimeSeconds'
         | 'fluid'
         | 'crossGeometry'
@@ -96,6 +108,8 @@ const D = (
     >,
 ): BlockDefinition => {
   const solid = def.solid !== false
+  const pistonBehavior =
+    def.pistonBehavior ?? (def.fluid ? 'block' : solid ? 'normal' : 'destroy')
   return {
     solid: true,
     transparent: false,
@@ -103,6 +117,7 @@ const D = (
     ...def,
     placeable: def.placeable ?? solid,
     occludes: def.occludes ?? solid,
+    pistonBehavior,
   }
 }
 
@@ -335,6 +350,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     displayName: 'Bedrock',
     textures: { type: 'single', texture: 'bedrock' },
     unbreakable: true,
+    pistonBehavior: 'block',
     skipNormalMap: true,
   }),
 ]
@@ -1372,6 +1388,43 @@ for (const def of [...LEGACY_BLOCKS, ...CURATED_BLOCKS, ...NON_PLACEABLE_ITEMS])
   REGISTRY.set(def.id, def)
 }
 
+type FireProps = { flammability: number; burnability: number }
+
+const WOOD_FIRE: FireProps = { flammability: 5, burnability: 20 }
+const LEAVES_FIRE: FireProps = { flammability: 30, burnability: 60 }
+const SOFT_FIRE: FireProps = { flammability: 30, burnability: 60 }
+const PLANT_FIRE: FireProps = { flammability: 60, burnability: 100 }
+
+function isWoodFamilyBlockId(id: string): boolean {
+  return (
+    id === 'wood' ||
+    id.endsWith('_log') ||
+    id.endsWith('_planks') ||
+    id.endsWith('_fence') ||
+    id === 'crafting_table' ||
+    id === 'bookshelf' ||
+    id === 'door_closed' ||
+    id === 'door_open' ||
+    /^((oak|spruce|birch|jungle|acacia|dark_oak)_stairs)(_(north|east|south|west)(_top)?)?$/.test(id)
+  )
+}
+
+function inferFireProps(def: BlockDefinition): FireProps | null {
+  const { id } = def
+  if (id === 'leaves' || id.endsWith('_leaves')) return LEAVES_FIRE
+  if (id.endsWith('_wool') || id === 'hay_block') return SOFT_FIRE
+  if (def.crossGeometry === true) return PLANT_FIRE
+  if (isWoodFamilyBlockId(id)) return WOOD_FIRE
+  return null
+}
+
+for (const def of REGISTRY.values()) {
+  const inferred = inferFireProps(def)
+  if (!inferred) continue
+  if (def.flammability === undefined) def.flammability = inferred.flammability
+  if (def.burnability === undefined) def.burnability = inferred.burnability
+}
+
 /** Returns the block definition for a given id, or undefined if not registered. */
 export function getBlockDefinition(id: string): BlockDefinition | undefined {
   return REGISTRY.get(id)
@@ -1570,6 +1623,27 @@ export function isOccludingBlock(id: string): boolean {
 export function isFluidBlock(id: string): boolean {
   const def = REGISTRY.get(id)
   return def ? def.fluid === 'water' : false
+}
+
+/** Piston push reaction for the block type. */
+export type PistonBehavior = NonNullable<BlockDefinition['pistonBehavior']>
+
+/** Fire spread chance (0 = never catches from adjacent fire). */
+export function getBlockFlammability(id: string): number {
+  const def = REGISTRY.get(id)
+  return def?.flammability ?? 0
+}
+
+/** Burnability chance once ignited (0 = effectively non-burnable). */
+export function getBlockBurnability(id: string): number {
+  const def = REGISTRY.get(id)
+  return def?.burnability ?? 0
+}
+
+/** Piston reaction: normal push, destroy-on-push, or immovable. */
+export function getBlockPistonBehavior(id: string): PistonBehavior {
+  const def = REGISTRY.get(id)
+  return def?.pistonBehavior ?? 'normal'
 }
 
 /** Block height in world units (1 = full block). Snow layers 1–8 use 1/8 … 8/8. Water source/flowing use definition or schema. */
