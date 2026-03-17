@@ -111,4 +111,33 @@ describe('chunk-worker-client', () => {
     client!.requestChunk({ chunkX: 0, chunkZ: 0, blockMods: [] })
     expect(workerInstances[0].postMessage).not.toHaveBeenCalled()
   })
+
+  it('sends default overhang profile in init message', () => {
+    initChunkWorkerClient({
+      seed: 1,
+      maxWorkers: 1,
+      onPayload: vi.fn(),
+    })
+    expect(workerInstances[0].postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'init',
+        overhangProfile: 'vanilla',
+      }),
+    )
+  })
+
+  it('sends custom overhang profile in init message', () => {
+    initChunkWorkerClient({
+      seed: 1,
+      overhangProfile: 'dramatic',
+      maxWorkers: 1,
+      onPayload: vi.fn(),
+    })
+    expect(workerInstances[0].postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'init',
+        overhangProfile: 'dramatic',
+      }),
+    )
+  })
 })

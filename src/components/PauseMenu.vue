@@ -37,7 +37,7 @@ import {
   type PackOption,
 } from '../resource-pack-settings'
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; exit: [] }>()
 
 const view = ref<'main' | 'options'>('main')
 const optionsTab = ref<'graphics' | 'controls'>('graphics')
@@ -208,6 +208,9 @@ onUnmounted(() => {
           </button>
           <button type="button" class="pause-btn pause-btn-options" @click="openOptions">
             Options
+          </button>
+          <button type="button" class="pause-btn pause-btn-exit" @click="emit('exit')">
+            Exit to Menu
           </button>
         </div>
       </template>
@@ -575,6 +578,11 @@ onUnmounted(() => {
 
 .pause-btn-options {
   background: linear-gradient(180deg, #55607a 0%, #434f68 100%);
+  color: var(--ui-text);
+}
+
+.pause-btn-exit {
+  background: linear-gradient(180deg, #7a4c4c 0%, #633c3c 100%);
   color: var(--ui-text);
 }
 

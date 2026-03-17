@@ -92,3 +92,12 @@ export const RIVER_BANK_UPPER_SAND_NOISE_MAX = 0.48
 export const SURFACE_RIVER_BANK_SCALE = 0.12
 export const SURFACE_RIVER_BANK_OFFSET_X = -143.2
 export const SURFACE_RIVER_BANK_OFFSET_Z = 214.6
+
+/** Lower blend.t bound for land-to-land boundary dither (non-ocean). */
+export const LAND_BLEND_DITHER_MIN_T = 0.02
+/** Upper blend.t bound for land-to-land boundary dither (non-ocean). */
+export const LAND_BLEND_DITHER_MAX_T = 0.98
+/** Lower blend.t bound for desert-involved land boundary dither (keeps edges readable). */
+export const LAND_BLEND_DITHER_DESERT_MIN_T = 0.22
+/** Upper blend.t bound for desert-involved land boundary dither (keeps edges readable). */
+export const LAND_BLEND_DITHER_DESERT_MAX_T = 0.78

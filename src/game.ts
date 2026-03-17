@@ -211,6 +211,7 @@ import { isPendingSpawnReady } from './game/player/pending-spawn'
 import { applyBlockChangeToLoadedChunk as applyBlockChangeToLoadedChunkCore } from './game/world-interactions/apply-block-change'
 import { RaycastMeshCache } from './game/chunks/raycast-cache'
 import { initChunkWorkerClient, type ChunkWorkerClient } from './game/chunks/chunk-worker-client'
+import type { OverhangProfile } from './terrain-core'
 import { createPoiRegistryForSpawn, getActivePois, setActivePois } from './world-pois'
 import { applyChunkPayload as applyChunkPayloadToScene } from './game/chunks/chunk-apply'
 import { updateChunks as updateChunksFromModule } from './game/chunks/chunk-manager'
@@ -733,6 +734,46 @@ function loadGame(): boolean {
 let chunkWorker: ChunkWorkerClient | null = null
 /** Chunk key numbers we've requested from the worker but not yet received. */
 const pendingChunkKeys = new Set<number>()
+/** Storage key for runtime overhang generation profile (vanilla | dramatic). */
+const OVERHANG_PROFILE_STORAGE_KEY = 'terrainOverhangProfile'
+
+/**
+ * Parses a persisted overhang profile into a supported value.
+ *
+ * @param value - Raw persisted value
+ * @returns Supported profile ('vanilla' fallback)
+ */
+function parseOverhangProfile(value: string | null): OverhangProfile {
+  return value === 'dramatic' ? 'dramatic' : 'vanilla'
+}
+
+/**
+ * Reads current overhang profile from local storage.
+ *
+ * @returns Stored profile or 'vanilla' when not set/unavailable
+ */
+function getStoredOverhangProfile(): OverhangProfile {
+  try {
+    if (typeof localStorage === 'undefined') return 'vanilla'
+    return parseOverhangProfile(localStorage.getItem(OVERHANG_PROFILE_STORAGE_KEY))
+  } catch {
+    return 'vanilla'
+  }
+}
+
+/**
+ * Persists overhang profile to local storage.
+ *
+ * @param profile - Target profile
+ */
+function setStoredOverhangProfile(profile: OverhangProfile): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(OVERHANG_PROFILE_STORAGE_KEY, profile)
+  } catch {
+    // Ignore storage errors in restrictive environments.
+  }
+}
 /** Wenn gesetzt: Spawn-Position erst setzen, wenn alle benötigten Chunks geladen sind (Worker-Lieferung abwarten). */
 let pendingSpawn: {
   spawnX: number
@@ -1700,7 +1741,7 @@ async function init(container?: HTMLElement): Promise<void> {
 }
 
 /**
- * Registers debug console commands: /snow (start|end|auto), /rain (stub), /time (day|night).
+ * Registers debug console commands: /snow, /rain, /time, /overhang, /perf.
  */
 function registerDebugCommands(): void {
   registerCommand('snow', (args) => {
@@ -1737,6 +1778,64 @@ function registerDebugCommands(): void {
     }
     return 'Usage: /time day | night'
   })
+
+  registerCommand('overhang', (args) => {
+    const sub = (args[0] ?? '').toLowerCase()
+    if (sub === '' || sub === 'show') {
+      return `Overhang profile: ${getStoredOverhangProfile()}`
+    }
+    if (sub !== 'vanilla' && sub !== 'dramatic') {
+      return 'Usage: /overhang vanilla | dramatic | show'
+    }
+    const profile = sub as OverhangProfile
+    setStoredOverhangProfile(profile)
+    reinitializeTerrainGeneration()
+    return `Overhang profile: ${profile} (regenerating loaded chunks)`
+  })
+
+  registerCommand('perf', (args) => {
+    const sub = (args[0] ?? 'status').toLowerCase()
+    if (sub === 'on') {
+      setPerfProfilingEnabled(true)
+      return 'Perf profiling: on (reports in console every 2s)'
+    }
+    if (sub === 'off') {
+      setPerfProfilingEnabled(false)
+      return 'Perf profiling: off'
+    }
+    if (sub === 'report') {
+      if (!isPerfProfilingEnabled()) return 'Perf profiling is off. Use /perf on first.'
+      reportPerfStatsNow()
+      return 'Perf report printed to console.'
+    }
+    if (sub === 'status') {
+      return `Perf profiling: ${isPerfProfilingEnabled() ? 'on' : 'off'}`
+    }
+    return 'Usage: /perf on | off | status | report'
+  })
+}
+
+/**
+ * Reinitializes terrain generation worker and reloads loaded chunks.
+ * Used by runtime terrain profile switches (e.g. overhang presets).
+ */
+function reinitializeTerrainGeneration(): void {
+  if (!scene) return
+  if (chunkWorker) {
+    chunkWorker.terminate()
+    chunkWorker = null
+  }
+  pendingChunkKeys.clear()
+
+  // Unload all currently loaded chunks so they are regenerated under new profile settings.
+  const loadedKeys = Array.from(chunks.keys())
+  for (const keyNum of loadedKeys) {
+    unloadChunk(scene, keyNum)
+  }
+
+  initChunkWorker()
+  lastPlayerChunkX = null
+  lastPlayerChunkZ = null
 }
 
 /**
@@ -1830,38 +1929,47 @@ function initPostProcessing(): void {
  * Initializes chunk worker client; wires onPayload to applyChunkPayloadToScene and entity spawn, onError to fallback to main-thread generation.
  */
 function initChunkWorker(): void {
+  if (chunkWorker) {
+    chunkWorker.terminate()
+    chunkWorker = null
+  }
+  pendingChunkKeys.clear()
+
   const client = initChunkWorkerClient({
     seed: WORLD_SEED,
+    overhangProfile: getStoredOverhangProfile(),
     pois: getActivePois(),
     maxWorkers: Infinity,
     onPayload: (payload) =>
-      applyChunkPayloadToScene(
-        scene,
-        payload,
-        {
-          chunks,
-          pendingChunkKeys,
-          grassColormapData,
-          foliageColormapData,
-          tallGrassMaterial,
-          getResolvedBiome,
-          torchContainer,
-          placedTorches,
-          onChunkAdded: (data) => {
-            spawnEntitiesForChunk(scene, chunkKey(data.cx, data.cz), data.cx, data.cz)
-            const keyNum = chunkKeyNumeric(data.cx, data.cz)
-            if (discoveredChunkKeys.has(keyNum) && data.heightmapBuffer) {
-              writeHeightmap(WORLD_SEED, keyNum, data.heightmapBuffer, data.biomeMapBuffer)
-            }
+      withPerfTiming('chunkApply', () =>
+        applyChunkPayloadToScene(
+          scene,
+          payload,
+          {
+            chunks,
+            pendingChunkKeys,
+            grassColormapData,
+            foliageColormapData,
+            tallGrassMaterial,
+            getResolvedBiome,
+            torchContainer,
+            placedTorches,
+            onChunkAdded: (data) => {
+              spawnEntitiesForChunk(scene, chunkKey(data.cx, data.cz), data.cx, data.cz)
+              const keyNum = chunkKeyNumeric(data.cx, data.cz)
+              if (discoveredChunkKeys.has(keyNum) && data.heightmapBuffer) {
+                writeHeightmap(WORLD_SEED, keyNum, data.heightmapBuffer, data.biomeMapBuffer)
+              }
+            },
+            onChunkChanged: () => {
+              raycastMeshCache.markDirty()
+              _frustumDirty = true
+              applyPendingSpawnIfReady()
+              applyPendingLoadIfReady()
+            },
           },
-          onChunkChanged: () => {
-            raycastMeshCache.markDirty()
-            _frustumDirty = true
-            applyPendingSpawnIfReady()
-            applyPendingLoadIfReady()
-          },
-        },
-        WORLD_SEED,
+          WORLD_SEED,
+        ),
       ),
     onError: (message, error) => {
       console.error(
@@ -2318,6 +2426,123 @@ let fpsEl: HTMLElement | null = null
 /** Last computed FPS; updated every 500 ms, passed to terrain debug overlay when enabled. */
 let lastFps: number | null = null
 const terrainDebug: TerrainDebugState = createTerrainDebugState()
+
+type PerfSection =
+  | 'chunkApply'
+  | 'chunkVisibility'
+  | 'movementCollision'
+  | 'raycast'
+  | 'blockInteraction'
+  | 'render'
+  | 'frameTotal'
+
+interface PerfBucket {
+  totalMs: number
+  maxMs: number
+  samples: number
+}
+
+/** Performance sections included in periodic debug reports. */
+const PERF_SECTIONS: PerfSection[] = [
+  'chunkApply',
+  'chunkVisibility',
+  'movementCollision',
+  'raycast',
+  'blockInteraction',
+  'render',
+  'frameTotal',
+]
+/** Interval between perf reports when profiling is enabled. */
+const PERF_REPORT_INTERVAL_MS = 2000
+const perfBuckets = new Map<PerfSection, PerfBucket>()
+let perfProfilingEnabled = false
+let perfLastReportAtMs = performance.now()
+
+/**
+ * Resets accumulated perf timing buckets.
+ */
+function resetPerfBuckets(): void {
+  perfBuckets.clear()
+  for (const section of PERF_SECTIONS) {
+    perfBuckets.set(section, { totalMs: 0, maxMs: 0, samples: 0 })
+  }
+}
+
+/**
+ * Enables or disables frame performance profiling.
+ */
+function setPerfProfilingEnabled(enabled: boolean): void {
+  perfProfilingEnabled = enabled
+  resetPerfBuckets()
+  perfLastReportAtMs = performance.now()
+}
+
+/**
+ * Returns whether frame performance profiling is currently active.
+ */
+function isPerfProfilingEnabled(): boolean {
+  return perfProfilingEnabled
+}
+
+/**
+ * Records one elapsed timing sample for the given perf section.
+ */
+function recordPerfSample(section: PerfSection, elapsedMs: number): void {
+  if (!perfProfilingEnabled) return
+  const bucket = perfBuckets.get(section)
+  if (!bucket) return
+  bucket.totalMs += elapsedMs
+  bucket.samples++
+  if (elapsedMs > bucket.maxMs) bucket.maxMs = elapsedMs
+}
+
+/**
+ * Measures and records elapsed time for a void callback when profiling is enabled.
+ */
+function withPerfTiming(section: PerfSection, fn: () => void): void {
+  if (!perfProfilingEnabled) {
+    fn()
+    return
+  }
+  const start = performance.now()
+  fn()
+  recordPerfSample(section, performance.now() - start)
+}
+
+/**
+ * Measures and records elapsed time for a callback that returns a value.
+ */
+function withPerfTimingResult<T>(section: PerfSection, fn: () => T): T {
+  if (!perfProfilingEnabled) return fn()
+  const start = performance.now()
+  const value = fn()
+  recordPerfSample(section, performance.now() - start)
+  return value
+}
+
+/**
+ * Logs accumulated perf stats to the console and clears the current window.
+ */
+function reportPerfStatsNow(): void {
+  if (!perfProfilingEnabled) return
+  const lines = PERF_SECTIONS.map((section) => {
+    const bucket = perfBuckets.get(section)!
+    const avgMs = bucket.samples > 0 ? bucket.totalMs / bucket.samples : 0
+    return `${section}: avg ${avgMs.toFixed(2)} ms | max ${bucket.maxMs.toFixed(2)} ms | n=${bucket.samples}`
+  })
+  console.log(`[perf] ${new Date().toISOString()}\n${lines.join('\n')}`)
+  resetPerfBuckets()
+  perfLastReportAtMs = performance.now()
+}
+
+/**
+ * Emits a periodic perf report when profiling is enabled.
+ */
+function reportPerfStatsIfDue(nowMs: number): void {
+  if (!perfProfilingEnabled) return
+  if (nowMs - perfLastReportAtMs < PERF_REPORT_INTERVAL_MS) return
+  reportPerfStatsNow()
+}
 
 /**
  * Applies pending spawn or load when worker chunks are ready, updates terrain debug overlay (with FPS), and refreshes FPS display every 500 ms.
@@ -3312,7 +3537,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     raycaster.set(rayOrigin, rayDirection)
     raycaster.far = BREAK_DISTANCE
     const blockMeshesAimed = getRaycastMeshes()
-    const hitsAimed = raycaster.intersectObjects(blockMeshesAimed)
+    const hitsAimed = withPerfTimingResult('raycast', () => raycaster.intersectObjects(blockMeshesAimed))
     currentHit = hitsAimed[0]?.face ? hitsAimed[0] : null
     currentResolved = currentHit ? resolveRaycastHitToBlock(currentHit) : null
     aimedBlock = currentResolved ? { x: currentResolved.x, y: currentResolved.y, z: currentResolved.z } : null
@@ -3329,7 +3554,9 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
   if (placeRequested && camera) {
     rayOrigin.copy(camera.position)
     camera.getWorldDirection(rayDirection)
-    const entityHit = raycastEntities(rayOrigin, rayDirection, PLACE_DISTANCE)
+    const entityHit = withPerfTimingResult('raycast', () =>
+      raycastEntities(rayOrigin, rayDirection, PLACE_DISTANCE),
+    )
     if (entityHit?.entity.questGiver && onQuestNpcInteract) {
       rightMouseJustPressed = false
       fKeyJustPressed = false
@@ -3343,7 +3570,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     raycaster.set(rayOrigin, rayDirection)
     raycaster.far = PLACE_DISTANCE
     const blockMeshesPlace = getRaycastMeshes()
-    const placeHits = raycaster.intersectObjects(blockMeshesPlace)
+    const placeHits = withPerfTimingResult('raycast', () => raycaster.intersectObjects(blockMeshesPlace))
     const placeHit = placeHits[0]
     if (!placeHit || !placeHit.face) {
       if (isPlaceDebug()) {
@@ -3746,19 +3973,25 @@ function updateShadowAndRender(dt: number): void {
  */
 function animate(): void {
   requestAnimationFrame(animate)
+  const frameStartMs = perfProfilingEnabled ? performance.now() : 0
   const dt = Math.min(clock.getDelta(), 0.1)
   const time = performance.now() * 0.001
   updateFPSAndSpawn(time)
   updateDayCycleAndAtmosphere(dt)
-  updateChunkVisibility()
-  updateMovementAndCollision(dt, time)
+  withPerfTiming('chunkVisibility', () => updateChunkVisibility())
+  withPerfTiming('movementCollision', () => updateMovementAndCollision(dt, time))
   updateCameraAndViewMode(time, dt)
   updateDropsAndPickup(time, dt)
   runBlockTick(time)
   runFallingBlocksTick(time)
   runWaterFlowTick(time)
-  updateBlockBreakAndPlace(dt, time)
-  updateShadowAndRender(dt)
+  withPerfTiming('blockInteraction', () => updateBlockBreakAndPlace(dt, time))
+  withPerfTiming('render', () => updateShadowAndRender(dt))
+  if (perfProfilingEnabled) {
+    const frameEndMs = performance.now()
+    recordPerfSample('frameTotal', frameEndMs - frameStartMs)
+    reportPerfStatsIfDue(frameEndMs)
+  }
 }
 
 // ================= RESIZE =================

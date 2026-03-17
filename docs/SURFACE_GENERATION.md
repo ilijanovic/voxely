@@ -78,7 +78,7 @@ The worker’s `getSurfaceBlock` is implemented in [`src/terrain/index.ts`](src/
 1. **Underwater:** `topY < WATER_LEVEL` → `def.blocks.underwater`.
 2. **Shore band:** `WATER_LEVEL - 1 ≤ topY ≤ WATER_LEVEL + 1` → `def.blocks.shore`.
 3. **Coast blend (ocean ↔ land):** If `getBiomeBlendAt` has primary=ocean and secondary≠ocean, dither between land’s surface and `sand` using `detailNoise2D` and blend `t`.
-4. **Land biome boundary:** If primary≠secondary, both not ocean, and **both not desert** (Minecraft-style: no dithering when desert is involved—sharp sand/grass boundary), and the two surfaces differ and `0.1 < t < 0.9`, dither between the two surface types with `detailNoise2D`.
+4. **Land biome boundary:** If primary≠secondary and both are not ocean, dither between the two surface types with `detailNoise2D` when blend `t` is in the configured window. Desert-involved boundaries use a narrower window than other land boundaries so sand edges stay readable while still blending.
 5. **Stone by height (mountains / highland):** If (mountain or windswept_hills or windswept_forest) and `topY >= MOUNTAIN_STONE_SURFACE_HEIGHT` (WATER_LEVEL + 16) → `stone`. If meadow and `topY >= MOUNTAIN_STONE_SURFACE_HEIGHT` → `stone`. If `topY >= SURFACE_STONE_HEIGHT` (WATER_LEVEL + 26) and biome is not frozen_peaks, jagged_peaks, or jungle → `stone`.
 6. **Frozen peaks:** Uses `getMaxSlopeDelta` (max of cardinal height differences). Steep/verySteep thresholds (6 and 9), high = `topY >= WATER_LEVEL + 30`. Then packed_ice / ice / snow by slope and noise.
 7. **Snow at altitude:** If `topY >= WATER_LEVEL + 20` and biome is not in the “warm/low” set (desert, savanna, mountain, jungle, cherry_grove, windswept_forest, meadow, plains) → `grass_snow`.

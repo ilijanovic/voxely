@@ -9,6 +9,10 @@ import { WATER_LEVEL } from '../constants'
 import { BIOME_REGISTRY } from './biomes'
 import {
   BADLANDS_BAND_BLOCK_COUNT,
+  LAND_BLEND_DITHER_DESERT_MAX_T,
+  LAND_BLEND_DITHER_DESERT_MIN_T,
+  LAND_BLEND_DITHER_MAX_T,
+  LAND_BLEND_DITHER_MIN_T,
   RIVER_BANK_BLEND_MAX_HEIGHT,
   RIVER_BANK_GRAVEL_SLOPE_MIN,
   RIVER_BANK_NEAR_WATER_GRAVEL_NOISE_MAX,
@@ -114,17 +118,18 @@ export function resolveSurfaceBlock(params: SurfaceResolverParams): BlockType {
   }
 
   // Land biome boundary: probabilistic surface swap based on blend weight.
-  // Minecraft-style: no dithering when desert is involved — sharp sand/grass boundary.
+  // Desert keeps a narrower dither window so transitions soften without fully washing out sand edges.
   if (
     blend.primary !== blend.secondary &&
     blend.primary !== 'ocean' &&
-    blend.secondary !== 'ocean' &&
-    blend.primary !== 'desert' &&
-    blend.secondary !== 'desert'
+    blend.secondary !== 'ocean'
   ) {
     const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType
     const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
-    if (a !== b && blend.t > 0.1 && blend.t < 0.9) {
+    const desertBoundary = blend.primary === 'desert' || blend.secondary === 'desert'
+    const minBlendT = desertBoundary ? LAND_BLEND_DITHER_DESERT_MIN_T : LAND_BLEND_DITHER_MIN_T
+    const maxBlendT = desertBoundary ? LAND_BLEND_DITHER_DESERT_MAX_T : LAND_BLEND_DITHER_MAX_T
+    if (a !== b && blend.t > minBlendT && blend.t < maxBlendT) {
       return ditherNoiseLand < blend.t ? b : a
     }
   }

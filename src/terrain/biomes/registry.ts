@@ -128,6 +128,9 @@ const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [
   'y',
 ]
 
+/** Lower bound for stable distance normalization when computing blend gap. */
+const BLEND_DENOM_EPSILON = 1e-6
+
 /**
  * Computes squared distance between a query point and a selector in 6D multi-noise space.
  * Uses optional per-dimension weights (defaults to 1).
@@ -149,6 +152,35 @@ function distSq(temp: number, humidity: number, c: ClimateBounds): number {
   const tMid = (c.tempMin + c.tempMax) / 2
   const hMid = (c.humidityMin + c.humidityMax) / 2
   return (temp - tMid) ** 2 + (humidity - hMid) ** 2
+}
+
+/**
+ * Clamps a number to [0, 1].
+ */
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v))
+}
+
+/**
+ * Hermite smoothstep over [0,1].
+ */
+function smoothstep01(v: number): number {
+  const x = clamp01(v)
+  return x * x * (3 - 2 * x)
+}
+
+/**
+ * Converts nearest and second-nearest distances into a stable secondary blend weight.
+ * Uses normalized gap + smoothstep so boundaries get a softer mix while deep interior
+ * stays strongly primary.
+ */
+function getSecondaryBlendWeight(bestD: number, secondD: number): number {
+  const safeBestD = Math.max(bestD, 0)
+  const safeSecondD = Math.max(secondD, safeBestD)
+  const gapNorm =
+    (safeSecondD - safeBestD) / Math.max(safeBestD + safeSecondD, BLEND_DENOM_EPSILON)
+  const boundaryProximity = 1 - gapNorm
+  return 0.5 * smoothstep01(boundaryProximity)
 }
 
 /**
@@ -217,9 +249,7 @@ export function getLandBiomeBlendByClimate(temp: number, humidity: number): Land
     }
   }
 
-  // Convert distances to a stable, bounded secondary weight.
-  const denom = bestD + secondD
-  const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0
+  const t = getSecondaryBlendWeight(bestD, secondD)
   return { primary: best, secondary: second, t }
 }
 
@@ -279,8 +309,7 @@ export function getLandBiomeBlendByMultiNoise(point: MultiNoise6Point): LandBiom
     }
   }
 
-  const denom = bestD + secondD
-  const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0
+  const t = getSecondaryBlendWeight(bestD, secondD)
   return { primary: best, secondary: second, t }
 }
 

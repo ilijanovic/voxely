@@ -368,6 +368,25 @@ function startGameFromMenu(mode: 'singleplayer' | 'multiplayer') {
   gameMode.value = mode
 }
 
+/**
+ * Exits the current session back to the launcher menu.
+ *
+ * Flushes playtime first, clears stale pending-launch data, then reloads so the
+ * game runtime is recreated in a clean menu state.
+ */
+function exitToMenu() {
+  flushSessionPlaytime()
+  activeSessionWorldIdRef.value = null
+  lastPlaytimeFlushAtRef.value = 0
+  pauseMenuOpen.value = false
+  try {
+    sessionStorage.removeItem(PENDING_WORLD_LAUNCH_KEY)
+  } catch {
+    // Ignore unavailable session storage
+  }
+  window.location.reload()
+}
+
 /** Builds the controls hint from current key bindings so rebinded keys are shown correctly. */
 const controlsHintText = computed(() => {
   const jump = codeToDisplayName(getKeyBinding('jump'))
@@ -1131,9 +1150,9 @@ onUnmounted(() => {
         />
       </Transition>
 
-      <!-- Pause menu (ESC): Resume, Options · Graphics -->
+      <!-- Pause menu (ESC): Resume, Options · Graphics, Exit to Menu -->
       <Transition name="modal">
-        <PauseMenu v-if="pauseMenuOpen" @close="pauseMenuOpen = false" />
+        <PauseMenu v-if="pauseMenuOpen" @close="pauseMenuOpen = false" @exit="exitToMenu" />
       </Transition>
 
       <!-- Quest Log (Q): active, available, turn-in -->

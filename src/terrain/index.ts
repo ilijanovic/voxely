@@ -69,6 +69,12 @@ import {
   COAST_EDGE_MIN_COAST_BLEND_T,
   OCEAN_CONTINENTALNESS_THRESHOLD,
   OVERHANG_MAX_DEPTH_BELOW_SURFACE,
+  OVERHANG_DRAMATIC_MAX_DEPTH_BELOW_SURFACE,
+  OVERHANG_DRAMATIC_MIN_DEPTH_BELOW_SURFACE,
+  OVERHANG_DRAMATIC_MIN_SLOPE,
+  OVERHANG_DRAMATIC_SCALE_XZ,
+  OVERHANG_DRAMATIC_SCALE_Y,
+  OVERHANG_DRAMATIC_THRESHOLD,
   OVERHANG_MIN_DEPTH_BELOW_SURFACE,
   OVERHANG_MIN_SLOPE,
   OVERHANG_SCALE_XZ,
@@ -268,8 +274,12 @@ export interface ChunkDataPayload {
 /**
  * Creates the chunk generator for a given seed. Returns a function that runs the full pipeline (heightmap/biome, carve, stratigraphy, features) and produces a ChunkDataPayload. Options can tune snow accumulation height.
  */
+export type OverhangProfile = 'vanilla' | 'dramatic'
+
 export interface ChunkGeneratorOptions {
   snowAccumulationHeight?: number
+  /** Overhang carving profile: 'vanilla' (subtle) or 'dramatic' (stronger cliff cavities). */
+  overhangProfile?: OverhangProfile
   /** Pre-defined POIs for biome override and fixed village/NPC/mob placement. */
   pois?: WorldPoi[]
   /** Optional hook called before/after each pipeline stage; defaults to terrain/override.ts. */
@@ -289,6 +299,7 @@ const RIVER_SECONDARY_OFFSET_Z = -611.9
 
 export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptions) {
   const snowAccumulationHeight = clamp(options?.snowAccumulationHeight ?? 1, 0, 8)
+  const overhangProfile: OverhangProfile = options?.overhangProfile ?? 'vanilla'
   const pois = options?.pois ?? []
   const overrideFn = options?.override ?? defaultOverride
   const getPoiOverride = (x: number, z: number): Biome | null => getPoiBiomeOverride(pois, x, z)
@@ -1468,6 +1479,25 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     }
   }
 
+  const overhangSettings =
+    overhangProfile === 'dramatic'
+      ? {
+          scaleXZ: OVERHANG_DRAMATIC_SCALE_XZ,
+          scaleY: OVERHANG_DRAMATIC_SCALE_Y,
+          threshold: OVERHANG_DRAMATIC_THRESHOLD,
+          minSlope: OVERHANG_DRAMATIC_MIN_SLOPE,
+          minDepthBelowSurface: OVERHANG_DRAMATIC_MIN_DEPTH_BELOW_SURFACE,
+          maxDepthBelowSurface: OVERHANG_DRAMATIC_MAX_DEPTH_BELOW_SURFACE,
+        }
+      : {
+          scaleXZ: OVERHANG_SCALE_XZ,
+          scaleY: OVERHANG_SCALE_Y,
+          threshold: OVERHANG_THRESHOLD,
+          minSlope: OVERHANG_MIN_SLOPE,
+          minDepthBelowSurface: OVERHANG_MIN_DEPTH_BELOW_SURFACE,
+          maxDepthBelowSurface: OVERHANG_MAX_DEPTH_BELOW_SURFACE,
+        }
+
   const stageCarvers = createStageCarvers({
     carve3d: {
       caveNoise3D,
@@ -1513,12 +1543,12 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     },
     overhang: {
       overhangNoise3D,
-      scaleXZ: OVERHANG_SCALE_XZ,
-      scaleY: OVERHANG_SCALE_Y,
-      threshold: OVERHANG_THRESHOLD,
-      minSlope: OVERHANG_MIN_SLOPE,
-      minDepthBelowSurface: OVERHANG_MIN_DEPTH_BELOW_SURFACE,
-      maxDepthBelowSurface: OVERHANG_MAX_DEPTH_BELOW_SURFACE,
+      scaleXZ: overhangSettings.scaleXZ,
+      scaleY: overhangSettings.scaleY,
+      threshold: overhangSettings.threshold,
+      minSlope: overhangSettings.minSlope,
+      minDepthBelowSurface: overhangSettings.minDepthBelowSurface,
+      maxDepthBelowSurface: overhangSettings.maxDepthBelowSurface,
       getHeightAt: getHeight,
     },
   })

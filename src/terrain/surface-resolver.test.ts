@@ -68,4 +68,24 @@ describe('resolveSurfaceBlock', () => {
     })
     expect(block).toBe('red_sand')
   })
+
+  it('blends desert-to-plains boundary inside desert blend window', () => {
+    const block = resolveSurfaceBlock({
+      ...baseParams,
+      biome: 'desert',
+      blend: { primary: 'desert', secondary: 'plains', t: 0.35 },
+      ditherNoiseLand: 0.2,
+    })
+    expect(block).toBe('grass')
+  })
+
+  it('keeps sharp desert edge outside desert blend window', () => {
+    const block = resolveSurfaceBlock({
+      ...baseParams,
+      biome: 'desert',
+      blend: { primary: 'desert', secondary: 'plains', t: 0.15 },
+      ditherNoiseLand: 0.01,
+    })
+    expect(block).toBe('sand')
+  })
 })

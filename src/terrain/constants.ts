@@ -247,6 +247,18 @@ export const OVERHANG_MIN_SLOPE = 4
 export const OVERHANG_MIN_DEPTH_BELOW_SURFACE = 3
 /** Stop overhang carving this many blocks below the surface. */
 export const OVERHANG_MAX_DEPTH_BELOW_SURFACE = 12
+/** Dramatic overhang profile horizontal sampling scale. */
+export const OVERHANG_DRAMATIC_SCALE_XZ = 0.045
+/** Dramatic overhang profile vertical sampling scale. */
+export const OVERHANG_DRAMATIC_SCALE_Y = 0.09
+/** Dramatic overhang profile carve threshold. */
+export const OVERHANG_DRAMATIC_THRESHOLD = 0.64
+/** Dramatic overhang profile minimum slope gate. */
+export const OVERHANG_DRAMATIC_MIN_SLOPE = 3
+/** Dramatic overhang profile minimum depth below surface. */
+export const OVERHANG_DRAMATIC_MIN_DEPTH_BELOW_SURFACE = 2
+/** Dramatic overhang profile maximum depth below surface. */
+export const OVERHANG_DRAMATIC_MAX_DEPTH_BELOW_SURFACE = 16
 
 /**
  * Numerical stability (Far Lands): at very large |x|/|z|, floating point can degrade.
