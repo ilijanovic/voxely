@@ -7,8 +7,6 @@ import {
   WATER_LEVEL,
   WATER_BLOCK_HEIGHT,
   WATER_SPREAD_INTERVAL_SEC,
-  SPAWN_X,
-  SPAWN_Z,
   SPAWN_ABOVE_CAVE_DEBUG,
   WORLD_HEIGHT,
   WORLD_MAX_Y,
@@ -172,7 +170,10 @@ import { initSceneAndRenderer as initSceneAndRendererSystem } from './game/init/
 import { initLightsAndSky as initLightsAndSkySystem } from './game/init/lights-sky'
 import {
   createTerrainDebugOverlay as createTerrainDebugOverlaySystem,
+  copyTerrainDebugReport,
   createTerrainDebugState,
+  toggleTerrainDebugColumnLock,
+  toggleTerrainDebugDetails,
   toggleTerrainDebug,
   updateTerrainDebugOverlay as updateTerrainDebugOverlaySystem,
   type TerrainDebugState,
@@ -195,7 +196,6 @@ import {
   chunkKey,
   chunkKeyNumeric,
   blockKeyNumeric,
-  decodeLocalKey,
   invalidateColumnHeight,
   getBlockAt,
   getBlockModsForChunk,
@@ -579,6 +579,7 @@ function loadGame(): boolean {
     initDefaultInventory()
     discoveredChunkKeys.clear()
     clearDiscoveredHeightmapCache()
+    rebuildDynamicSimulationQueuesFromBlockMods()
     return false
   }
   if (data.worldSeed !== WORLD_SEED) return false
@@ -611,6 +612,7 @@ function loadGame(): boolean {
       invalidateColumnHeight(b.x, b.z)
     }
   }
+  rebuildDynamicSimulationQueuesFromBlockMods()
 
   if (typeof torchContainer !== 'undefined') {
     while (placedTorches.length) placedTorches.pop()
@@ -862,6 +864,20 @@ const FALLING_BLOCK_MAX_MOVES_PER_TICK = 64
 let lastBlockTickTime = 0
 let lastFallingBlockTime = 0
 let lastWaterSpreadTime = 0
+type WorldCell = { bx: number; by: number; bz: number }
+/** Candidate cells for local water simulation updates (keyed by "x,y,z"). */
+const activeWaterCells = new Map<string, WorldCell>()
+/** Candidate cells for local falling-block simulation updates (keyed by "x,y,z"). */
+const activeFallingCells = new Map<string, WorldCell>()
+/** Neighbor offsets for 6 directions (used for water simulation updates). */
+const NEIGHBOR_OFFSETS: Array<[number, number, number]> = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+]
 
 const _direction = new THREE.Vector3()
 const _projScreenMatrix = new THREE.Matrix4()
@@ -883,6 +899,89 @@ const _cameraOffset = new THREE.Vector3()
 // OPT-2: reusable AABB block buffer (avoids array/object allocs in resolveVoxelCollisions)
 // OPT-3: cache block meshes for raycasting; invalidated on chunk load/unload
 const raycastMeshCache = new RaycastMeshCache()
+
+/**
+ * Returns an integer world-cell key string.
+ */
+function worldCellKey(bx: number, by: number, bz: number): string {
+  return `${Math.floor(bx)},${Math.floor(by)},${Math.floor(bz)}`
+}
+
+/**
+ * Adds one integer world-cell to the given active-candidate map.
+ */
+function addActiveCell(cells: Map<string, WorldCell>, bx: number, by: number, bz: number): void {
+  const ix = Math.floor(bx)
+  const iy = Math.floor(by)
+  const iz = Math.floor(bz)
+  cells.set(worldCellKey(ix, iy, iz), { bx: ix, by: iy, bz: iz })
+}
+
+/**
+ * Queues this cell for water simulation when it currently contains water.
+ */
+function queueWaterCellIfWater(bx: number, by: number, bz: number): void {
+  const type = getBlockAt(bx, by, bz)
+  if (type === null || !isWaterBlock(type)) return
+  addActiveCell(activeWaterCells, bx, by, bz)
+}
+
+/**
+ * Queues this cell for falling-block simulation when it currently contains a falling block.
+ */
+function queueFallingCellIfFalling(bx: number, by: number, bz: number): void {
+  const type = getBlockAt(bx, by, bz)
+  if (type === null || !isFallingBlockType(type)) return
+  addActiveCell(activeFallingCells, bx, by, bz)
+}
+
+/**
+ * Marks nearby water cells around a changed block for incremental simulation.
+ */
+function queueWaterAroundBlockChange(bx: number, by: number, bz: number): void {
+  queueWaterCellIfWater(bx, by, bz)
+  for (const [dx, dy, dz] of NEIGHBOR_OFFSETS) {
+    queueWaterCellIfWater(bx + dx, by + dy, bz + dz)
+  }
+}
+
+/**
+ * Marks nearby falling-block cells around a changed block for incremental simulation.
+ */
+function queueFallingAroundBlockChange(bx: number, by: number, bz: number): void {
+  queueFallingCellIfFalling(bx, by, bz)
+  queueFallingCellIfFalling(bx, by + 1, bz)
+}
+
+/**
+ * Marks both water and falling simulation candidates around a changed block.
+ */
+function queueDynamicSimulationAroundBlockChange(bx: number, by: number, bz: number): void {
+  queueWaterAroundBlockChange(bx, by, bz)
+  queueFallingAroundBlockChange(bx, by, bz)
+}
+
+/**
+ * Rebuilds incremental simulation candidate queues from persisted block modifications.
+ */
+function rebuildDynamicSimulationQueuesFromBlockMods(): void {
+  activeWaterCells.clear()
+  activeFallingCells.clear()
+  for (const [keyStr, value] of blockModifications) {
+    const parts = keyStr.split(',')
+    if (parts.length !== 3) continue
+    const bx = Number(parts[0])
+    const by = Number(parts[1])
+    const bz = Number(parts[2])
+    if (!Number.isFinite(bx) || !Number.isFinite(by) || !Number.isFinite(bz)) continue
+    if (value !== 'air' && isWaterBlock(value)) {
+      addActiveCell(activeWaterCells, bx, by, bz)
+    }
+    if (value !== 'air' && isFallingBlockType(value)) {
+      addActiveCell(activeFallingCells, bx, by, bz)
+    }
+  }
+}
 
 // ================= CHUNK SYNC CONTEXT =================
 
@@ -980,6 +1079,7 @@ function applyBlockChangeToLoadedChunk(params: {
     raycastMeshCache.markDirty()
     _frustumDirty = true
   }
+  queueDynamicSimulationAroundBlockChange(bx, by, bz)
 
   /**
    * Validates torches adjacent to this changed block. If their support face is no longer sturdy,
@@ -1260,12 +1360,6 @@ function resolveInitialSpawnXZ(): { x: number; z: number } {
     }
   }
 
-  // Ultimate fallback: use fixed spawn coordinates from config if still at origin.
-  if (spawnX === 0 && spawnZ === 0) {
-    spawnX = SPAWN_X
-    spawnZ = SPAWN_Z
-  }
-
   return { x: spawnX, z: spawnZ }
 }
 
@@ -1329,7 +1423,7 @@ function createPlayer(scene: THREE.Scene, resolvedSpawn: { x: number; z: number 
 
 // ================= POV HAND =================
 // Camera looks along -Z; arm is lower-right. Held weapon pivot is at hilt (geom.translate) so swing rotates at hand.
-// Weapons use depthTest: true and HELD_WEAPON_OFFSET_Z so the sword stays in front of the arm.
+// Weapons render with depthTest disabled (plus high renderOrder), so they stay visible in first person.
 
 /** POV arm dimensions (slim so it reads as an arm, not a block). */
 const POV_ARM_WIDTH = 0.06
@@ -1347,7 +1441,7 @@ const POV_HAND_OFFSET_Z = 0
 const HELD_BLOCK_SCALE = 0.2
 /** Size of held item in first-person (e.g. sword); 1:1 aspect to avoid stretching square item textures. */
 const HELD_ITEM_SIZE = 0.32
-/** Held weapon: Z offset so sword sits in front of arm (no clipping with depthTest). */
+/** Held weapon: Z offset so sword sits in front of arm (keeps the hand pose readable). */
 const HELD_WEAPON_OFFSET_Z = 0.08
 /** Held sword: keep front side toward camera (no mirrored backface) and lean to match Minecraft-like right-hand POV. */
 const HELD_SWORD_TILT_Y_RAD = 0
@@ -1370,8 +1464,7 @@ function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Object3D {
 
   const itemTex = getItemTextureName(blockType)
   if (itemTex) {
-    // Weapon/tool: layered cutout planes with alpha test.
-    // This avoids the transparent-quad depth artifact (hand "disappearing") and gives a slight 3D feel.
+    // Weapon/tool: layered cutout planes with alpha test for a slight voxel-like thickness.
     const itemGroup = new THREE.Group()
     itemGroup.renderOrder = 10000
     const layerMaterials: THREE.MeshBasicMaterial[] = []
@@ -1380,8 +1473,9 @@ function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Object3D {
       geom.translate(0, HELD_ITEM_SIZE / 2, 0)
       const mat = new THREE.MeshBasicMaterial({
         color: 0xffffff,
-        depthTest: true,
-        depthWrite: true,
+        // Keep held tools/weapons visible in first person even when entities/terrain are very close.
+        depthTest: false,
+        depthWrite: false,
         transparent: true,
         alphaTest: 0.5,
         opacity: 1,
@@ -2288,7 +2382,23 @@ document.addEventListener('keydown', (e) => {
 
   if (code === 'KeyP' && !e.repeat) {
     e.preventDefault()
-    toggleTerrainDebug(terrainDebug)
+    if (e.shiftKey) {
+      toggleTerrainDebugDetails(terrainDebug)
+    } else {
+      toggleTerrainDebug(terrainDebug)
+    }
+    return
+  }
+
+  if (code === 'KeyL' && e.shiftKey && !e.repeat) {
+    e.preventDefault()
+    toggleTerrainDebugColumnLock(terrainDebug, player)
+    return
+  }
+
+  if (code === 'KeyC' && e.shiftKey && !e.repeat) {
+    e.preventDefault()
+    void copyTerrainDebugReport(terrainDebug)
     return
   }
 
@@ -2550,7 +2660,17 @@ function reportPerfStatsIfDue(nowMs: number): void {
 function updateFPSAndSpawn(time: number): void {
   applyPendingSpawnIfReady()
   applyPendingLoadIfReady()
-  updateTerrainDebugOverlaySystem(terrainDebug, time, player, { fps: lastFps })
+  const inWater = isPlayerInWater()
+  const currentAimed = aimedBlock
+  const aimedType = currentAimed
+    ? getBlockAt(currentAimed.x, currentAimed.y, currentAimed.z)
+    : null
+  updateTerrainDebugOverlaySystem(terrainDebug, time, player, {
+    fps: lastFps,
+    inWater,
+    aimedBlock: currentAimed,
+    aimedBlockType: aimedType,
+  })
   fpsFrameCount++
   const fpsElapsed = time * 1000 - fpsLastTime
   if (fpsElapsed >= 500) {
@@ -2668,6 +2788,12 @@ function updateChunkVisibility(): void {
 
 /** Vertical offset from feet: player is "in water" when (position.y + offset) is below water surface. Avoids triggering on shallow contact. */
 const WATER_ENTRY_OFFSET = PLAYER_HEIGHT * 0.2
+/** Biomes where the natural sea-level water plane can apply. */
+const NATURAL_WATER_BIOMES = new Set(['ocean', 'river', 'frozen_river'])
+/** Refresh cadence for quest NPC icon state (seconds). */
+const QUEST_ICON_REFRESH_INTERVAL_SEC = 0.25
+/** Last game-time timestamp when quest NPC icons were refreshed. */
+let lastQuestIconRefreshTime = 0
 
 /**
  * True when the player is considered submerged in water.
@@ -2685,10 +2811,11 @@ function isPlayerInWater(): boolean {
     if (block !== null && isWaterBlock(block)) return true
   }
 
-  // Ocean/lake plane water: only below sea surface and above the local terrain top in this column.
+  // Natural sea-level water plane: only in water biomes, below sea surface, and above local terrain.
+  if (!NATURAL_WATER_BIOMES.has(getResolvedBiome(bx, bz))) return false
   if (player.position.y + WATER_ENTRY_OFFSET >= waterSurfaceY) return false
   const topY = getHeight(bx, bz)
-  if (topY >= WATER_LEVEL) return false
+  if (topY > WATER_LEVEL) return false
   return player.position.y + WATER_ENTRY_OFFSET > topY
 }
 
@@ -2875,7 +3002,10 @@ function updateMovementAndCollision(dt: number, time: number): void {
   })
   updateAnimation(time)
   updateHurtFlash(time)
-  updateAllQuestNpcIcons(getAllEntities)
+  if (time - lastQuestIconRefreshTime >= QUEST_ICON_REFRESH_INTERVAL_SEC) {
+    updateAllQuestNpcIcons(getAllEntities)
+    lastQuestIconRefreshTime = time
+  }
 }
 
 /**
@@ -3246,41 +3376,10 @@ function runBlockTick(time: number): void {
 function runFallingBlocksTick(time: number): void {
   if (time - lastFallingBlockTime < FALLING_BLOCK_INTERVAL_SEC) return
   lastFallingBlockTime = time
+  if (activeFallingCells.size === 0) return
 
-  const candidates: Array<{ bx: number; by: number; bz: number }> = []
-  const seen = new Set<string>()
-
-  for (const [, data] of chunks) {
-    const worldX = data.cx * CHUNK_SIZE
-    const worldZ = data.cz * CHUNK_SIZE
-    for (const [key, type] of data.voxelMap) {
-      if (!isFallingBlockType(type)) continue
-      const { lx, ly, lz } = decodeLocalKey(key)
-      const bx = worldX + lx
-      const by = WORLD_MIN_Y + ly
-      const bz = worldZ + lz
-      const keyStr = `${bx},${by},${bz}`
-      if (seen.has(keyStr)) continue
-      const effective = getBlockAt(bx, by, bz)
-      if (effective === null || effective === 'air' || !isFallingBlockType(effective)) continue
-      seen.add(keyStr)
-      candidates.push({ bx, by, bz })
-    }
-  }
-
-  for (const [keyStr, value] of blockModifications) {
-    if (!isFallingBlockType(value)) continue
-    const parts = keyStr.split(',')
-    const bx = Number(parts[0])
-    const by = Number(parts[1])
-    const bz = Number(parts[2])
-    const cx = Math.floor(bx / CHUNK_SIZE)
-    const cz = Math.floor(bz / CHUNK_SIZE)
-    if (!chunks.has(chunkKeyNumeric(cx, cz))) continue
-    if (seen.has(keyStr)) continue
-    seen.add(keyStr)
-    candidates.push({ bx, by, bz })
-  }
+  const candidates = Array.from(activeFallingCells.values())
+  activeFallingCells.clear()
 
   const moves = computeFallingBlockMoves({
     getBlockAt,
@@ -3311,45 +3410,20 @@ function runFallingBlocksTick(time: number): void {
 const WATER_SPREAD_MAX_CHANGES_PER_TICK = 40
 
 /**
- * Runs water flow every WATER_SPREAD_INTERVAL_SEC: collects water block positions from loaded chunks and blockMods,
- * computes spread (fall then horizontal), applies changes via blockModifications and refreshChunkVisibleMeshes.
+ * Runs water flow every WATER_SPREAD_INTERVAL_SEC for active water cells near recent changes.
+ * Computes spread (fall then horizontal) and applies resulting block modifications.
  */
 function runWaterFlowTick(time: number): void {
   if (time - lastWaterSpreadTime < WATER_SPREAD_INTERVAL_SEC) return
   lastWaterSpreadTime = time
+  if (activeWaterCells.size === 0) return
 
-  const waterPositions: Array<{ bx: number; by: number; bz: number }> = []
-  const seen = new Set<string>()
-
-  for (const [, data] of chunks) {
-    const worldX = data.cx * CHUNK_SIZE
-    const worldZ = data.cz * CHUNK_SIZE
-    for (const [key, type] of data.voxelMap) {
-      if (!isWaterBlock(type)) continue
-      const { lx, ly, lz } = decodeLocalKey(key)
-      const bx = worldX + lx
-      const bz = worldZ + lz
-      const k = `${bx},${ly},${bz}`
-      if (seen.has(k)) continue
-      const effective = getBlockAt(bx, ly, bz)
-      if (effective === null || !isWaterBlock(effective)) continue
-      seen.add(k)
-      waterPositions.push({ bx, by: ly, bz })
-    }
-  }
-  for (const [keyStr, value] of blockModifications) {
-    if (!isWaterBlock(value)) continue
-    const parts = keyStr.split(',')
-    const bx = Number(parts[0])
-    const by = Number(parts[1])
-    const bz = Number(parts[2])
-    const cx = Math.floor(bx / CHUNK_SIZE)
-    const cz = Math.floor(bz / CHUNK_SIZE)
-    if (!chunks.has(chunkKeyNumeric(cx, cz))) continue
-    if (seen.has(keyStr)) continue
-    seen.add(keyStr)
-    waterPositions.push({ bx, by, bz })
-  }
+  const waterPositions = Array.from(activeWaterCells.values()).filter(({ bx, by, bz }) => {
+    const type = getBlockAt(bx, by, bz)
+    return type !== null && isWaterBlock(type)
+  })
+  activeWaterCells.clear()
+  if (waterPositions.length === 0) return
 
   // Process higher blocks first, then lower water level (source before flowing) for deterministic "fall first" behaviour.
   waterPositions.sort((a, b) => {
@@ -3372,16 +3446,6 @@ function runWaterFlowTick(time: number): void {
   }
 }
 
-/** Neighbor offsets for 6 directions (for immediate water spread when a block is broken). */
-const NEIGHBOR_OFFSETS: Array<[number, number, number]> = [
-  [1, 0, 0],
-  [-1, 0, 0],
-  [0, 1, 0],
-  [0, -1, 0],
-  [0, 0, 1],
-  [0, 0, -1],
-]
-
 /**
  * Runs one water spread pass from the neighbors of (bx, by, bz).
  * Used when a block is broken so water immediately flows into the new air.
@@ -3394,6 +3458,9 @@ function runWaterSpreadFromNeighbors(bx: number, by: number, bz: number): void {
     const nz = bz + dz
     const t = getBlockAt(nx, ny, nz)
     if (t !== null && isWaterBlock(t)) waterPositions.push({ bx: nx, by: ny, bz: nz })
+  }
+  for (const cell of waterPositions) {
+    addActiveCell(activeWaterCells, cell.bx, cell.by, cell.bz)
   }
   if (waterPositions.length === 0) return
 

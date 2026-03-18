@@ -124,7 +124,10 @@ export function carveRiverHeight(
   const targetFloor = WATER_LEVEL - depth
   const carveStrength = Math.pow(clamp01(riverFactor), RIVER_CARVE_POWER)
   const carved = lerp(baseHeight, Math.min(baseHeight, targetFloor), carveStrength)
-  return Math.min(baseHeight, carved)
+  const carvedHeight = Math.min(baseHeight, carved)
+  // River-biome columns should sit at or below sea level so the water surface is visible.
+  if (riverFactor >= RIVER_BIOME_FACTOR_THRESHOLD) return Math.min(carvedHeight, WATER_LEVEL)
+  return carvedHeight
 }
 
 /**

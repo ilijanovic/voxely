@@ -59,7 +59,7 @@ export const RIVER_WIDTH_MIN = 0.028
 /** River half-width threshold in abs-noise space (maximum). */
 export const RIVER_WIDTH_MAX = 0.065
 /** Soft edge size around the channel threshold in abs-noise space. */
-export const RIVER_EDGE_SOFTNESS = 0.014
+export const RIVER_EDGE_SOFTNESS = 0.022
 /** Minimum overlap between primary/secondary channels before confluence widening activates. */
 export const RIVER_CONFLUENCE_MIN_CORE = 0.18
 /** Extra carve factor added at confluences (wider basins where channels meet). */
@@ -73,13 +73,13 @@ export const RIVER_ALTITUDE_FADE_START = WATER_LEVEL + 10
 /** Fully fade rivers out above this absolute terrain height (pre-carve), in world Y. */
 export const RIVER_ALTITUDE_FADE_END = WATER_LEVEL + 34
 /** Minimum river bed depth below water level in blocks. */
-export const RIVER_DEPTH_MIN = 2.5
+export const RIVER_DEPTH_MIN = 3
 /** Maximum river bed depth below water level in blocks. */
-export const RIVER_DEPTH_MAX = 7
+export const RIVER_DEPTH_MAX = 6
 /** Non-linear falloff for river carving intensity (1 = linear). */
-export const RIVER_CARVE_POWER = 1.15
+export const RIVER_CARVE_POWER = 0.85
 /** Minimum river factor required to classify a column as river biome. */
-export const RIVER_BIOME_FACTOR_THRESHOLD = 0.44
+export const RIVER_BIOME_FACTOR_THRESHOLD = 0.52
 /** Max smoothed temperature for frozen_river eligibility. */
 export const RIVER_FROZEN_TEMP_MAX = 0.19
 /** River factor required for frozen_river (keeps freezing mostly in channel cores). */
@@ -137,6 +137,12 @@ export const BADLANDS_VALLEY_DEPTH = 8.5
 export const BADLANDS_VALLEY_RELIEF_REDUCTION = 0.62
 /** Non-core mountain-enabled biomes (forest, jungle, taiga) get reduced mountain strength. */
 export const MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST = 0.9
+/** Below this core-mountain blend share, mountain uplift is strongly attenuated at biome edges. */
+export const MOUNTAIN_CORE_BLEND_SOFTEN_START = 0.18
+/** At or above this core-mountain blend share, mountain uplift reaches full strength. */
+export const MOUNTAIN_CORE_BLEND_SOFTEN_FULL = 0.68
+/** Minimum retained mountain uplift when core-mountain blend share is very low. */
+export const MOUNTAIN_CORE_BLEND_MIN_STRENGTH = 0.28
 /** Additional height gain when the weirdness signal is in a peak band. */
 export const MOUNTAIN_PEAK_BAND_BOOST = 0.7
 /** Extra height gain for sharp negative-weirdness mountain ridges. */
@@ -180,10 +186,21 @@ export const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55
 /** Height transition noise (softens height cutoffs). */
 export const HEIGHT_TRANSITION_SCALE = 0.0016
 export const HEIGHT_TRANSITION_AMPLITUDE = 4.5
+/** Start softening extreme local cliffs when max cardinal delta exceeds this many blocks. */
+export const HEIGHT_EXTREME_CLIFF_SOFTEN_START = 10
+/** Apply full extreme-cliff softening once max cardinal delta reaches this many blocks. */
+export const HEIGHT_EXTREME_CLIFF_SOFTEN_FULL = 26
+/** Max blend toward cardinal neighborhood average when extreme cliff softening is fully active. */
+export const HEIGHT_EXTREME_CLIFF_SOFTEN_MAX_BLEND = 0.45
 
 /** Peak biome selection (frozen/jagged/stony) height range. */
 export const PEAK_Y_MIN = WATER_LEVEL + 28
 export const PEAK_Y_RANGE = 18
+/**
+ * Cardinal radius (in blocks) used to enforce a snowy_slopes transition ring
+ * before resolving to jagged_peaks.
+ */
+export const JAGGED_PEAKS_EDGE_CHECK_RADIUS = 4
 /** Minimum peak-band factor before the sharp jagged branch can win peak selection. */
 export const PEAK_JAGGED_BAND_MIN = 0.5
 /** Minimum jagged factor before a peak is classified as jagged. */

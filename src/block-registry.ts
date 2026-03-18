@@ -522,7 +522,9 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Dead Bush',
     textures: { type: 'single', texture: 'deadbush' },
     solid: false,
+    transparent: true,
     breakTimeSeconds: 0,
+    crossGeometry: true,
   }),
   D({
     id: 'cactus',

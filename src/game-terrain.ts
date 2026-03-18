@@ -145,6 +145,7 @@ const caveNoise3D = createNoise3D(makeSeededRandom(WORLD_SEED + 400))
 /** Biomes that can be chosen for spawn; each has equal probability (deterministic per WORLD_SEED). */
 export const SPAWNABLE_BIOMES: Biome[] = [
   'desert',
+  'badlands',
   'plains',
   'savanna',
   'forest',
@@ -206,6 +207,59 @@ export function getContinentalness(x: number, z: number): number {
 /** Erosion at (x, z). Used by debug overlay. */
 export function getErosion(x: number, z: number): number {
   return terrainSampling.getErosion(x, z)
+}
+
+/** Terrain debug snapshot for one world column. */
+export interface TerrainColumnDebugSnapshot {
+  wx: number
+  wz: number
+  baseBiome: Biome
+  resolvedBiome: Biome
+  biomeBlend: { primary: Biome; secondary: Biome; t: number }
+  heightUsed: number
+  rawHeight: number
+  smoothedHeight: number
+  macroTerm: number
+  localTerm: number
+  mountainTerm: number
+  erosionTerm: number
+  temperature: number
+  humidity: number
+  continentalness: number
+}
+
+/**
+ * Returns a structured terrain debug snapshot for one world column (x,z).
+ * Values are sampled from the same terrain formulas used by gameplay/runtime.
+ */
+export function getTerrainColumnDebugSnapshot(x: number, z: number): TerrainColumnDebugSnapshot {
+  const wx = Math.floor(x)
+  const wz = Math.floor(z)
+  const baseBiome = terrainSampling.getBiome(wx, wz)
+  const resolvedBiome = getResolvedBiome(wx, wz)
+  const biomeBlend = terrainSampling.getBiomeBlend(wx, wz)
+  const heightUsed = getHeight(wx, wz)
+  return {
+    wx,
+    wz,
+    baseBiome,
+    resolvedBiome,
+    biomeBlend: {
+      primary: biomeBlend.primary,
+      secondary: biomeBlend.secondary,
+      t: biomeBlend.t,
+    },
+    heightUsed,
+    rawHeight: terrainSampling.getRawTerrainHeight(wx, wz),
+    smoothedHeight: terrainSampling.getSmoothedHeight(wx, wz),
+    macroTerm: terrainSampling.getMacroTerrain(wx, wz),
+    localTerm: terrainSampling.getLocalTerrain(wx, wz, resolvedBiome),
+    mountainTerm: terrainSampling.getMountainContribution(wx, wz, resolvedBiome),
+    erosionTerm: terrainSampling.getErosion(wx, wz),
+    temperature: terrainSampling.getTemperature(wx, wz),
+    humidity: terrainSampling.getHumidity(wx, wz),
+    continentalness: terrainSampling.getContinentalness(wx, wz),
+  }
 }
 
 /** Foot half-extent for spawn surface search (matches player AABB in XZ). */
@@ -448,59 +502,84 @@ export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
   const maxRadius = 80 * CHUNK_SIZE
   const maxHeightPreferGrass = getSpawnMaxHeightForGrass(biome)
 
-  const tryFind = (maxHeight: number): { x: number; z: number } | null => {
-    for (let radius = SPAWN_BIOME_MIN_RADIUS; radius <= maxRadius; radius += step) {
-      const half = radius
-      for (let x = -half; x <= half; x += step) {
-        const h1 = getHeight(x, -half)
-        if (
-          getResolvedBiome(x, -half) === biome &&
-          isBiomeSolid(x, -half, biome) &&
-          h1 >= WATER_LEVEL - 1 &&
-          h1 <= maxHeight &&
-          !hasOceanNearby(x, -half, SPAWN_OCEAN_BUFFER_CHUNKS)
-        )
-          return { x, z: -half }
-        if (half > 0) {
-          const h2 = getHeight(x, half)
-          if (
-            getResolvedBiome(x, half) === biome &&
-            isBiomeSolid(x, half, biome) &&
-            h2 >= WATER_LEVEL - 1 &&
-            h2 <= maxHeight &&
-            !hasOceanNearby(x, half, SPAWN_OCEAN_BUFFER_CHUNKS)
-          )
-            return { x, z: half }
-        }
-      }
-      for (let z = -half + step; z < half; z += step) {
-        const h1 = getHeight(-half, z)
-        if (
-          getResolvedBiome(-half, z) === biome &&
-          isBiomeSolid(-half, z, biome) &&
-          h1 >= WATER_LEVEL - 1 &&
-          h1 <= maxHeight &&
-          !hasOceanNearby(-half, z, SPAWN_OCEAN_BUFFER_CHUNKS)
-        )
-          return { x: -half, z }
-        const h2 = getHeight(half, z)
-        if (
-          getResolvedBiome(half, z) === biome &&
-          isBiomeSolid(half, z, biome) &&
-          h2 >= WATER_LEVEL - 1 &&
-          h2 <= maxHeight &&
-          !hasOceanNearby(half, z, SPAWN_OCEAN_BUFFER_CHUNKS)
-        )
-          return { x: half, z }
-      }
-    }
-    return null
+  const biomeIndex = SPAWNABLE_BIOMES.indexOf(biome)
+  const biomeSeed = biomeIndex >= 0 ? biomeIndex : 0
+  // Deterministic "randomness" per world seed + biome, so new worlds typically get a different spawn.
+  const pickRng = makeSeededRandom(WORLD_SEED + 6060 + biomeSeed * 12345)
+  const candidatesPerPass = 32
+
+  const isValidAt = (wx: number, wz: number, maxHeight: number): boolean => {
+    const h = getHeight(wx, wz)
+    if (h < WATER_LEVEL - 1 || h > maxHeight) return false
+    if (getResolvedBiome(wx, wz) !== biome) return false
+    if (!isBiomeSolid(wx, wz, biome)) return false
+    if (hasOceanNearby(wx, wz, SPAWN_OCEAN_BUFFER_CHUNKS)) return false
+    return true
   }
 
-  const withGrass = tryFind(maxHeightPreferGrass)
+  const tryPick = (maxHeight: number): { x: number; z: number } | null => {
+    const candidates: Array<{ x: number; z: number }> = []
+    outer: for (let radius = SPAWN_BIOME_MIN_RADIUS; radius <= maxRadius; radius += step) {
+      const half = radius
+
+      for (let x = -half; x <= half; x += step) {
+        const z1 = -half
+        if (isValidAt(x, z1, maxHeight)) {
+          if (!(x === 0 && z1 === 0)) candidates.push({ x, z: z1 })
+          if (candidates.length >= candidatesPerPass) break outer
+        }
+
+        if (half > 0) {
+          const z2 = half
+          if (isValidAt(x, z2, maxHeight)) {
+            if (!(x === 0 && z2 === 0)) candidates.push({ x, z: z2 })
+            if (candidates.length >= candidatesPerPass) break outer
+          }
+        }
+      }
+
+      for (let z = -half + step; z < half; z += step) {
+        const x1 = -half
+        if (isValidAt(x1, z, maxHeight)) {
+          if (!(x1 === 0 && z === 0)) candidates.push({ x: x1, z })
+          if (candidates.length >= candidatesPerPass) break outer
+        }
+
+        const x2 = half
+        if (isValidAt(x2, z, maxHeight)) {
+          if (!(x2 === 0 && z === 0)) candidates.push({ x: x2, z })
+          if (candidates.length >= candidatesPerPass) break outer
+        }
+      }
+    }
+
+    if (candidates.length === 0) return null
+    const idx = Math.floor(pickRng() * candidates.length)
+    return candidates[idx] ?? candidates[0]
+  }
+
+  const withGrass = tryPick(maxHeightPreferGrass)
   if (withGrass) return withGrass
-  const fallback = tryFind(SPAWN_MAX_HEIGHT)
-  return fallback ?? { x: 0, z: 0 }
+
+  const fallback = tryPick(SPAWN_MAX_HEIGHT)
+  if (fallback) return fallback
+
+  // Ultimate fallback: sample random columns so we don't ever "lock" to (0,0).
+  const fallbackRng = makeSeededRandom(WORLD_SEED + 6061 + biomeSeed * 12346)
+  const attempts = 96
+  for (let i = 0; i < attempts; i++) {
+    const wx = Math.floor(((fallbackRng() * 2 - 1) * maxRadius) / step) * step
+    const wz = Math.floor(((fallbackRng() * 2 - 1) * maxRadius) / step) * step
+    if (wx === 0 && wz === 0) continue
+    if (!isValidAt(wx, wz, SPAWN_MAX_HEIGHT)) continue
+    return { x: wx, z: wz }
+  }
+
+  // Last resort: deterministic non-zero coords.
+  const lastCoord = Math.max(1, Math.floor(fallbackRng() * 5)) * step
+  const xSign = fallbackRng() < 0.5 ? -1 : 1
+  const zSign = fallbackRng() < 0.5 ? -1 : 1
+  return { x: xSign * lastCoord, z: zSign * lastCoord }
 }
 
 // ================= TREE GENERATION =================

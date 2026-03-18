@@ -414,6 +414,11 @@ watch(
         cancelAnimationFrame(rafId)
         rafId = null
       }
+      // The canvas is unmounted while the overlay is closed (`v-if="open"`).
+      // Any OffscreenCanvas/worker binding created for the previous canvas
+      // becomes invalid, so dispose and allow re-init on the next open.
+      disposeMapWorker()
+      offscreenInitAttempted = false
     }
   },
 )

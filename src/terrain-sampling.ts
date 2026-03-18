@@ -44,6 +44,7 @@ import {
   MOUNTAIN_TRANSITION_WIDTH,
   NOISE_COORD_WRAP,
   OCEAN_CONTINENTALNESS_THRESHOLD,
+  JAGGED_PEAKS_EDGE_CHECK_RADIUS,
   PEAK_JAGGED_BAND_MIN,
   PEAK_JAGGED_EROSION_MAX,
   PEAK_JAGGED_FACTOR_MIN,
@@ -78,11 +79,13 @@ import { createClimateSampler } from './terrain/climate-sampler'
 import {
   getBadlandsBlendFactor,
   getBadlandsValleyFactor,
+  getMountainBlendStrength,
   getJaggedPeakFactor,
   getMacroTerrainOffset,
   getPeakBandFactor,
   getRidgeTerm,
   lerp,
+  softenExtremeCliffHeight,
   smoothstep01,
   clamp01,
 } from './terrain/height-shaping'
@@ -510,6 +513,7 @@ export function createTerrainSampling(seed: number) {
     const pA = BIOME_TERRAIN[blend.primary]
     const pB = BIOME_TERRAIN[blend.secondary]
     const t = blend.t
+    const mountainBlendStrength = getMountainBlendStrength(blend.primary, blend.secondary, t)
     const baseOffset = lerp(pA.baseOffset, pB.baseOffset, t)
     const detailAmp = lerp(pA.detailAmp, pB.detailAmp, t)
     const detailFreq = lerp(pA.detailFreq, pB.detailFreq, t)
@@ -589,7 +593,8 @@ export function createTerrainSampling(seed: number) {
           MOUNTAIN_AMPLITUDE *
           boost *
           mountainShapeBoost *
-          mountainAllowedFactor
+          mountainAllowedFactor *
+          mountainBlendStrength
       }
     }
     const erosion = getErosion(x, z)
@@ -624,7 +629,16 @@ export function createTerrainSampling(seed: number) {
     const h20 = getRawTerrainHeight(x + 1, z - 1)
     const h21 = getRawTerrainHeight(x + 1, z)
     const h22 = getRawTerrainHeight(x + 1, z + 1)
-    return h11 * 0.25 + (h01 + h21 + h10 + h12) * 0.125 + (h00 + h02 + h20 + h22) * 0.0625
+    const smoothed =
+      h11 * 0.25 + (h01 + h21 + h10 + h12) * 0.125 + (h00 + h02 + h20 + h22) * 0.0625
+    return softenExtremeCliffHeight({
+      center: h11,
+      north: h10,
+      south: h12,
+      east: h21,
+      west: h01,
+      smoothed,
+    })
   }
 
   /**
@@ -673,6 +687,21 @@ export function createTerrainSampling(seed: number) {
     if (base === 'badlands' || base === 'mushroom_fields') return resolved
     if (topY <= BEACH_MAX_HEIGHT) return 'beach'
     return resolved
+  }
+
+  /**
+   * Returns true when any cardinal neighbor falls below the snowy_slopes band.
+   * Used to keep a guaranteed slope buffer so jagged peaks do not touch low highlands directly.
+   */
+  function hasLowNeighborForJaggedTransition(x: number, z: number, getHeight: GetHeightFn): boolean {
+    for (let d = 1; d <= JAGGED_PEAKS_EDGE_CHECK_RADIUS; d++) {
+      const n = getHeight(x, z - d) + getHeightTransitionOffset(x, z - d)
+      const s = getHeight(x, z + d) + getHeightTransitionOffset(x, z + d)
+      const w = getHeight(x - d, z) + getHeightTransitionOffset(x - d, z)
+      const e = getHeight(x + d, z) + getHeightTransitionOffset(x + d, z)
+      if (Math.min(n, s, w, e) < HIGHLAND_SNOWY_SLOPES_MAX) return true
+    }
+    return false
   }
 
   function getResolvedBiome(x: number, z: number, getHeight: GetHeightFn): Biome {
@@ -744,6 +773,10 @@ export function createTerrainSampling(seed: number) {
           weirdness: weirdnessSigned,
           y: getPeakY01(hFuzzy),
         })
+    }
+
+    if (resolved === 'jagged_peaks' && hasLowNeighborForJaggedTransition(x, z, getHeight)) {
+      resolved = 'snowy_slopes'
     }
 
     return resolveCoastalEdgeBiome(base, resolved, x, z, h, getHeight)

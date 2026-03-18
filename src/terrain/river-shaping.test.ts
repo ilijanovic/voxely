@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { WATER_LEVEL } from '../constants'
+import { RIVER_BIOME_FACTOR_THRESHOLD } from './constants'
 import {
   applyFrozenRiverHeight,
+  carveRiverHeight,
   getRiverCarveFactor,
   shouldUseFrozenRiver,
 } from './river-shaping'
@@ -87,5 +89,12 @@ describe('applyFrozenRiverHeight', () => {
 
   it('leaves non-frozen rivers unchanged', () => {
     expect(applyFrozenRiverHeight(WATER_LEVEL - 4, false)).toBe(WATER_LEVEL - 4)
+  })
+})
+
+describe('carveRiverHeight', () => {
+  it('clamps river-biome columns to sea level so channels can hold visible water', () => {
+    const carved = carveRiverHeight(WATER_LEVEL + 16, RIVER_BIOME_FACTOR_THRESHOLD, 0)
+    expect(carved).toBeLessThanOrEqual(WATER_LEVEL)
   })
 })

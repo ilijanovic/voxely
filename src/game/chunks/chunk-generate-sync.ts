@@ -66,6 +66,7 @@ import {
 } from '../world-interactions/torches'
 import { breakBlock as breakBlockSystem } from '../world-interactions/mining'
 import { RaycastMeshCache } from './raycast-cache'
+import { CROSS_GEOMETRY_BLOCK_TYPES } from './cross-geometry-block-types'
 
 // Scratch buffers (reused every frame to avoid allocations)
 const _matrix = new THREE.Matrix4()
@@ -222,7 +223,10 @@ export function buildChunkWaterGeometry(
   for (let lz = 0; lz < CHUNK_SIZE; lz++) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       const topY = heightmap ? heightmap[lx][lz] : getHeight(worldX + lx, worldZ + lz)
-      if (topY >= WATER_LEVEL) continue
+      const biome = getResolvedBiome(worldX + lx, worldZ + lz)
+      const isRiverAtSeaLevel =
+        topY === WATER_LEVEL && (biome === 'river' || biome === 'frozen_river')
+      if (topY >= WATER_LEVEL && !isRiverAtSeaLevel) continue
       const i00 = lx + lz * gridSize
       const i10 = lx + 1 + lz * gridSize
       const i01 = lx + (lz + 1) * gridSize
@@ -256,15 +260,6 @@ export function buildPositionsByType(
 }
 
 const GRASS_BLOCK_TYPES_FOR_TALL_GRASS: BlockType[] = ['grass', 'grass_savanna']
-/** Block types that use cross geometry (flowers, fern) – same list as in chunk-apply. */
-const CROSS_GEOMETRY_BLOCK_TYPES: BlockType[] = [
-  'dandelion',
-  'poppy',
-  'tulip_red',
-  'oxeye_daisy',
-  'blue_orchid',
-  'fern',
-]
 const TALL_GRASS_SPAWN_CHANCE = 0.05
 const TALL_GRASS_SPAWN_CHANCE_WOODLAND = 0.12
 const TALL_GRASS_Y_OFFSET = -0.02

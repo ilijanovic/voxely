@@ -90,6 +90,7 @@ import {
   RIVER_WARP_AMP,
   RIVER_WARP_SCALE,
   RIVER_WIDTH_NOISE_SCALE,
+  JAGGED_PEAKS_EDGE_CHECK_RADIUS,
   PEAK_JAGGED_BAND_MIN,
   PEAK_JAGGED_EROSION_MAX,
   PEAK_JAGGED_FACTOR_MIN,
@@ -139,10 +140,12 @@ import { makeSeededRandom, clamp, wrapNoiseCoord } from './utils'
 import {
   getBadlandsBlendFactor,
   getBadlandsValleyFactor,
+  getMountainBlendStrength,
   getJaggedPeakFactor,
   getMacroTerrainOffset,
   getPeakBandFactor,
   getRidgeTerm,
+  softenExtremeCliffHeight,
 } from './height-shaping'
 import {
   applyFrozenRiverHeight,
@@ -716,6 +719,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const pA = BIOME_TERRAIN[blend.primary]
     const pB = BIOME_TERRAIN[blend.secondary]
     const t = blend.t
+    const mountainBlendStrength = getMountainBlendStrength(blend.primary, blend.secondary, t)
     const baseOffset = lerp(pA.baseOffset, pB.baseOffset, t)
     const detailAmp = lerp(pA.detailAmp, pB.detailAmp, t)
     const detailFreq = lerp(pA.detailFreq, pB.detailFreq, t)
@@ -798,7 +802,8 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
           MOUNTAIN_AMPLITUDE *
           boost *
           mountainShapeBoost *
-          mountainAllowedFactor
+          mountainAllowedFactor *
+          mountainBlendStrength
       }
     }
 
@@ -870,6 +875,21 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     return resolved
   }
 
+  /**
+   * Returns true when any cardinal neighbor falls below the snowy_slopes band.
+   * Used to keep a guaranteed slope buffer so jagged peaks do not touch low highlands directly.
+   */
+  function hasLowNeighborForJaggedTransition(x: number, z: number): boolean {
+    for (let d = 1; d <= JAGGED_PEAKS_EDGE_CHECK_RADIUS; d++) {
+      const n = getHeight(x, z - d) + getHeightTransitionOffset(x, z - d)
+      const s = getHeight(x, z + d) + getHeightTransitionOffset(x, z + d)
+      const w = getHeight(x - d, z) + getHeightTransitionOffset(x - d, z)
+      const e = getHeight(x + d, z) + getHeightTransitionOffset(x + d, z)
+      if (Math.min(n, s, w, e) < HIGHLAND_SNOWY_SLOPES_MAX) return true
+    }
+    return false
+  }
+
   function getResolvedBiomeFromHeight(base: Biome, height: number, x: number, z: number): Biome {
     const hFuzzy = height + getHeightTransitionOffset(x, z)
     if (base === 'river' || base === 'frozen_river') return base
@@ -939,6 +959,10 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
         })
     }
 
+    if (resolved === 'jagged_peaks' && hasLowNeighborForJaggedTransition(x, z)) {
+      resolved = 'snowy_slopes'
+    }
+
     return resolveCoastalEdgeBiome(base, resolved, x, z, height)
   }
 
@@ -954,7 +978,15 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const h22 = getHeightForBase(x + 1, z + 1)
     const smoothedH =
       h11 * 0.25 + (h01 + h21 + h10 + h12) * 0.125 + (h00 + h02 + h20 + h22) * 0.0625
-    return Math.floor(clamp(smoothedH, WORLD_MIN_Y, WORLD_MAX_Y))
+    const softenedH = softenExtremeCliffHeight({
+      center: h11,
+      north: h10,
+      south: h12,
+      east: h21,
+      west: h01,
+      smoothed: smoothedH,
+    })
+    return Math.floor(clamp(softenedH, WORLD_MIN_Y, WORLD_MAX_Y))
   }
 
   /**

@@ -113,14 +113,20 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
       : DEFAULT_CLOUD_WEST_SPEED
   const halfCloudArea = cloudArea * 0.5
 
-  // Minecraft-like cloud drift: clouds move west and wrap around a local cloud field.
+  // Clouds are world-anchored: they drift west and recycle when they leave the
+  // player's nearby area, which keeps new clouds appearing ahead while traveling.
   const cloudDrift = cloudWestSpeed * dt
+  const minCloudX = ctx.playerPosition.x - halfCloudArea
+  const maxCloudX = ctx.playerPosition.x + halfCloudArea
+  const minCloudZ = ctx.playerPosition.z - halfCloudArea
+  const maxCloudZ = ctx.playerPosition.z + halfCloudArea
   for (const cloud of ctx.clouds.children) {
     cloud.position.x -= cloudDrift
-    if (cloud.position.x < -halfCloudArea) cloud.position.x += cloudArea
+    while (cloud.position.x < minCloudX) cloud.position.x += cloudArea
+    while (cloud.position.x > maxCloudX) cloud.position.x -= cloudArea
+    while (cloud.position.z < minCloudZ) cloud.position.z += cloudArea
+    while (cloud.position.z > maxCloudZ) cloud.position.z -= cloudArea
   }
-  ctx.clouds.position.x = ctx.playerPosition.x
-  ctx.clouds.position.z = ctx.playerPosition.z
 
   if (isUnderwater !== wasUnderwater) {
     wasUnderwater = isUnderwater

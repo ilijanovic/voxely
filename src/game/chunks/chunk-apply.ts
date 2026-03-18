@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { Biome, BlockPos, BlockType, ChunkData } from '../../types'
 import type { ChunkDataPayload } from '../../terrain-core'
-import { idToType, CARVED_ID } from '../../terrain-core'
+import { ALL_BIOMES, idToType, CARVED_ID } from '../../terrain-core'
 import {
   CHUNK_SIZE,
   WATER_BLOCK_HEIGHT,
@@ -36,6 +36,7 @@ import { filterVisibleBlocks } from './visible-blocks'
 import { sharedWaterPlaneGeometry } from '../../block-materials'
 import { getBlockAt } from '../../chunk-runtime'
 import { placeTorch, removeTorchesInChunk, isWallTorchBlockType } from '../world-interactions/torches'
+import { CROSS_GEOMETRY_BLOCK_TYPES } from './cross-geometry-block-types'
 
 export type ChunkApplyDeps = {
   chunks: Map<number, ChunkData>
@@ -206,33 +207,6 @@ const TALL_GRASS_SPAWN_CHANCE = 0.05
 const TALL_GRASS_SPAWN_CHANCE_WOODLAND = 0.12
 const TALL_GRASS_Y_OFFSET = -0.02
 
-/** Block types that use cross geometry (flowers, fern, mushrooms) – rendered with sharedTallGrassGeometry. */
-const CROSS_GEOMETRY_BLOCK_TYPES: BlockType[] = [
-  'dandelion',
-  'poppy',
-  'tulip_red',
-  'tulip_orange',
-  'tulip_white',
-  'tulip_pink',
-  'oxeye_daisy',
-  'cornflower',
-  'azure_bluet',
-  'allium',
-  'lily_of_the_valley',
-  'blue_orchid',
-  'fern',
-  'large_fern',
-  'brown_mushroom',
-  'red_mushroom',
-  'lily_pad',
-  'seagrass',
-  'sea_pickle',
-  'vine',
-  'bamboo',
-  'sweet_berry_bush',
-  'pink_petals',
-]
-
 function isPlacedStairsBlockType(blockType: BlockType): boolean {
   return isPlacedStairsVariant(blockType)
 }
@@ -394,6 +368,7 @@ export function buildChunkWaterGeometry(
   worldX: number,
   worldZ: number,
   heightmap: number[][] | Float32Array,
+  biomeMapBuffer?: Uint8Array,
 ): THREE.BufferGeometry | null {
   const waterY = WATER_LEVEL + WATER_BLOCK_HEIGHT + WATER_PLANE_Y_OFFSET
   const gridSize = CHUNK_SIZE + 1
@@ -414,7 +389,13 @@ export function buildChunkWaterGeometry(
   for (let lz = 0; lz < CHUNK_SIZE; lz++) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       const topY = Array.isArray(heightmap) ? heightmap[lx][lz] : heightmap[lx + lz * CHUNK_SIZE]
-      if (topY >= WATER_LEVEL) continue
+      const biome =
+        biomeMapBuffer && biomeMapBuffer.length > lx + lz * CHUNK_SIZE
+          ? ALL_BIOMES[biomeMapBuffer[lx + lz * CHUNK_SIZE]]
+          : null
+      const isRiverAtSeaLevel =
+        topY === WATER_LEVEL && (biome === 'river' || biome === 'frozen_river')
+      if (topY >= WATER_LEVEL && !isRiverAtSeaLevel) continue
       const i00 = lx + lz * gridSize
       const i10 = lx + 1 + lz * gridSize
       const i01 = lx + (lz + 1) * gridSize
@@ -693,7 +674,9 @@ export function applyChunkPayload(
   }
 
   const waterSource = payload.heightmapBuffer ?? payload.heightmap
-  const waterGeo = waterSource ? buildChunkWaterGeometry(worldX, worldZ, waterSource) : null
+  const waterGeo = waterSource
+    ? buildChunkWaterGeometry(worldX, worldZ, waterSource, payload.biomeMapBuffer)
+    : null
   if (waterGeo) {
     const waterMesh = new THREE.Mesh(waterGeo, getMaterialForBlockType('water'))
     waterMesh.castShadow = false

@@ -168,6 +168,14 @@ describe('Block registry invariants', () => {
     expect(isPlaceableBlock('wood_sword')).toBe(false)
   })
 
+  it('dead_bush keeps plant rendering/collision contract (non-solid transparent cross)', () => {
+    const deadBush = getBlockDefinition('dead_bush')
+    expect(deadBush).toBeDefined()
+    expect(deadBush?.solid).toBe(false)
+    expect(deadBush?.transparent).toBe(true)
+    expect(deadBush?.crossGeometry).toBe(true)
+  })
+
   it('leaves and ice are non-occluding; stone is occluding', () => {
     expect(isOccludingBlock('leaves')).toBe(false)
     expect(isOccludingBlock('ice')).toBe(false)

@@ -11,7 +11,7 @@ import {
 } from './chunk-apply'
 import { localKey } from '../../chunk-runtime'
 import { CHUNK_SIZE, WORLD_HEIGHT, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
-import { CARVED_ID } from '../../terrain-core'
+import { ALL_BIOMES, CARVED_ID } from '../../terrain-core'
 import type { BlockPos } from '../../types'
 
 describe('buildVoxelMapFromBuffer', () => {
@@ -129,6 +129,26 @@ describe('buildChunkWaterGeometry', () => {
     expect(geo).not.toBeNull()
     const posAttr = geo!.getAttribute('position')
     expect(posAttr?.count).toBe((CHUNK_SIZE + 1) * (CHUNK_SIZE + 1))
+  })
+
+  it('builds geometry for river columns at WATER_LEVEL when biomeMap marks river', () => {
+    const heightmap2D: number[][] = []
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      heightmap2D[lx] = []
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        heightmap2D[lx][lz] = WATER_LEVEL
+      }
+    }
+
+    const biomeMapBuffer = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE)
+    const plainsIdx = ALL_BIOMES.indexOf('plains')
+    const riverIdx = ALL_BIOMES.indexOf('river')
+    biomeMapBuffer.fill(plainsIdx)
+    biomeMapBuffer[0] = riverIdx
+
+    const geo = buildChunkWaterGeometry(worldX, worldZ, heightmap2D, biomeMapBuffer)
+    expect(geo).not.toBeNull()
+    expect(geo!.index?.count ?? geo!.getAttribute('position')?.count).toBeGreaterThan(0)
   })
 })
 

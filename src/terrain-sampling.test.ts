@@ -209,6 +209,70 @@ describe('createTerrainSampling().getResolvedBiome', () => {
     }
     expect(foundHighland).toBe(true)
   })
+
+  it('keeps a snowy_slopes buffer between grove and jagged_peaks in sampled terrain', () => {
+    const SEED = 42
+    const MIN = -768
+    const MAX = 768
+    const STEP = 16
+    const sampling = createTerrainSampling(SEED)
+    const heightCache = new Map<string, number>()
+    const biomeCache = new Map<string, Biome>()
+    let groveCount = 0
+    let jaggedCount = 0
+
+    function key(x: number, z: number): string {
+      return `${x},${z}`
+    }
+
+    function getHeightFloor(x: number, z: number): number {
+      const k = key(x, z)
+      const cached = heightCache.get(k)
+      if (cached !== undefined) return cached
+      const value = Math.floor(sampling.getSmoothedHeight(x, z))
+      heightCache.set(k, value)
+      return value
+    }
+
+    function getResolved(x: number, z: number): Biome {
+      const k = key(x, z)
+      const cached = biomeCache.get(k)
+      if (cached !== undefined) return cached
+      const value = sampling.getResolvedBiome(x, z, getHeightFloor)
+      biomeCache.set(k, value)
+      return value
+    }
+
+    for (let x = MIN; x <= MAX; x += STEP) {
+      for (let z = MIN; z <= MAX; z += STEP) {
+        const center = getResolved(x, z)
+        if (center === 'grove') groveCount++
+        if (center === 'jagged_peaks') jaggedCount++
+
+        const right = getResolved(x + STEP, z)
+        const down = getResolved(x, z + STEP)
+        const rightIsForbiddenPair =
+          (center === 'grove' && right === 'jagged_peaks') ||
+          (center === 'jagged_peaks' && right === 'grove')
+        const downIsForbiddenPair =
+          (center === 'grove' && down === 'jagged_peaks') ||
+          (center === 'jagged_peaks' && down === 'grove')
+
+        expect(
+          !rightIsForbiddenPair,
+          `found grove/jagged direct adjacency at (${x}, ${z}) -> (${x + STEP}, ${z})`,
+        ).toBe(true)
+        expect(
+          !downIsForbiddenPair,
+          `found grove/jagged direct adjacency at (${x}, ${z}) -> (${x}, ${z + STEP})`,
+        ).toBe(true)
+      }
+    }
+
+    // Guard against false-positive pass from a scan that never hits either biome.
+    expect(groveCount).toBeGreaterThan(0)
+    expect(jaggedCount).toBeGreaterThan(0)
+  })
 })
 
 describe('createTerrainSampling() height functions', () => {
@@ -342,8 +406,8 @@ describe('river generation', () => {
     }
 
     expect(riverCount).toBeGreaterThan(0)
-    expect(underwaterRiverCount).toBeGreaterThan(20)
-    expect(highestRiverY).toBeLessThanOrEqual(WATER_LEVEL + 12)
+    expect(underwaterRiverCount).toBeGreaterThan(40)
+    expect(underwaterRiverCount / riverCount).toBeGreaterThan(0.4)
+    expect(highestRiverY).toBeLessThanOrEqual(WATER_LEVEL + 8)
   })
-
 })

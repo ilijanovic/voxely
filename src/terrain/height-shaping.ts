@@ -9,6 +9,12 @@ import {
   BADLANDS_VALLEY_EROSION_START,
   BADLANDS_VALLEY_MASK_FLOOR_MAX,
   BADLANDS_VALLEY_MASK_FLOOR_MIN,
+  HEIGHT_EXTREME_CLIFF_SOFTEN_FULL,
+  HEIGHT_EXTREME_CLIFF_SOFTEN_MAX_BLEND,
+  HEIGHT_EXTREME_CLIFF_SOFTEN_START,
+  MOUNTAIN_CORE_BLEND_MIN_STRENGTH,
+  MOUNTAIN_CORE_BLEND_SOFTEN_FULL,
+  MOUNTAIN_CORE_BLEND_SOFTEN_START,
   MACRO_TERRAIN_DEEP_OCEAN_MAX,
   MACRO_TERRAIN_FAR_INLAND_MIN,
   MACRO_TERRAIN_MID_INLAND_MIN,
@@ -29,6 +35,22 @@ interface MacroTerrainKnot {
   c: number
   /** Height offset in blocks at this continentalness position. */
   h: number
+}
+
+/** Inputs for extreme cliff softening on already-smoothed terrain height. */
+export interface ExtremeCliffSofteningInput {
+  /** Raw center-column height before smoothing. */
+  center: number
+  /** Raw north-neighbor height before smoothing. */
+  north: number
+  /** Raw south-neighbor height before smoothing. */
+  south: number
+  /** Raw east-neighbor height before smoothing. */
+  east: number
+  /** Raw west-neighbor height before smoothing. */
+  west: number
+  /** Height after the regular smoothing pass. */
+  smoothed: number
 }
 
 /**
@@ -116,6 +138,47 @@ export function getBadlandsBlendFactor(primary: Biome, secondary: Biome, t: numb
 }
 
 /**
+ * Returns true for base biomes that should drive full mountain uplift.
+ *
+ * @param biome - Base biome from climate blend
+ * @returns True when biome is part of the mountain core set
+ */
+function isCoreMountainBiome(biome: Biome): boolean {
+  return biome === 'mountain' || biome === 'snow' || biome === 'badlands'
+}
+
+/**
+ * Computes the share of the current base-biome blend that belongs to core mountain biomes.
+ *
+ * @param primary - Primary base biome
+ * @param secondary - Secondary base biome
+ * @param t - Secondary blend weight in [0,1]
+ * @returns Core mountain blend share in [0,1]
+ */
+export function getCoreMountainBlendWeight(primary: Biome, secondary: Biome, t: number): number {
+  const primaryWeight = isCoreMountainBiome(primary) ? 1 - t : 0
+  const secondaryWeight = isCoreMountainBiome(secondary) ? t : 0
+  return clamp01(primaryWeight + secondaryWeight)
+}
+
+/**
+ * Returns a blend-aware attenuation for mountain uplift near non-core biome transitions.
+ *
+ * @param primary - Primary base biome
+ * @param secondary - Secondary base biome
+ * @param t - Secondary blend weight in [0,1]
+ * @returns Mountain uplift strength multiplier in [MOUNTAIN_CORE_BLEND_MIN_STRENGTH, 1]
+ */
+export function getMountainBlendStrength(primary: Biome, secondary: Biome, t: number): number {
+  const coreWeight = getCoreMountainBlendWeight(primary, secondary, t)
+  const coreT = smoothstep01(
+    (coreWeight - MOUNTAIN_CORE_BLEND_SOFTEN_START) /
+      Math.max(MOUNTAIN_CORE_BLEND_SOFTEN_FULL - MOUNTAIN_CORE_BLEND_SOFTEN_START, 1e-6),
+  )
+  return lerp(MOUNTAIN_CORE_BLEND_MIN_STRENGTH, 1, coreT)
+}
+
+/**
  * Computes badlands valley-floor factor from biome blend, mountain mask, and erosion.
  * Higher output means stronger flattening/lowering for basin floors.
  *
@@ -190,4 +253,27 @@ export function getRidgeTerm(weirdnessSigned: number, mountainAllowedFactor: num
     WEIRDNESS_RIDGE_AMP *
     mountainAllowedFactor
   )
+}
+
+/**
+ * Softens only extreme one-step cliffs after regular 3x3 smoothing.
+ * Keeps normal slopes unchanged while reducing sudden near-vertical drop-offs.
+ *
+ * @param input - Center/cardinal raw heights and the regular smoothed height
+ * @returns Final softened height
+ */
+export function softenExtremeCliffHeight(input: ExtremeCliffSofteningInput): number {
+  const maxCardinalDelta = Math.max(
+    Math.abs(input.north - input.center),
+    Math.abs(input.south - input.center),
+    Math.abs(input.east - input.center),
+    Math.abs(input.west - input.center),
+  )
+  const softenT = smoothstep01(
+    (maxCardinalDelta - HEIGHT_EXTREME_CLIFF_SOFTEN_START) /
+      Math.max(HEIGHT_EXTREME_CLIFF_SOFTEN_FULL - HEIGHT_EXTREME_CLIFF_SOFTEN_START, 1e-6),
+  )
+  if (softenT <= 0) return input.smoothed
+  const cardinalAverage = (input.north + input.south + input.east + input.west) * 0.25
+  return lerp(input.smoothed, cardinalAverage, softenT * HEIGHT_EXTREME_CLIFF_SOFTEN_MAX_BLEND)
 }

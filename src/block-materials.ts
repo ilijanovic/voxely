@@ -62,6 +62,78 @@ function normalizeTextureName(textureName: string): string {
   return trimmed.endsWith('.png') ? trimmed.slice(0, -4) : trimmed
 }
 
+/**
+ * Compatibility aliases for packs that use different vanilla-era naming.
+ * We keep the first requested name, then try aliases in order.
+ */
+const TEXTURE_NAME_ALIASES: Record<string, string[]> = {
+  // Legacy -> modern
+  grass_side: ['grass_block_side'],
+  grass_top: ['grass_block_top'],
+  grass_side_snowed: ['grass_block_snow'],
+  tallgrass: ['short_grass', 'grass'],
+  log_oak: ['oak_log'],
+  log_oak_top: ['oak_log_top'],
+  log_birch: ['birch_log'],
+  log_birch_top: ['birch_log_top'],
+  log_spruce: ['spruce_log'],
+  log_spruce_top: ['spruce_log_top'],
+  log_jungle: ['jungle_log'],
+  log_jungle_top: ['jungle_log_top'],
+  log_acacia: ['acacia_log'],
+  log_acacia_top: ['acacia_log_top'],
+  log_big_oak: ['dark_oak_log'],
+  log_big_oak_top: ['dark_oak_log_top'],
+  leaves_oak: ['oak_leaves'],
+  leaves_birch: ['birch_leaves'],
+  leaves_spruce: ['spruce_leaves'],
+  leaves_jungle: ['jungle_leaves'],
+  leaves_acacia: ['acacia_leaves'],
+  leaves_big_oak: ['dark_oak_leaves'],
+  // Modern -> legacy
+  grass_block_side: ['grass_side'],
+  grass_block_top: ['grass_top'],
+  grass_block_snow: ['grass_side_snowed'],
+  short_grass: ['tallgrass', 'grass'],
+  oak_log: ['log_oak'],
+  oak_log_top: ['log_oak_top'],
+  birch_log: ['log_birch'],
+  birch_log_top: ['log_birch_top'],
+  spruce_log: ['log_spruce'],
+  spruce_log_top: ['log_spruce_top'],
+  jungle_log: ['log_jungle'],
+  jungle_log_top: ['log_jungle_top'],
+  acacia_log: ['log_acacia'],
+  acacia_log_top: ['log_acacia_top'],
+  dark_oak_log: ['log_big_oak'],
+  dark_oak_log_top: ['log_big_oak_top'],
+  oak_leaves: ['leaves_oak'],
+  birch_leaves: ['leaves_birch'],
+  spruce_leaves: ['leaves_spruce'],
+  jungle_leaves: ['leaves_jungle'],
+  acacia_leaves: ['leaves_acacia'],
+  dark_oak_leaves: ['leaves_big_oak'],
+}
+
+function getTextureNameCandidates(textureName: string): string[] {
+  const start = normalizeTextureName(textureName)
+  const seen = new Set<string>()
+  const queue: string[] = [start]
+  const out: string[] = []
+  while (queue.length > 0) {
+    const cur = queue.shift()!
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    out.push(cur)
+    const aliases = TEXTURE_NAME_ALIASES[cur] ?? []
+    for (const next of aliases) {
+      const normalized = normalizeTextureName(next)
+      if (!seen.has(normalized)) queue.push(normalized)
+    }
+  }
+  return out
+}
+
 function getTextureUrls(textureName: string): { primaryUrl: string; fallbackUrl: string } {
   const normalized = normalizeTextureName(textureName)
   const base = resolveTextureBase()
@@ -90,12 +162,22 @@ function getItemTextureUrls(textureName: string): { primaryUrl: string; fallback
 }
 
 /** Loads a texture by name (primary path, then fallback); never rejects, returns fallback canvas texture on failure. */
-export function loadTextureSafe(textureName: string): Promise<THREE.Texture> {
-  const { primaryUrl, fallbackUrl } = getTextureUrls(textureName)
-  return textureLoader
-    .loadAsync(primaryUrl)
-    .catch(() => textureLoader.loadAsync(fallbackUrl))
-    .catch(() => getFallbackTexture())
+export async function loadTextureSafe(textureName: string): Promise<THREE.Texture> {
+  const candidates = getTextureNameCandidates(textureName)
+  for (const candidate of candidates) {
+    const { primaryUrl, fallbackUrl } = getTextureUrls(candidate)
+    try {
+      return await textureLoader.loadAsync(primaryUrl)
+    } catch {
+      // Try fallback path for this candidate next.
+    }
+    try {
+      return await textureLoader.loadAsync(fallbackUrl)
+    } catch {
+      // Keep trying alias candidates.
+    }
+  }
+  return getFallbackTexture()
 }
 
 /** Loads an item texture (e.g. wood_sword) from the item texture path. Used for held items and hotbar. */
@@ -113,16 +195,26 @@ export function loadItemTextureSafe(textureName: string): Promise<THREE.Texture>
 }
 
 /** Loads a texture by name; returns null on failure (does not use fallback texture). */
-export function loadTextureOptional(textureName: string): Promise<THREE.Texture | null> {
-  const { primaryUrl, fallbackUrl } = getTextureUrls(textureName)
-  return textureLoader
-    .loadAsync(primaryUrl)
-    .catch(() => textureLoader.loadAsync(fallbackUrl))
-    .then((tex) => {
+export async function loadTextureOptional(textureName: string): Promise<THREE.Texture | null> {
+  const candidates = getTextureNameCandidates(textureName)
+  for (const candidate of candidates) {
+    const { primaryUrl, fallbackUrl } = getTextureUrls(candidate)
+    try {
+      const tex = await textureLoader.loadAsync(primaryUrl)
       setPixelFilter(tex)
       return tex
-    })
-    .catch(() => null)
+    } catch {
+      // Try fallback path for this candidate next.
+    }
+    try {
+      const tex = await textureLoader.loadAsync(fallbackUrl)
+      setPixelFilter(tex)
+      return tex
+    } catch {
+      // Keep trying alias candidates.
+    }
+  }
+  return null
 }
 
 interface CreatePBRMaterialOptions {

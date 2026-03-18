@@ -87,8 +87,8 @@ Defined in: `src/terrain-sampling.ts` and `src/terrain/index.ts`.
 
 ### Player spawn
 
-- **Spawnable biomes:** exactly 7: `desert`, `plains`, `savanna`, `forest`, `jungle`, `mountain`, `snow`.
-- **Probability per biome:** **1/7** when considering a random world (each world seed picks one of these with equal chance).
+- **Spawnable biomes:** exactly 8: `desert`, `badlands`, `plains`, `savanna`, `forest`, `jungle`, `mountain`, `snow`.
+- **Probability per biome:** **1/8** when considering a random world (each world seed picks one of these with equal chance).
 - **Per world:** the game picks a single spawn biome per seed (e.g. `SPAWN_BIOME` in `game-terrain.ts`). The player then spawns inside that biome (spiral search from origin).
 
 Source: `src/game-terrain.ts` – `SPAWNABLE_BIOMES`, `SPAWN_BIOME`, `findSpawnInBiome`.
