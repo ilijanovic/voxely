@@ -49,7 +49,7 @@ Terrain generation is a **12-stage pipeline** (Minecraft-aligned, pure logic) un
 - **3 structures_references** – No-op, reserved (`src/terrain/stages/noop.ts`).
 - **4 noise** – Heightmap only (`src/terrain/stages/noise.ts`).
 - **5 biomes** – Biome map from heightmap and climate (`src/terrain/stages/biomes.ts`).
-- **6 carvers** – Runs carve-3d, carve-cheese, carve-noodle, carve-spaghetti, and optionally carve-worm (`src/terrain/stages/carvers.ts`; see `carve-3d.ts`, `carve-cheese.ts`, `carve-noodle.ts`, `carve-spaghetti.ts`, `carve-worm.ts`).
+- **6 carvers** – Runs carve-3d, carve-cheese, carve-spaghetti in order (`src/terrain/stages/carvers.ts`; see `carve-3d.ts`, `carve-cheese.ts`, `carve-spaghetti.ts`).
 - **7 surface** – Stratigraphy / layering (`src/terrain/stages/surface.ts` → `stratigraphy.ts`).
 - **8 features** – Feature list (trees, ore, flowers, etc.) then paint template structures from `ctx.structureOrigins` (`src/terrain/stages/features.ts`, `paint-structures.ts`; features in `src/terrain/features/**`, templates in `src/terrain/structures/**`).
 - **9 initialize_light**, **10 light**, **11 spawn**, **12 full** – No-ops (`src/terrain/stages/noop.ts`).
@@ -65,10 +65,6 @@ Each stage should have a single responsibility:
 - **Decorators/features**: trees, plants, small decorations, ore (if/when added as features).
 - **Structures**: villages/temples/etc with deterministic template placement.
 - **Finalization**: runtime spawns/lighting are **not** part of terrain purity.
-
-### 2.3 Optional: single-pass variant (heightmap-biome)
-
-`src/terrain/stages/heightmap-biome.ts` exports `createStage1`, which fills both heightmap and biomeMap in a single column loop. The main pipeline uses separate **noise** (stage 4) and **biomes** (stage 5) instead. The single-pass variant is kept for tests or for a possible future optimization.
 
 ---
 

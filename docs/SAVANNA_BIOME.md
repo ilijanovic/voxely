@@ -63,7 +63,7 @@ Savanna is **village-eligible**. In [src/terrain/structures/origins.ts](src/terr
 
 ### 3.4 Player spawn
 
-Savanna is one of the **eight spawn biomes**. The game picks a single spawn biome per world seed from `SPAWNABLE_BIOMES` in [src/game-terrain.ts](src/game-terrain.ts); the list includes desert, badlands, plains, **savanna**, forest, jungle, mountain, and snow. So the player can start in savanna.
+Savanna is one of the **seven spawn biomes**. The game picks a single spawn biome per world seed from `SPAWNABLE_BIOMES` in [src/game-terrain.ts](src/game-terrain.ts); the list includes desert, plains, **savanna**, forest, jungle, mountain, and snow. So the player can start in savanna.
 
 ### 3.5 No grass_snow at altitude
 

@@ -93,10 +93,6 @@ npm install
 | Select block        | **1–9** or scroll wheel |
 | Pause / options     | **ESC** or **O**        |
 | Inventory           | **I**                   |
-| Terrain debug       | **P**                   |
-| Terrain debug detail| **Shift + P**           |
-| Terrain debug lock column | **Shift + L**     |
-| Terrain debug copy report | **Shift + C**     |
 
 After clicking: left-click = mine block, right-click = place block.
 

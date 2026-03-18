@@ -123,17 +123,15 @@ Source: `noise_settings/overworld.json` and `density_function/overworld/erosion.
 - **Cave systems in final_density:** Built from `sloped_cheese`, `caves/entrances`, `caves/noodle`, `caves/spaghetti_2d`, `caves/spaghetti_roughness_function`, `caves/pillars`, and cheese-style 3D noise (e.g. `cave_cheese`: add 0.27, noise `xz_scale: 1.0`, `y_scale: 0.666...`, then clamp).
 - **Source:** `noise_settings/overworld.json` (final_density) and `density_function/overworld/caves/*`, `overworld/sloped_cheese`, etc.
 
-**Our game (carve stages):**
+**Our game (three carve stages):**
 
 | Stage    | Purpose           | Parameters | Where defined |
 |----------|-------------------|------------|----------------|
 | carve-3d | 3D noise caves    | carveThreshold: 0.56, minDepthBelowSurface: [MIN_CAVE_DEPTH_BELOW_SURFACE](src/constants.ts) (5) | [terrain/index.ts](src/terrain/index.ts), [carve-3d.ts](src/terrain/stages/carve-3d.ts) |
-| cheese   | Large caverns     | scaleXZ: 0.03, scaleY: 0.02 (vanilla xz_scale/y_scale ratio), threshold: 0.27, caveDensityFactor (sloped_cheese: peak at mid depth), minDepthBelowSurface: 5 | [terrain/index.ts](src/terrain/index.ts), [carve-cheese.ts](src/terrain/stages/carve-cheese.ts) |
-| noodle   | Thin tunnels      | ridged 3D noise intersection, scale: 0.04, threshold: 0.5, minDepthBelowSurface: 5 | [terrain/index.ts](src/terrain/index.ts), [carve-noodle.ts](src/terrain/stages/carve-noodle.ts) |
+| cheese   | Large caverns     | scale: 0.03 (vanilla-inspired; vanilla xz_scale 1.0), threshold: 0.27 (vanilla constant), minDepthBelowSurface: 5 | [terrain/index.ts](src/terrain/index.ts), [carve-cheese.ts](src/terrain/stages/carve-cheese.ts) |
 | spaghetti| Worm tunnels      | radius: 1.5, cellSize: 48, steps: 32, maxY: WATER_LEVEL+48, minDepthBelowSurface: 5 | [terrain/index.ts](src/terrain/index.ts), [carve-spaghetti.ts](src/terrain/stages/carve-spaghetti.ts) |
-| worm     | Optional wide tunnels | startRate: 0.08, cellSize: 24, steps: 40, radius: 2.5 | [carve-worm.ts](src/terrain/stages/carve-worm.ts) |
 
-We align where comparable: climate scales are shared (section 5). For caves, cheese uses **scaleXZ/scaleY** (vanilla xz_scale 1.0, y_scale 2/3) and **caveDensityFactor** for sloped_cheese-style depth-dependent density; **noodle** is an optional ridged-noise intersection stage. Pillar-style vertical formations remain an optional future extension. Machine-readable summary: [docs/vanilla_terrain_cave_reference.json](vanilla_terrain_cave_reference.json).
+We align where comparable: climate scales are shared (section 5). For caves, we aligned cheese **threshold to 0.27** (vanilla cave_cheese additive constant) and **scale to 0.03** (vanilla uses xz_scale 1.0; we keep lower so caverns stay larger). 3D and spaghetti stages are unchanged. Machine-readable summary: [docs/vanilla_terrain_cave_reference.json](vanilla_terrain_cave_reference.json).
 
 ---
 
@@ -194,7 +192,7 @@ The generator tracks vertical distance to surface above (`stoneDepthAbove`), cav
 | **above_preliminary_surface** | Yes | We only assign surface at heightmap topY; carved cells are air, so no grass in caves. |
 | **stone_depth**          | Partial | We use per-biome **subsurfaceDepth** (fixed layers of dirt/sand below grass). We do **not** use vanilla’s formula `floor(surface(X,0,Z)×2.75+3+...)` or secondary surface depth. |
 | **vertical_gradient**    | Partial | We use hard Y thresholds (SURFACE_STONE_HEIGHT, etc.), not a smooth probability gradient. No deepslate-style gradient. |
-| **bandlands**            | Partial | We place badlands terracotta-style bands (world-Y strata with XZ warp/noise) on surface and deep subsurface, but not the full vanilla surface-rule stack/palette. |
+| **bandlands**            | Partial | We have a badlands biome (red_sand/sandstone); we do **not** place terracotta bands. |
 | **hole**                 | No     | Not used (column surface depth 0). |
 | **not**                  | N/A    | Can be expressed by branch order. |
 | Surface depth formula    | No     | We use constant subsurfaceDepth per biome, not `minecraft:surface` noise formula. |

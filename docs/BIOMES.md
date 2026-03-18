@@ -27,7 +27,7 @@ Related docs:
 | mushroom_fields | Base land | Climate |
 | mangrove_swamp | Base land | Climate |
 | old_growth_taiga | Base land | Climate |
-| ocean | Water | Continentalness < `OCEAN_CONTINENTALNESS_THRESHOLD` (signed, vanilla-aligned range) |
+| ocean | Water | Continentalness < 0.44 |
 | meadow | Highland variant | Height + noise in mountain/snow regions |
 | grove | Highland variant | Height + noise in mountain/snow or cold upland |
 | snowy_slopes | Highland variant | Height band in mountain/snow |
@@ -39,7 +39,7 @@ Related docs:
 | windswept_forest | Highland variant | Height + humidity/variant noise |
 | windswept_gravelly_hills | Highland variant | Height + highland variant noise |
 
-**Base land (11)** are chosen by nearest-match in 2D climate (temperature, humidity). **Ocean** is chosen when signed continentalness is below `OCEAN_CONTINENTALNESS_THRESHOLD` (see `src/terrain/constants.ts`; current value `-0.32`, vanilla-aligned signed range `[-1.2, 1]`). **Highland variants** appear mainly when the base biome is mountain or snow above certain world Y thresholds (see section 5); some variants (grove, snowy_slopes, frozen_peaks, windswept_*) can also appear for other bases at cold temperature and high elevation.
+**Base land (11)** are chosen by nearest-match in 2D climate (temperature, humidity). **Ocean** is chosen when continentalness (noise at `CONTINENTAL_SCALE`) is below 0.44. **Highland variants** appear mainly when the base biome is mountain or snow above certain world Y thresholds (see section 5); some variants (grove, snowy_slopes, frozen_peaks, windswept_*) can also appear for other bases at cold temperature and high elevation.
 
 ---
 
@@ -87,8 +87,8 @@ Defined in: `src/terrain-sampling.ts` and `src/terrain/index.ts`.
 
 ### Player spawn
 
-- **Spawnable biomes:** exactly 8: `desert`, `badlands`, `plains`, `savanna`, `forest`, `jungle`, `mountain`, `snow`.
-- **Probability per biome:** **1/8** when considering a random world (each world seed picks one of these with equal chance).
+- **Spawnable biomes:** exactly 7: `desert`, `plains`, `savanna`, `forest`, `jungle`, `mountain`, `snow`.
+- **Probability per biome:** **1/7** when considering a random world (each world seed picks one of these with equal chance).
 - **Per world:** the game picks a single spawn biome per seed (e.g. `SPAWN_BIOME` in `game-terrain.ts`). The player then spawns inside that biome (spiral search from origin).
 
 Source: `src/game-terrain.ts` – `SPAWNABLE_BIOMES`, `SPAWN_BIOME`, `findSpawnInBiome`.

@@ -1,12 +1,7 @@
 # LLM Workflow – Stable, High-Automation Development
 
 This doc defines a **repeatable workflow** for using AI assistants effectively in this codebase.
-Goal: **small diffs, deterministic tests, strong CI gates, low regressions**, while keeping the assistant behavior predictable and Minecraft-like where relevant.
-
-For interaction behavior (when to ask clarifying questions, when to confirm understanding, safe defaults), see also:
-
-- `.cursor/rules/assistant-workflow.mdc` – assistant operating contract (always applied).
-- This document – concrete workflow and checklists.
+Goal: **small diffs, deterministic tests, strong CI gates, low regressions**.
 
 ## 0) Always start here (context entry points)
 
@@ -52,26 +47,6 @@ Fill this in before doing any change:
 - [ ] …
 - [ ] …
 ```
-
-## 1.1) Ask/confirm policy (balanced)
-
-- **Ask clarifying questions first** when:
-  - the request is ambiguous and several implementations would change gameplay differently;
-  - the change is risky or cross-cutting (contracts, save format, terrain/worker/runtime boundaries);
-  - the user asks for “Minecraft-like” behavior but important details are unspecified (e.g. drop rules, biome sizes).
-- **Confirm understanding briefly** (1–2 sentences) when:
-  - applying changes to contracts, core gameplay feel, or many files at once;
-  - you just received answers to clarifying questions and are about to implement.
-- **Skip extra confirmation** and proceed with reasonable defaults when:
-  - the request is local and clear (single module, no contract changes);
-  - impact is low and reversible. State chosen defaults explicitly in the answer.
-
-Safe defaults you may assume:
-
-- Do **not** commit or push unless explicitly asked (follow `.cursor/rules/git-commit.mdc` when committing).
-- Keep `src/terrain/**` pure (no `THREE`, no DOM); treat worker payloads as strict contracts.
-- Prefer extending existing patterns over inventing new architecture.
-- When changing pure logic, add/update tests in `src/**/*.test.ts` and keep them deterministic.
 
 ## 2) Change strategy (LLM-efficient)
 

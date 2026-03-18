@@ -126,8 +126,6 @@ Hostile mobs and spawn rules (e.g. light level) are not implemented yet; they ar
 | Terrain pipeline, biome model, invariants | [TERRAIN_SPEC.md](./TERRAIN_SPEC.md) |
 | How the surface is made (height, block, rules) | [SURFACE_GENERATION.md](./SURFACE_GENERATION.md) |
 | Biome boundaries and transitions (climate space) | [BIOME_TRANSITIONS.md](./BIOME_TRANSITIONS.md) |
-| World/terrain/biome vs. Minecraft (comparison) | [WORLD_TERRAIN_BIOME_VS_MINECRAFT.md](./WORLD_TERRAIN_BIOME_VS_MINECRAFT.md) |
-| World sampling and noise (config, seeds, parity) | [WORLD_SAMPLING_AND_NOISE.md](./WORLD_SAMPLING_AND_NOISE.md) |
 | Block representation and rendering | [BLOCK_SYSTEM.md](./BLOCK_SYSTEM.md) |
 | Block type categories (solid, plant, crop, fluid) | [BLOCK_TYPES.md](./BLOCK_TYPES.md) |
 | Vegetation rendering (cross quads, materials) | [VEGETATION_RENDERING.md](./VEGETATION_RENDERING.md) |
