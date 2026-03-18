@@ -1,43 +1,5 @@
 # Changelog
 
-## v0.0.9
-
-[compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.7...v0.0.9)
-
-### 🚀 Enhancements
-
-- Add quests, loot tables, world areas, and player systems ([4ed879b7](https://github.com/ilijanovic/voxely/commit/4ed879b7))
-- **terrain:** Add pipeline stages, vegetation features, creature zones and quest updates ([d205d202](https://github.com/ilijanovic/voxely/commit/d205d202))
-- **game:** Add minecraft-like doors ([b8d112dc](https://github.com/ilijanovic/voxely/commit/b8d112dc))
-- **terrain:** Refine worldgen, quests, and docs ([7ae2b8d1](https://github.com/ilijanovic/voxely/commit/7ae2b8d1))
-- Ore features, entity spawn and meshes, recipe and loot updates ([c4ce1281](https://github.com/ilijanovic/voxely/commit/c4ce1281))
-- **terrain:** Add surface resolver and override with biome and stage updates ([ebaf25c3](https://github.com/ilijanovic/voxely/commit/ebaf25c3))
-- Add flight and improved terrain noise ([c8ed0ee2](https://github.com/ilijanovic/voxely/commit/c8ed0ee2))
-- **terrain:** Add beach, river, snowy_beach, stony_shore and river-shaping ([80caaa49](https://github.com/ilijanovic/voxely/commit/80caaa49))
-- **terrain:** Add frozen_river, river-shaping and game-terrain tests ([8b017db5](https://github.com/ilijanovic/voxely/commit/8b017db5))
-- **terrain,game:** Add carve overhang, badlands band noise, height shaping, and falling blocks ([3a278aae](https://github.com/ilijanovic/voxely/commit/3a278aae))
-- **ui,game:** Add menu exit, offscreen full map renderer, and perf profiling ([9c9aec12](https://github.com/ilijanovic/voxely/commit/9c9aec12))
-
-### 🩹 Fixes
-
-- **torches:** Lean wall torch 45° from vertical instead of 90° ([be7e3858](https://github.com/ilijanovic/voxely/commit/be7e3858))
-- **save:** Migrate legacy save only once so new worlds spawn randomly ([60ef9a29](https://github.com/ilijanovic/voxely/commit/60ef9a29))
-- Udpate block registry ([a34a3b74](https://github.com/ilijanovic/voxely/commit/a34a3b74))
-
-### 💅 Refactors
-
-- **terrain:** Align biomes, add random module and terrain tests ([585f9ee0](https://github.com/ilijanovic/voxely/commit/585f9ee0))
-- **entities:** Add entity-defs, spawn-rng, spawn-scene and update AI/spawn ([946b380b](https://github.com/ilijanovic/voxely/commit/946b380b))
-- Terrain biomes, chunks, entities, quests and docs ([edc28af3](https://github.com/ilijanovic/voxely/commit/edc28af3))
-
-### 🏡 Chore
-
-- Change assets ([c03f2f7e](https://github.com/ilijanovic/voxely/commit/c03f2f7e))
-
-### ❤️ Contributors
-
-- Ilijanovic <ilija.marijanovic@gmx.at>
-
 ## v0.0.8
 
 [compare changes](https://github.com/ilijanovic/voxely/compare/v0.0.7...v0.0.8)
