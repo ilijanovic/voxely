@@ -554,7 +554,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'dandelion',
     displayName: 'Dandelion',
-    textures: { type: 'single', texture: 'flower_dandelion' },
+    textures: { type: 'single', texture: 'dandelion' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -563,7 +563,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'poppy',
     displayName: 'Poppy',
-    textures: { type: 'single', texture: 'flower_rose' },
+    textures: { type: 'single', texture: 'poppy' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -572,7 +572,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'tulip_red',
     displayName: 'Red Tulip',
-    textures: { type: 'single', texture: 'flower_tulip_red' },
+    textures: { type: 'single', texture: 'red_tulip' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -581,7 +581,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'tulip_orange',
     displayName: 'Orange Tulip',
-    textures: { type: 'single', texture: 'flower_tulip_orange' },
+    textures: { type: 'single', texture: 'orange_tulip' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -590,7 +590,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'tulip_white',
     displayName: 'White Tulip',
-    textures: { type: 'single', texture: 'flower_tulip_white' },
+    textures: { type: 'single', texture: 'white_tulip' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -599,7 +599,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'tulip_pink',
     displayName: 'Pink Tulip',
-    textures: { type: 'single', texture: 'flower_tulip_pink' },
+    textures: { type: 'single', texture: 'pink_tulip' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
