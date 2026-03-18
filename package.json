@@ -1,7 +1,7 @@
 {
   "name": "vite-project",
   "private": true,
-  "version": "0.0.7",
+  "version": "0.0.9",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,28 +21,26 @@
     "release:dry": "changelogen --release --dry-run"
   },
   "devDependencies": {
-    "@eslint/js": "^9.35.0",
     "@tailwindcss/vite": "^4.2.1",
-    "@types/seedrandom": "^3.0.8",
     "@types/three": "^0.183.1",
-    "autoprefixer": "^10.4.27",
+    "@eslint/js": "^9.35.0",
     "eslint": "^9.35.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-vue": "^9.33.0",
+    "vue-eslint-parser": "^9.4.3",
+    "autoprefixer": "^10.4.27",
     "postcss": "^8.5.8",
     "prettier": "^3.6.2",
     "tailwindcss": "^4.2.1",
-    "typescript": "~5.9.3",
     "typescript-eslint": "^8.41.0",
+    "typescript": "~5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^2.1.0",
-    "vue-eslint-parser": "^9.4.3"
+    "vitest": "^2.1.0"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^6.0.4",
     "changelogen": "^0.6.2",
     "pngjs": "^7.0.0",
-    "seedrandom": "^3.0.5",
     "simplex-noise": "^4.0.3",
     "socket.io-client": "^4.8.0",
     "three": "^0.183.2",
