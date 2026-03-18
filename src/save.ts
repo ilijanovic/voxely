@@ -421,6 +421,8 @@ export function ensureWorldSlots(): { worlds: WorldSlotMeta[]; activeWorldId: st
     setActiveWorldSlotId(firstWorld.id)
     if (legacySave != null) {
       writeStorageKey(getWorldSaveKey(firstWorld.id), legacySave)
+      // Migrate only once: keep new worlds isolated from the legacy single-save payload.
+      removeStorageKey(SAVE_KEY)
     }
   }
 
@@ -893,6 +895,8 @@ export function loadFromStorage(): SaveData | null {
   if (!parsedLegacy) return null
 
   writeStorageKey(worldSaveKey, legacyRaw as string)
+  // Migrate only once so newly created world slots don't inherit the legacy player position.
+  removeStorageKey(SAVE_KEY)
   touchActiveWorldOnSave()
   return parsedLegacy
 }

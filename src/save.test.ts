@@ -241,6 +241,33 @@ describe('world slots', () => {
     const store = mock.getStore()
     const worldSaveKey = `${SAVE_KEY}:${ensured.worlds[0].id}`
     expect(store[worldSaveKey]).toBe(legacyRaw)
+    // Migration should not keep legacy SAVE_KEY around, otherwise every new world slot
+    // would inherit the same player position from the legacy payload.
+    expect(store[SAVE_KEY]).toBeUndefined()
+  })
+
+  it('does not inherit legacy save for later world slots', () => {
+    const legacyData: SaveData = {
+      ...validPayload,
+      worldSeed: 777,
+      player: {
+        ...validPayload.player,
+        x: 12,
+      },
+    }
+    const legacyRaw = JSON.stringify(legacyData)
+    const mock = createStorageMock({ [SAVE_KEY]: legacyRaw })
+    vi.stubGlobal('localStorage', mock)
+
+    const ensured = ensureWorldSlots()
+    expect(ensured.worlds).toHaveLength(1)
+
+    const second = createWorldSlot('Bravo', 222)
+    setActiveWorldSlotId(second.id)
+
+    // Legacy save has been removed during ensureWorldSlots migration, so this new world
+    // must not get the legacy player state.
+    expect(loadFromStorage()).toBe(null)
   })
 
   it('creates a default-named world and selects it', () => {
