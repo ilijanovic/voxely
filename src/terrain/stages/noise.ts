@@ -1,7 +1,7 @@
 /**
  * Stage 4 (noise): Terrain shape. Fills context.heightmap from height sampling.
  */
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_MAX_Y, WORLD_MIN_Y } from '../../constants'
 import { clamp } from '../utils'
 import type { ChunkContext, PipelineStage } from '../pipeline-types'
 
@@ -22,7 +22,7 @@ export function createStageNoise(deps: NoiseStageDeps): PipelineStage {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const wx = worldX + lx
         const wz = worldZ + lz
-        heightmap[lx][lz] = Math.floor(clamp(getHeight(wx, wz), 0, WORLD_HEIGHT))
+        heightmap[lx][lz] = Math.floor(clamp(getHeight(wx, wz), WORLD_MIN_Y, WORLD_MAX_Y))
       }
     }
   }

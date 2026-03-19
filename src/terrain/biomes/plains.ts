@@ -6,9 +6,9 @@ import type { TerrainParams, BiomeDefinition } from './types'
  */
 export const plainsTerrain: TerrainParams = {
   baseOffset: 0,
-  detailAmp: 1.3,
-  detailFreq: 0.015,
-  flatness: 0.97,
+  detailAmp: 1.1,
+  detailFreq: 0.014,
+  flatness: 0.985,
   mountainAllowed: false,
 }
 
@@ -28,7 +28,7 @@ export const plainsDefinition: BiomeDefinition = {
   climate: { tempMin: 0.45, tempMax: 0.8, humidityMin: 0.25, humidityMax: 0.5 },
   multiNoise: {
     center: {
-      continentalness: 0.68,
+      continentalness: 0.296,
       erosion: 0.05,
       temperature: 0.15,
       humidity: -0.25,

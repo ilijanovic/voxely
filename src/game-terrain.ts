@@ -2,21 +2,25 @@
  * Terrain sampling, biomes, spawn search, and tree generation for the main thread.
  * Uses chunk-runtime for height cache and block lookup; no THREE scene dependency.
  */
-import * as THREE from 'three'
 import { createNoise2D, createNoise3D } from 'simplex-noise'
+import seedrandom from 'seedrandom'
+import { noise2DSeeded } from './game/noise-improved'
 import type { BlockType, TreeNoiseCaches } from './types'
 import type { Biome } from './types'
-import { CHUNK_SIZE, MIN_CAVE_DEPTH_BELOW_SURFACE, WATER_LEVEL, WORLD_HEIGHT } from './constants'
+import {
+  CHUNK_SIZE,
+  MIN_CAVE_DEPTH_BELOW_SURFACE,
+  WATER_LEVEL,
+  WORLD_MAX_Y,
+  WORLD_MIN_Y,
+} from './constants'
 import { columnHeightCache, columnCacheKey, getBlockAt } from './chunk-runtime'
 import { isSolidBlock as isBlockTypeSolid, getBlockHeight } from './block-registry'
 import { createTerrainSampling } from './terrain-sampling'
 import { getPoiBiomeOverride, getActivePois } from './world-pois'
 import { BIOME_REGISTRY } from './terrain/biomes'
-import {
-  MOUNTAIN_STONE_SURFACE_HEIGHT,
-  SURFACE_STONE_HEIGHT,
-} from './terrain/surface-constants'
-import { getSurfaceBlockFromRules } from './terrain/surface-rules'
+import { MOUNTAIN_STONE_SURFACE_HEIGHT, SURFACE_STONE_HEIGHT } from './terrain/surface-constants'
+import { resolveSurfaceBlock } from './terrain/surface-resolver'
 import {
   FOREST_DENSITY_SCALE,
   FOREST_DENSITY_THRESHOLD,
@@ -25,37 +29,91 @@ import {
   TREE_SHAPE_NOISE_SCALE,
   JUNGLE_TREE_SHAPE_OFFSET_X,
   JUNGLE_TREE_SHAPE_OFFSET_Z,
+  MEADOW_BEE_NEST_CHANCE,
   TREE_PLACEMENT_CONFIG,
   getTreeShapeConfigForBiome,
   type TreeShapeConfig,
 } from './terrain/tree-constants'
+import { CAVE_THRESHOLD } from './terrain/constants'
+import {
+  SURFACE_RIVER_BANK_OFFSET_X,
+  SURFACE_RIVER_BANK_OFFSET_Z,
+  SURFACE_RIVER_BANK_SCALE,
+  SURFACE_DITHER_COAST_OFFSET_X,
+  SURFACE_DITHER_COAST_OFFSET_Z,
+  SURFACE_DITHER_COAST_SCALE,
+  SURFACE_DITHER_LAND_OFFSET_X,
+  SURFACE_DITHER_LAND_OFFSET_Z,
+  SURFACE_DITHER_LAND_SCALE,
+  SURFACE_FROZEN_PEAKS_BLOB_OFFSET_X,
+  SURFACE_FROZEN_PEAKS_BLOB_OFFSET_Z,
+  SURFACE_FROZEN_PEAKS_BLOB_SCALE,
+  SURFACE_FROZEN_PEAKS_N_OFFSET_X,
+  SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
+  SURFACE_FROZEN_PEAKS_N_SCALE,
+} from './terrain/surface-constants'
+import { getBadlandsBandNoise } from './terrain/badlands-band-noise'
+import { makeSeededRandom } from './terrain/utils'
 
 export type { Biome }
 export { MOUNTAIN_STONE_SURFACE_HEIGHT, SURFACE_STONE_HEIGHT }
 
-/** Returns a deterministic RNG in [0,1); same seed yields same sequence (used for world and tree noise). */
-function makeSeededRandom(seed: number) {
-  return function () {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff
-    return seed / 0x7fffffff
-  }
-}
-
 const WORLD_SEED_KEY = 'voxel-world-seed'
 
-/** Reads world seed from localStorage or generates and persists a new one so reloads keep the same terrain. */
+/**
+ * Clamps a numeric value into the inclusive [min, max] range.
+ *
+ * @param value - Input value
+ * @param min - Minimum allowed value
+ * @param max - Maximum allowed value
+ * @returns Clamped value
+ */
+function clamp(value: number, min: number, max: number): number {
+  if (value < min) return min
+  if (value > max) return max
+  return value
+}
+
+/**
+ * Reads the world seed from a well-defined override and falls back to localStorage.
+ *
+ * Order of precedence:
+ * - Explicit numeric override on window.__VOXELY_WORLD_SEED (for server / debug tools)
+ * - Stored value in localStorage (keeps terrain stable across reloads on the same client)
+ * - Fresh pseudo-random seed, which is then persisted to localStorage
+ *
+ * This keeps the generator deterministic for a given seed while allowing external
+ * systems (e.g. a multiplayer server) to provide a global seed without changing
+ * the terrain pipeline contract.
+ *
+ * @returns Deterministic world seed for this client
+ */
 function getOrCreateWorldSeed(): number {
-  const stored = localStorage.getItem(WORLD_SEED_KEY)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const maybeGlobal = (globalThis as any).__VOXELY_WORLD_SEED
+  if (typeof maybeGlobal === 'number' && Number.isFinite(maybeGlobal)) {
+    return maybeGlobal
+  }
+
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(WORLD_SEED_KEY) : null
   if (stored != null) {
     const n = parseInt(stored, 10)
     if (Number.isFinite(n)) return n
   }
-  const seed = (Date.now() >>> 0) ^ ((Math.random() * 0xffffffff) >>> 0)
-  localStorage.setItem(WORLD_SEED_KEY, String(seed))
+
+  const seedRng = seedrandom()
+  const seed = (seedRng() * 0xffffffff) >>> 0
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(WORLD_SEED_KEY, String(seed))
+    } catch {
+      // Ignore persistence failures (private mode, disabled storage, quota exceeded)
+    }
+  }
   return seed
 }
 
-/** World seed: persisted so reloads keep same terrain; new session gets new seed. */
+/** World seed: deterministic for a given seed, persisted per client unless overridden globally. */
 export const WORLD_SEED = getOrCreateWorldSeed()
 
 const terrainSampling = createTerrainSampling(WORLD_SEED)
@@ -66,14 +124,28 @@ const treePlacementNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 888))
 const treeShapeNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 999))
 const detailNoise2D = createNoise2D(makeSeededRandom(WORLD_SEED + 456))
 
+/** When true, use Three.js ImprovedNoise (Perlin) for detail noise instead of Simplex; allows comparing the two. */
+const USE_IMPROVED_NOISE_FOR_DETAIL = false
+
+const DETAIL_NOISE_SEED = WORLD_SEED + 456
+
+/**
+ * Detail noise for surface dither and frozen_peaks/badlands; same signature as Simplex 2D (returns approx. [-1, 1]).
+ * When USE_IMPROVED_NOISE_FOR_DETAIL is true, uses Three.js ImprovedNoise (Perlin) for this channel.
+ */
+function getDetailNoise2D(x: number, z: number): number {
+  return USE_IMPROVED_NOISE_FOR_DETAIL
+    ? noise2DSeeded(x, z, DETAIL_NOISE_SEED)
+    : detailNoise2D(x, z)
+}
+
 /** 3D cave noise (same seed as terrain pipeline). Used only for debug spawn above cave. */
 const caveNoise3D = createNoise3D(makeSeededRandom(WORLD_SEED + 400))
-/** Carve threshold for cave detection; must match terrain/index.ts stage2Carve3D. */
-const CAVE_THRESHOLD = 0.56
 
 /** Biomes that can be chosen for spawn; each has equal probability (deterministic per WORLD_SEED). */
 export const SPAWNABLE_BIOMES: Biome[] = [
   'desert',
+  'badlands',
   'plains',
   'savanna',
   'forest',
@@ -100,7 +172,7 @@ export function getHeight(x: number, z: number): number {
   if (cached !== undefined) return cached
 
   const h = terrainSampling.getSmoothedHeight(x, z)
-  const result = Math.floor(THREE.MathUtils.clamp(h, 0, WORLD_HEIGHT))
+  const result = Math.floor(clamp(h, WORLD_MIN_Y, WORLD_MAX_Y))
   columnHeightCache.set(key, result)
   return result
 }
@@ -137,6 +209,59 @@ export function getErosion(x: number, z: number): number {
   return terrainSampling.getErosion(x, z)
 }
 
+/** Terrain debug snapshot for one world column. */
+export interface TerrainColumnDebugSnapshot {
+  wx: number
+  wz: number
+  baseBiome: Biome
+  resolvedBiome: Biome
+  biomeBlend: { primary: Biome; secondary: Biome; t: number }
+  heightUsed: number
+  rawHeight: number
+  smoothedHeight: number
+  macroTerm: number
+  localTerm: number
+  mountainTerm: number
+  erosionTerm: number
+  temperature: number
+  humidity: number
+  continentalness: number
+}
+
+/**
+ * Returns a structured terrain debug snapshot for one world column (x,z).
+ * Values are sampled from the same terrain formulas used by gameplay/runtime.
+ */
+export function getTerrainColumnDebugSnapshot(x: number, z: number): TerrainColumnDebugSnapshot {
+  const wx = Math.floor(x)
+  const wz = Math.floor(z)
+  const baseBiome = terrainSampling.getBiome(wx, wz)
+  const resolvedBiome = getResolvedBiome(wx, wz)
+  const biomeBlend = terrainSampling.getBiomeBlend(wx, wz)
+  const heightUsed = getHeight(wx, wz)
+  return {
+    wx,
+    wz,
+    baseBiome,
+    resolvedBiome,
+    biomeBlend: {
+      primary: biomeBlend.primary,
+      secondary: biomeBlend.secondary,
+      t: biomeBlend.t,
+    },
+    heightUsed,
+    rawHeight: terrainSampling.getRawTerrainHeight(wx, wz),
+    smoothedHeight: terrainSampling.getSmoothedHeight(wx, wz),
+    macroTerm: terrainSampling.getMacroTerrain(wx, wz),
+    localTerm: terrainSampling.getLocalTerrain(wx, wz, resolvedBiome),
+    mountainTerm: terrainSampling.getMountainContribution(wx, wz, resolvedBiome),
+    erosionTerm: terrainSampling.getErosion(wx, wz),
+    temperature: terrainSampling.getTemperature(wx, wz),
+    humidity: terrainSampling.getHumidity(wx, wz),
+    continentalness: terrainSampling.getContinentalness(wx, wz),
+  }
+}
+
 /** Foot half-extent for spawn surface search (matches player AABB in XZ). */
 const SPAWN_FOOT_HALF = 0.3
 
@@ -149,12 +274,12 @@ function getSurfaceYVoxel(px: number, pz: number, searchMaxY: number): number {
   const maxBx = Math.floor(px + SPAWN_FOOT_HALF + 0.5)
   const minBz = Math.ceil(pz - SPAWN_FOOT_HALF - 0.5)
   const maxBz = Math.floor(pz + SPAWN_FOOT_HALF + 0.5)
-  let maxSurfaceY = -0.5
-  const top = Math.min(searchMaxY, WORLD_HEIGHT - 1)
+  let maxSurfaceY = WORLD_MIN_Y - 0.5
+  const top = Math.min(searchMaxY, WORLD_MAX_Y)
   for (let bx = minBx; bx <= maxBx; bx++) {
     for (let bz = minBz; bz <= maxBz; bz++) {
-      let columnTop = -0.5
-      for (let by = top; by >= 0; by--) {
+      let columnTop = WORLD_MIN_Y - 0.5
+      for (let by = top; by >= WORLD_MIN_Y; by--) {
         const type = getBlockAt(bx, by, bz)
         if (type === null) {
           columnTop = getHeight(bx, bz) + 0.5
@@ -175,14 +300,14 @@ function getSurfaceYVoxel(px: number, pz: number, searchMaxY: number): number {
  * World Y of the top face of solid terrain at (x, z). Uses foot-area expansion for spawn; do not use for physics/grounded/jump.
  */
 export function getSurfaceY(x: number, z: number): number {
-  return getSurfaceYVoxel(x, z, WORLD_HEIGHT)
+  return getSurfaceYVoxel(x, z, WORLD_MAX_Y)
 }
 
 /** Surface Y for a single block column (no foot-area expansion). Used for entity spawns. */
 export function getColumnSurfaceY(wx: number, wz: number): number {
   const bx = Math.floor(wx)
   const bz = Math.floor(wz)
-  for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
+  for (let by = WORLD_MAX_Y; by >= WORLD_MIN_Y; by--) {
     const type = getBlockAt(bx, by, bz)
     if (type === null) return getHeight(bx, bz) + 0.5
     if (type !== 'wood' && type !== 'leaves' && isBlockTypeSolid(type as BlockType)) {
@@ -197,74 +322,97 @@ const SPAWN_MAX_HEIGHT = WATER_LEVEL + 38
 /** Minimum chunks of land in all directions from spawn; avoids spawning at the coast. */
 const SPAWN_OCEAN_BUFFER_CHUNKS = 5
 
+/** Biomes that count as snow for grass → grass_snow neighbor rule. Must match terrain worker. */
+const SNOW_BIOMES: Biome[] = [
+  'snow',
+  'frozen_river',
+  'snowy_beach',
+  'grove',
+  'snowy_slopes',
+  'frozen_peaks',
+  'jagged_peaks',
+]
+
+/** Max cardinal height delta for slope (cliff) detection. */
+function getMaxSlopeDelta(x: number, z: number): number {
+  const h = getHeight(x, z)
+  const dN = Math.abs(getHeight(x, z - 1) - h)
+  const dS = Math.abs(getHeight(x, z + 1) - h)
+  const dW = Math.abs(getHeight(x - 1, z) - h)
+  const dE = Math.abs(getHeight(x + 1, z) - h)
+  return Math.max(dN, dS, dW, dE)
+}
+
 /** Surface block type at (wx, wz) given biome and topY; handles shore, underwater, stone layers, snow/grass variants. */
 export function getSurfaceBlockAt(wx: number, wz: number, biome: Biome, topY: number): BlockType {
   const def = BIOME_REGISTRY[biome]
   const surface = def.blocks.surface as BlockType
 
-  const getMaxSlopeDelta = (x: number, z: number): number => {
-    const h = getHeight(x, z)
-    const dN = Math.abs(getHeight(x, z - 1) - h)
-    const dS = Math.abs(getHeight(x, z + 1) - h)
-    const dW = Math.abs(getHeight(x - 1, z) - h)
-    const dE = Math.abs(getHeight(x + 1, z) - h)
-    return Math.max(dN, dS, dW, dE)
-  }
-
-  if (topY < WATER_LEVEL) return def.blocks.underwater as BlockType
-  if (topY >= WATER_LEVEL - 1 && topY <= WATER_LEVEL + 1) return def.blocks.shore as BlockType
-
   const blend = terrainSampling.getBiomeBlend(wx, wz)
-  if (blend.primary === 'ocean' && blend.secondary !== 'ocean') {
-    const landSurface = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
-    const n = (detailNoise2D(wx * 0.11 + 19.3, wz * 0.11 - 71.7) + 1) * 0.5
-    return n < blend.t ? landSurface : 'sand'
-  }
-
-  if (
-    blend.primary !== blend.secondary &&
-    blend.primary !== 'ocean' &&
-    blend.secondary !== 'ocean' &&
-    blend.primary !== 'desert' &&
-    blend.secondary !== 'desert'
-  ) {
-    const a = BIOME_REGISTRY[blend.primary].blocks.surface as BlockType
-    const b = BIOME_REGISTRY[blend.secondary].blocks.surface as BlockType
-    if (a !== b && blend.t > 0.1 && blend.t < 0.9) {
-      const n = (detailNoise2D(wx * 0.13 - 33.1, wz * 0.13 + 5.7) + 1) * 0.5
-      return n < blend.t ? b : a
-    }
-  }
-
   const slope = getMaxSlopeDelta(wx, wz)
+  const ditherNoiseCoast =
+    (getDetailNoise2D(
+      wx * SURFACE_DITHER_COAST_SCALE + SURFACE_DITHER_COAST_OFFSET_X,
+      wz * SURFACE_DITHER_COAST_SCALE + SURFACE_DITHER_COAST_OFFSET_Z,
+    ) +
+      1) *
+    0.5
+  const ditherNoiseLand =
+    (getDetailNoise2D(
+      wx * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_X,
+      wz * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_Z,
+    ) +
+      1) *
+    0.5
   const frozenPeaksNoiseN =
-    (detailNoise2D(wx * 0.09 + 71.3, wz * 0.09 - 19.7) + 1) * 0.5
+    (getDetailNoise2D(
+      wx * SURFACE_FROZEN_PEAKS_N_SCALE + SURFACE_FROZEN_PEAKS_N_OFFSET_X,
+      wz * SURFACE_FROZEN_PEAKS_N_SCALE + SURFACE_FROZEN_PEAKS_N_OFFSET_Z,
+    ) +
+      1) *
+    0.5
   const frozenPeaksNoiseBlob =
-    (detailNoise2D(wx * 0.035 - 211.1, wz * 0.035 + 97.7) + 1) * 0.5
-  const snowBiomes: Biome[] = [
-    'snow',
-    'grove',
-    'snowy_slopes',
-    'frozen_peaks',
-    'jagged_peaks',
-  ]
+    (getDetailNoise2D(
+      wx * SURFACE_FROZEN_PEAKS_BLOB_SCALE + SURFACE_FROZEN_PEAKS_BLOB_OFFSET_X,
+      wz * SURFACE_FROZEN_PEAKS_BLOB_SCALE + SURFACE_FROZEN_PEAKS_BLOB_OFFSET_Z,
+    ) +
+      1) *
+    0.5
+  const riverBankNoise =
+    (getDetailNoise2D(
+      wx * SURFACE_RIVER_BANK_SCALE + SURFACE_RIVER_BANK_OFFSET_X,
+      wz * SURFACE_RIVER_BANK_SCALE + SURFACE_RIVER_BANK_OFFSET_Z,
+    ) +
+      1) *
+    0.5
   let hasSnowNeighbor = false
   if (surface === 'grass') {
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         if (dx === 0 && dz === 0) continue
-        if (snowBiomes.includes(getResolvedBiome(wx + dx, wz + dz))) {
+        if (SNOW_BIOMES.includes(getResolvedBiome(wx + dx, wz + dz))) {
           hasSnowNeighbor = true
           break
         }
       }
     }
   }
-  return getSurfaceBlockFromRules(biome, topY, surface, {
+  const badlandsBandNoise =
+    biome === 'badlands'
+      ? getBadlandsBandNoise(wx, wz, topY, getDetailNoise2D)
+      : undefined
+  return resolveSurfaceBlock({
+    topY,
+    biome,
+    blend,
     slope,
     frozenPeaksNoiseN,
     frozenPeaksNoiseBlob,
     hasSnowNeighbor,
+    ditherNoiseCoast,
+    ditherNoiseLand,
+    badlandsBandNoise,
+    riverBankNoise,
   })
 }
 
@@ -286,8 +434,7 @@ function isBiomeSolid(wx: number, wz: number, biome: Biome): boolean {
 function hasOceanNearby(wx: number, wz: number, bufferChunks: number): boolean {
   for (let dcx = -bufferChunks; dcx <= bufferChunks; dcx++) {
     for (let dcz = -bufferChunks; dcz <= bufferChunks; dcz++) {
-      if (getResolvedBiome(wx + dcx * CHUNK_SIZE, wz + dcz * CHUNK_SIZE) === 'ocean')
-        return true
+      if (getResolvedBiome(wx + dcx * CHUNK_SIZE, wz + dcz * CHUNK_SIZE) === 'ocean') return true
     }
   }
   return false
@@ -307,8 +454,8 @@ function getSpawnMaxHeightForGrass(biome: Biome): number {
  */
 function hasCaveBelow(x: number, z: number): boolean {
   const surfaceY = getHeight(x, z)
-  const carveCeiling = Math.max(1, surfaceY - MIN_CAVE_DEPTH_BELOW_SURFACE)
-  for (let y = 1; y < carveCeiling && y < WORLD_HEIGHT; y++) {
+  const carveCeiling = Math.max(WORLD_MIN_Y + 1, surfaceY - MIN_CAVE_DEPTH_BELOW_SURFACE)
+  for (let y = WORLD_MIN_Y + 1; y < carveCeiling && y <= WORLD_MAX_Y; y++) {
     if (caveNoise3D(x, y, z) > CAVE_THRESHOLD) return true
   }
   return false
@@ -355,59 +502,84 @@ export function findSpawnInBiome(biome: Biome): { x: number; z: number } {
   const maxRadius = 80 * CHUNK_SIZE
   const maxHeightPreferGrass = getSpawnMaxHeightForGrass(biome)
 
-  const tryFind = (maxHeight: number): { x: number; z: number } | null => {
-    for (let radius = SPAWN_BIOME_MIN_RADIUS; radius <= maxRadius; radius += step) {
-      const half = radius
-      for (let x = -half; x <= half; x += step) {
-        const h1 = getHeight(x, -half)
-        if (
-          getResolvedBiome(x, -half) === biome &&
-          isBiomeSolid(x, -half, biome) &&
-          h1 >= WATER_LEVEL - 1 &&
-          h1 <= maxHeight &&
-          !hasOceanNearby(x, -half, SPAWN_OCEAN_BUFFER_CHUNKS)
-        )
-          return { x, z: -half }
-        if (half > 0) {
-          const h2 = getHeight(x, half)
-          if (
-            getResolvedBiome(x, half) === biome &&
-            isBiomeSolid(x, half, biome) &&
-            h2 >= WATER_LEVEL - 1 &&
-            h2 <= maxHeight &&
-            !hasOceanNearby(x, half, SPAWN_OCEAN_BUFFER_CHUNKS)
-          )
-            return { x, z: half }
-        }
-      }
-      for (let z = -half + step; z < half; z += step) {
-        const h1 = getHeight(-half, z)
-        if (
-          getResolvedBiome(-half, z) === biome &&
-          isBiomeSolid(-half, z, biome) &&
-          h1 >= WATER_LEVEL - 1 &&
-          h1 <= maxHeight &&
-          !hasOceanNearby(-half, z, SPAWN_OCEAN_BUFFER_CHUNKS)
-        )
-          return { x: -half, z }
-        const h2 = getHeight(half, z)
-        if (
-          getResolvedBiome(half, z) === biome &&
-          isBiomeSolid(half, z, biome) &&
-          h2 >= WATER_LEVEL - 1 &&
-          h2 <= maxHeight &&
-          !hasOceanNearby(half, z, SPAWN_OCEAN_BUFFER_CHUNKS)
-        )
-          return { x: half, z }
-      }
-    }
-    return null
+  const biomeIndex = SPAWNABLE_BIOMES.indexOf(biome)
+  const biomeSeed = biomeIndex >= 0 ? biomeIndex : 0
+  // Deterministic "randomness" per world seed + biome, so new worlds typically get a different spawn.
+  const pickRng = makeSeededRandom(WORLD_SEED + 6060 + biomeSeed * 12345)
+  const candidatesPerPass = 32
+
+  const isValidAt = (wx: number, wz: number, maxHeight: number): boolean => {
+    const h = getHeight(wx, wz)
+    if (h < WATER_LEVEL - 1 || h > maxHeight) return false
+    if (getResolvedBiome(wx, wz) !== biome) return false
+    if (!isBiomeSolid(wx, wz, biome)) return false
+    if (hasOceanNearby(wx, wz, SPAWN_OCEAN_BUFFER_CHUNKS)) return false
+    return true
   }
 
-  const withGrass = tryFind(maxHeightPreferGrass)
+  const tryPick = (maxHeight: number): { x: number; z: number } | null => {
+    const candidates: Array<{ x: number; z: number }> = []
+    outer: for (let radius = SPAWN_BIOME_MIN_RADIUS; radius <= maxRadius; radius += step) {
+      const half = radius
+
+      for (let x = -half; x <= half; x += step) {
+        const z1 = -half
+        if (isValidAt(x, z1, maxHeight)) {
+          if (!(x === 0 && z1 === 0)) candidates.push({ x, z: z1 })
+          if (candidates.length >= candidatesPerPass) break outer
+        }
+
+        if (half > 0) {
+          const z2 = half
+          if (isValidAt(x, z2, maxHeight)) {
+            if (!(x === 0 && z2 === 0)) candidates.push({ x, z: z2 })
+            if (candidates.length >= candidatesPerPass) break outer
+          }
+        }
+      }
+
+      for (let z = -half + step; z < half; z += step) {
+        const x1 = -half
+        if (isValidAt(x1, z, maxHeight)) {
+          if (!(x1 === 0 && z === 0)) candidates.push({ x: x1, z })
+          if (candidates.length >= candidatesPerPass) break outer
+        }
+
+        const x2 = half
+        if (isValidAt(x2, z, maxHeight)) {
+          if (!(x2 === 0 && z === 0)) candidates.push({ x: x2, z })
+          if (candidates.length >= candidatesPerPass) break outer
+        }
+      }
+    }
+
+    if (candidates.length === 0) return null
+    const idx = Math.floor(pickRng() * candidates.length)
+    return candidates[idx] ?? candidates[0]
+  }
+
+  const withGrass = tryPick(maxHeightPreferGrass)
   if (withGrass) return withGrass
-  const fallback = tryFind(SPAWN_MAX_HEIGHT)
-  return fallback ?? { x: 0, z: 0 }
+
+  const fallback = tryPick(SPAWN_MAX_HEIGHT)
+  if (fallback) return fallback
+
+  // Ultimate fallback: sample random columns so we don't ever "lock" to (0,0).
+  const fallbackRng = makeSeededRandom(WORLD_SEED + 6061 + biomeSeed * 12346)
+  const attempts = 96
+  for (let i = 0; i < attempts; i++) {
+    const wx = Math.floor(((fallbackRng() * 2 - 1) * maxRadius) / step) * step
+    const wz = Math.floor(((fallbackRng() * 2 - 1) * maxRadius) / step) * step
+    if (wx === 0 && wz === 0) continue
+    if (!isValidAt(wx, wz, SPAWN_MAX_HEIGHT)) continue
+    return { x: wx, z: wz }
+  }
+
+  // Last resort: deterministic non-zero coords.
+  const lastCoord = Math.max(1, Math.floor(fallbackRng() * 5)) * step
+  const xSign = fallbackRng() < 0.5 ? -1 : 1
+  const zSign = fallbackRng() < 0.5 ? -1 : 1
+  return { x: xSign * lastCoord, z: zSign * lastCoord }
 }
 
 // ================= TREE GENERATION =================
@@ -570,7 +742,8 @@ function leafDistSq(dx: number, dy: number, dz: number): number {
 }
 
 /**
- * Generate trunk + leaf block positions for a single tree. Deterministic from (wx, baseY, wz, biome).
+ * Generate trunk/leaves and optional meadow bee-nest attachment for a single tree.
+ * Deterministic from (wx, baseY, wz, biome).
  */
 export function getTreeBlocks(
   wx: number,
@@ -580,9 +753,11 @@ export function getTreeBlocks(
 ): {
   wood: Array<{ x: number; y: number; z: number }>
   leaves: Array<{ x: number; y: number; z: number }>
+  beeNests: Array<{ x: number; y: number; z: number }>
 } {
   const wood: Array<{ x: number; y: number; z: number }> = []
   const leaves: Array<{ x: number; y: number; z: number }> = []
+  const beeNests: Array<{ x: number; y: number; z: number }> = []
   const shape = getTreeShapeConfig(biome)
   const shapeOx = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_X : 0
   const shapeOz = biome === 'jungle' ? JUNGLE_TREE_SHAPE_OFFSET_Z : 0
@@ -668,18 +843,33 @@ export function getTreeBlocks(
           leafDistSq(dx, y - canopyCenterY, dz) > maxLeafDistSq
         )
           continue
-        if (!(dx === 0 && dz === 0) && leafNoiseValue(wx + shapeOx, wz + shapeOz, dx, dy, dz) > effectiveLeafDensity) {
+        if (
+          !(dx === 0 && dz === 0) &&
+          leafNoiseValue(wx + shapeOx, wz + shapeOz, dx, dy, dz) > effectiveLeafDensity
+        ) {
           continue
         }
         leaves.push({ x: wx + dx, y, z: wz + dz })
       }
     }
   }
-  return { wood, leaves }
+  if (biome === 'meadow' && treeSeed(211, -157) < MEADOW_BEE_NEST_CHANCE && trunkHeight >= 4) {
+    const sideIndex = Math.min(3, Math.floor(treeSeed(-211, 157) * 4))
+    const sideOffsets: ReadonlyArray<readonly [number, number]> = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]
+    const [dx, dz] = sideOffsets[sideIndex]
+    const nestY = baseY + Math.max(2, trunkHeight - 2)
+    beeNests.push({ x: wx + dx, y: nestY, z: wz + dz })
+  }
+  return { wood, leaves, beeNests }
 }
 
 /**
- * Generate a single tree at world position (ground block top = worldY). Returns wood and leaf positions.
+ * Generate a single tree at world position (ground block top = worldY).
  */
 export function generateTree(
   worldX: number,
@@ -688,6 +878,7 @@ export function generateTree(
 ): {
   wood: Array<{ x: number; y: number; z: number }>
   leaves: Array<{ x: number; y: number; z: number }>
+  beeNests: Array<{ x: number; y: number; z: number }>
 } {
   const biome = getResolvedBiome(worldX, worldZ)
   return getTreeBlocks(worldX, worldY, worldZ, biome)

@@ -23,7 +23,7 @@ export const mushroomFieldsDefinition: BiomeDefinition = {
   climate: { tempMin: 0.5, tempMax: 0.6, humidityMin: 0.9, humidityMax: 1.0 },
   multiNoise: {
     center: {
-      continentalness: 0.6,
+      continentalness: -1.125,
       erosion: 0.0,
       temperature: 0.1,
       humidity: 0.9,

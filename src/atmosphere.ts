@@ -7,6 +7,8 @@ import * as THREE from 'three'
 const DAY_DURATION = 900
 const SUN_DISTANCE = 200
 const SUN_SHADOW_MIN_HEIGHT = 0.15
+const DEFAULT_CLOUD_AREA = 420
+const DEFAULT_CLOUD_WEST_SPEED = 1
 
 let dayTime = 0
 let wasUnderwater = false
@@ -20,7 +22,7 @@ const _clearDay = new THREE.Color(0x87ceeb)
 const _clearGolden = new THREE.Color(0xd49a6a)
 const _clearDusk = new THREE.Color(0x3a2050)
 const _clearNight = new THREE.Color(0x06101e)
-const _fogDay = new THREE.Color(0x8ed4f0)
+const _fogDay = new THREE.Color(0x9fc4d8)
 const _fogGolden = new THREE.Color(0xc98f65)
 const _fogDusk = new THREE.Color(0x2a1840)
 const _fogNight = new THREE.Color(0x0b0f1a)
@@ -102,6 +104,29 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
   const waterSurfaceY = ctx.waterLevel + ctx.waterBlockHeight
   const isUnderwater = eyeY < waterSurfaceY
   const isPrecipitating = !isUnderwater && ctx.isSnowing
+  const cloudAreaRaw = Number(ctx.clouds.userData.cloudArea)
+  const cloudArea = Number.isFinite(cloudAreaRaw) && cloudAreaRaw > 0 ? cloudAreaRaw : DEFAULT_CLOUD_AREA
+  const cloudWestSpeedRaw = Number(ctx.clouds.userData.cloudWestSpeed)
+  const cloudWestSpeed =
+    Number.isFinite(cloudWestSpeedRaw) && cloudWestSpeedRaw >= 0
+      ? cloudWestSpeedRaw
+      : DEFAULT_CLOUD_WEST_SPEED
+  const halfCloudArea = cloudArea * 0.5
+
+  // Clouds are world-anchored: they drift west and recycle when they leave the
+  // player's nearby area, which keeps new clouds appearing ahead while traveling.
+  const cloudDrift = cloudWestSpeed * dt
+  const minCloudX = ctx.playerPosition.x - halfCloudArea
+  const maxCloudX = ctx.playerPosition.x + halfCloudArea
+  const minCloudZ = ctx.playerPosition.z - halfCloudArea
+  const maxCloudZ = ctx.playerPosition.z + halfCloudArea
+  for (const cloud of ctx.clouds.children) {
+    cloud.position.x -= cloudDrift
+    while (cloud.position.x < minCloudX) cloud.position.x += cloudArea
+    while (cloud.position.x > maxCloudX) cloud.position.x -= cloudArea
+    while (cloud.position.z < minCloudZ) cloud.position.z += cloudArea
+    while (cloud.position.z > maxCloudZ) cloud.position.z -= cloudArea
+  }
 
   if (isUnderwater !== wasUnderwater) {
     wasUnderwater = isUnderwater
@@ -206,6 +231,7 @@ export function updateAtmosphere(dt: number, ctx: AtmosphereContext): void {
     if (precipSkyDarken > 0) _clearColorTemp.lerp(new THREE.Color(0x4a5568), precipSkyDarken)
     skyMat.uniforms.uBottomColor.value.copy(_clearColorTemp)
 
+    ctx.clouds.visible = true
     ctx.cloudMaterial.opacity = isPrecipitating ? 0.92 : 0.6 + daylight * 0.35
     ctx.cloudMaterial.color.set(0xffffff).lerp(_cloudGolden, sunriseSet).lerp(_cloudNight, night)
     if (isPrecipitating) ctx.cloudMaterial.color.lerp(_cloudRainSnow, 0.55)

@@ -36,12 +36,12 @@ describe('constants', () => {
       expect(CHUNK_SIZE).toBe(16)
     })
 
-    it('WORLD_HEIGHT is 128', () => {
-      expect(WORLD_HEIGHT).toBe(128)
+    it('WORLD_HEIGHT is 384 (Vanilla 1.18+)', () => {
+      expect(WORLD_HEIGHT).toBe(384)
     })
 
-    it('WATER_LEVEL is 64', () => {
-      expect(WATER_LEVEL).toBe(64)
+    it('WATER_LEVEL is 62 (Vanilla sea level)', () => {
+      expect(WATER_LEVEL).toBe(62)
     })
 
     it('WATER_FILL_MAX_Y equals WATER_LEVEL so holes at or below sea level fill with water', () => {

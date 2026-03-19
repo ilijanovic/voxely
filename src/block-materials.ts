@@ -62,6 +62,78 @@ function normalizeTextureName(textureName: string): string {
   return trimmed.endsWith('.png') ? trimmed.slice(0, -4) : trimmed
 }
 
+/**
+ * Compatibility aliases for packs that use different vanilla-era naming.
+ * We keep the first requested name, then try aliases in order.
+ */
+const TEXTURE_NAME_ALIASES: Record<string, string[]> = {
+  // Legacy -> modern
+  grass_side: ['grass_block_side'],
+  grass_top: ['grass_block_top'],
+  grass_side_snowed: ['grass_block_snow'],
+  tallgrass: ['short_grass', 'grass'],
+  log_oak: ['oak_log'],
+  log_oak_top: ['oak_log_top'],
+  log_birch: ['birch_log'],
+  log_birch_top: ['birch_log_top'],
+  log_spruce: ['spruce_log'],
+  log_spruce_top: ['spruce_log_top'],
+  log_jungle: ['jungle_log'],
+  log_jungle_top: ['jungle_log_top'],
+  log_acacia: ['acacia_log'],
+  log_acacia_top: ['acacia_log_top'],
+  log_big_oak: ['dark_oak_log'],
+  log_big_oak_top: ['dark_oak_log_top'],
+  leaves_oak: ['oak_leaves'],
+  leaves_birch: ['birch_leaves'],
+  leaves_spruce: ['spruce_leaves'],
+  leaves_jungle: ['jungle_leaves'],
+  leaves_acacia: ['acacia_leaves'],
+  leaves_big_oak: ['dark_oak_leaves'],
+  // Modern -> legacy
+  grass_block_side: ['grass_side'],
+  grass_block_top: ['grass_top'],
+  grass_block_snow: ['grass_side_snowed'],
+  short_grass: ['tallgrass', 'grass'],
+  oak_log: ['log_oak'],
+  oak_log_top: ['log_oak_top'],
+  birch_log: ['log_birch'],
+  birch_log_top: ['log_birch_top'],
+  spruce_log: ['log_spruce'],
+  spruce_log_top: ['log_spruce_top'],
+  jungle_log: ['log_jungle'],
+  jungle_log_top: ['log_jungle_top'],
+  acacia_log: ['log_acacia'],
+  acacia_log_top: ['log_acacia_top'],
+  dark_oak_log: ['log_big_oak'],
+  dark_oak_log_top: ['log_big_oak_top'],
+  oak_leaves: ['leaves_oak'],
+  birch_leaves: ['leaves_birch'],
+  spruce_leaves: ['leaves_spruce'],
+  jungle_leaves: ['leaves_jungle'],
+  acacia_leaves: ['leaves_acacia'],
+  dark_oak_leaves: ['leaves_big_oak'],
+}
+
+function getTextureNameCandidates(textureName: string): string[] {
+  const start = normalizeTextureName(textureName)
+  const seen = new Set<string>()
+  const queue: string[] = [start]
+  const out: string[] = []
+  while (queue.length > 0) {
+    const cur = queue.shift()!
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    out.push(cur)
+    const aliases = TEXTURE_NAME_ALIASES[cur] ?? []
+    for (const next of aliases) {
+      const normalized = normalizeTextureName(next)
+      if (!seen.has(normalized)) queue.push(normalized)
+    }
+  }
+  return out
+}
+
 function getTextureUrls(textureName: string): { primaryUrl: string; fallbackUrl: string } {
   const normalized = normalizeTextureName(textureName)
   const base = resolveTextureBase()
@@ -90,12 +162,22 @@ function getItemTextureUrls(textureName: string): { primaryUrl: string; fallback
 }
 
 /** Loads a texture by name (primary path, then fallback); never rejects, returns fallback canvas texture on failure. */
-export function loadTextureSafe(textureName: string): Promise<THREE.Texture> {
-  const { primaryUrl, fallbackUrl } = getTextureUrls(textureName)
-  return textureLoader
-    .loadAsync(primaryUrl)
-    .catch(() => textureLoader.loadAsync(fallbackUrl))
-    .catch(() => getFallbackTexture())
+export async function loadTextureSafe(textureName: string): Promise<THREE.Texture> {
+  const candidates = getTextureNameCandidates(textureName)
+  for (const candidate of candidates) {
+    const { primaryUrl, fallbackUrl } = getTextureUrls(candidate)
+    try {
+      return await textureLoader.loadAsync(primaryUrl)
+    } catch {
+      // Try fallback path for this candidate next.
+    }
+    try {
+      return await textureLoader.loadAsync(fallbackUrl)
+    } catch {
+      // Keep trying alias candidates.
+    }
+  }
+  return getFallbackTexture()
 }
 
 /** Loads an item texture (e.g. wood_sword) from the item texture path. Used for held items and hotbar. */
@@ -113,16 +195,26 @@ export function loadItemTextureSafe(textureName: string): Promise<THREE.Texture>
 }
 
 /** Loads a texture by name; returns null on failure (does not use fallback texture). */
-export function loadTextureOptional(textureName: string): Promise<THREE.Texture | null> {
-  const { primaryUrl, fallbackUrl } = getTextureUrls(textureName)
-  return textureLoader
-    .loadAsync(primaryUrl)
-    .catch(() => textureLoader.loadAsync(fallbackUrl))
-    .then((tex) => {
+export async function loadTextureOptional(textureName: string): Promise<THREE.Texture | null> {
+  const candidates = getTextureNameCandidates(textureName)
+  for (const candidate of candidates) {
+    const { primaryUrl, fallbackUrl } = getTextureUrls(candidate)
+    try {
+      const tex = await textureLoader.loadAsync(primaryUrl)
       setPixelFilter(tex)
       return tex
-    })
-    .catch(() => null)
+    } catch {
+      // Try fallback path for this candidate next.
+    }
+    try {
+      const tex = await textureLoader.loadAsync(fallbackUrl)
+      setPixelFilter(tex)
+      return tex
+    } catch {
+      // Keep trying alias candidates.
+    }
+  }
+  return null
 }
 
 interface CreatePBRMaterialOptions {
@@ -282,13 +374,18 @@ export async function loadFoliageColormapImageData(): Promise<ImageData | null> 
 const BIOME_GRASS_TEMP_HUMIDITY: Record<Biome, { temp: number; humidity: number }> = {
   plains: { temp: 0.5, humidity: 0.5 },
   ocean: { temp: 0.5, humidity: 1 },
+  river: { temp: 0.5, humidity: 0.7 },
+  frozen_river: { temp: 0.05, humidity: 0.7 },
+  beach: { temp: 0.65, humidity: 0.6 },
+  stony_shore: { temp: 0.45, humidity: 0.5 },
   desert: { temp: 1, humidity: 0 },
   savanna: { temp: 0.9, humidity: 0.2 },
   forest: { temp: 0.4, humidity: 0.7 },
   jungle: { temp: 0.95, humidity: 0.9 },
   mountain: { temp: 0.3, humidity: 0.4 },
   snow: { temp: 0, humidity: 0.5 },
-  meadow: { temp: 0.5, humidity: 0.6 },
+  snowy_beach: { temp: 0.05, humidity: 0.55 },
+  meadow: { temp: 0.5, humidity: 0.8 },
   grove: { temp: 0.2, humidity: 0.6 },
   snowy_slopes: { temp: 0.1, humidity: 0.4 },
   stony_peaks: { temp: 0.4, humidity: 0.3 },
@@ -521,32 +618,54 @@ export function getSnowLayerGeometry(layers: number): THREE.BufferGeometry {
 export function isSharedBlockOrSnowLayerGeometry(geo: THREE.BufferGeometry): boolean {
   if (geo === sharedBlockGeometry) return true
   if (_snowLayerGeometryCache.includes(geo)) return true
-  return _stairsGeometryCache.includes(geo)
+  if (_stairsGeometryCache.includes(geo)) return true
+  return _fenceGeometryCache.includes(geo)
 }
 
 export type StairFacing = 'north' | 'east' | 'south' | 'west'
 
+/** Vanilla-style stairs half: bottom = normal (step up), top = upside-down (e.g. on ceiling). */
+export type StairsHalf = 'bottom' | 'top'
+
+const STAIRS_FACING_INDEX: Record<StairFacing, number> = { north: 0, east: 1, south: 2, west: 3 }
 const _stairsGeometryCache: THREE.BufferGeometry[] = []
 
 /**
- * Returns shared stairs geometry for a given facing. Geometry is corner-based: spans X,Z in [0..1],
- * and represents a Minecraft-like stair shape as two boxes (bottom half-slab + top half block).
+ * Returns shared stairs geometry for a given facing and optional half.
+ * Geometry is corner-based: spans X,Z in [0..1], two boxes (slab + step).
+ * @param half When 'top', stairs are upside-down (slab at y 0.5–1, step at y 0–0.5). Default 'bottom'.
  */
-export function getStairsGeometry(facing: StairFacing): THREE.BufferGeometry {
-  const idx = facing === 'north' ? 0 : facing === 'east' ? 1 : facing === 'south' ? 2 : 3
+export function getStairsGeometry(facing: StairFacing, half: StairsHalf = 'bottom'): THREE.BufferGeometry {
+  const facingIdx = STAIRS_FACING_INDEX[facing]
+  const halfIdx = half === 'top' ? 4 : 0
+  const idx = halfIdx + facingIdx
   if (_stairsGeometryCache[idx]) return _stairsGeometryCache[idx]
 
   const createBox = (w: number, h: number, d: number, x0: number, y0: number, z0: number) => {
     const geo = new THREE.BoxGeometry(w * BLOCK_SIZE, h * BLOCK_SIZE, d * BLOCK_SIZE)
-    // Translate from centered box to corner-based placement: put min corner at (x0,y0,z0).
     geo.translate((x0 + w / 2) * BLOCK_SIZE, (y0 + h / 2) * BLOCK_SIZE, (z0 + d / 2) * BLOCK_SIZE)
     return geo
   }
 
-  // Bottom slab: full XZ, half height.
+  if (half === 'top') {
+    // Upside-down: slab at y 0.5–1, step at y 0–0.5.
+    const slab = createBox(1, 0.5, 1, 0, 0.5, 0)
+    const step =
+      facing === 'north'
+        ? createBox(1, 0.5, 0.5, 0, 0, 0)
+        : facing === 'south'
+          ? createBox(1, 0.5, 0.5, 0, 0, 0.5)
+          : facing === 'east'
+            ? createBox(0.5, 0.5, 1, 0.5, 0, 0)
+            : createBox(0.5, 0.5, 1, 0, 0, 0)
+    const merged = mergeGeometries([step, slab], true)
+    if (!merged) throw new Error(`Failed to build stairs geometry for facing: ${facing}, half: ${half}`)
+    _stairsGeometryCache[idx] = merged
+    return merged
+  }
+
+  // Bottom slab: full XZ, half height. Top step: half-height, half-depth by facing.
   const bottom = createBox(1, 0.5, 1, 0, 0, 0)
-  // Top step: half-height, half-depth depending on facing.
-  // Facing convention: "north" = step occupies the north half (negative Z direction in world).
   const top =
     facing === 'north'
       ? createBox(1, 0.5, 0.5, 0, 0.5, 0)
@@ -556,11 +675,70 @@ export function getStairsGeometry(facing: StairFacing): THREE.BufferGeometry {
           ? createBox(0.5, 0.5, 1, 0.5, 0.5, 0)
           : createBox(0.5, 0.5, 1, 0, 0.5, 0)
 
-  // Merge attributes (indexed) for instancing and correct UVs.
   const merged = mergeGeometries([bottom, top], true)
   if (!merged) throw new Error(`Failed to build stairs geometry for facing: ${facing}`)
-
   _stairsGeometryCache[idx] = merged
+  return merged
+}
+
+/** Fence connection mask: bit 0 = North (-Z), 1 = South (+Z), 2 = East (+X), 3 = West (-X). */
+const FENCE_MASK_NORTH = 1
+const FENCE_MASK_SOUTH = 2
+const FENCE_MASK_EAST = 4
+const FENCE_MASK_WEST = 8
+
+/** Post width in block units (Minecraft: 3/16). */
+const FENCE_POST_SIZE = 3 / 16
+/** Rail thickness (vertical) in block units. */
+const FENCE_RAIL_HEIGHT = 1 / 8
+/** Y positions (center) for the two horizontal rails. */
+const FENCE_RAIL_Y_LOW = 6 / 16
+const FENCE_RAIL_Y_HIGH = 9 / 16
+
+const _fenceGeometryCache: THREE.BufferGeometry[] = []
+
+/**
+ * Returns shared fence geometry for a given connection mask.
+ * Mask bits: 0 = North (-Z), 1 = South (+Z), 2 = East (+X), 3 = West (-X).
+ * Geometry is corner-based in [0..1] and includes center post plus horizontal rails to each connected side.
+ */
+export function getFenceGeometry(mask: number): THREE.BufferGeometry {
+  const idx = mask & 15
+  if (_fenceGeometryCache[idx]) return _fenceGeometryCache[idx]
+
+  const createBox = (w: number, h: number, d: number, x0: number, y0: number, z0: number) => {
+    const geo = new THREE.BoxGeometry(w * BLOCK_SIZE, h * BLOCK_SIZE, d * BLOCK_SIZE)
+    geo.translate((x0 + w / 2) * BLOCK_SIZE, (y0 + h / 2) * BLOCK_SIZE, (z0 + d / 2) * BLOCK_SIZE)
+    return geo
+  }
+
+  const postMin = 0.5 - FENCE_POST_SIZE / 2
+  const parts: THREE.BufferGeometry[] = []
+
+  // Center post: full height, narrow in XZ.
+  parts.push(createBox(FENCE_POST_SIZE, 1, FENCE_POST_SIZE, postMin, 0, postMin))
+
+  const railHalf = FENCE_RAIL_HEIGHT / 2
+  if (mask & FENCE_MASK_NORTH) {
+    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_LOW - railHalf, 0))
+    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_HIGH - railHalf, 0))
+  }
+  if (mask & FENCE_MASK_SOUTH) {
+    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_LOW - railHalf, 0.5))
+    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_HIGH - railHalf, 0.5))
+  }
+  if (mask & FENCE_MASK_EAST) {
+    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0.5, FENCE_RAIL_Y_LOW - railHalf, postMin))
+    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0.5, FENCE_RAIL_Y_HIGH - railHalf, postMin))
+  }
+  if (mask & FENCE_MASK_WEST) {
+    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0, FENCE_RAIL_Y_LOW - railHalf, postMin))
+    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0, FENCE_RAIL_Y_HIGH - railHalf, postMin))
+  }
+
+  const merged = mergeGeometries(parts, true)
+  if (!merged) throw new Error(`Failed to build fence geometry for mask: ${mask}`)
+  _fenceGeometryCache[idx] = merged
   return merged
 }
 

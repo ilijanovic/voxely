@@ -3,6 +3,7 @@ import type { BlockPos, BlockType } from '../../types'
 export type VisibleBlockFilterInput = {
   worldX: number
   worldZ: number
+  worldMinY: number
   chunkSize: number
   worldHeight: number
   voxelMap: Map<number, BlockType>
@@ -28,7 +29,7 @@ export function filterVisibleBlocks(input: VisibleBlockFilterInput): BlockPos[] 
   ]
   for (const pos of input.positions) {
     const lx = pos.x - input.worldX
-    const ly = pos.y
+    const ly = pos.y - input.worldMinY
     const lz = pos.z - input.worldZ
     let visible = false
     for (const [dx, dy, dz] of dirs) {

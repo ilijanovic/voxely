@@ -32,6 +32,8 @@ import {
   getActiveQuests,
   getAvailableQuestIds,
   getCompletedQuestIds,
+  getTrackedQuestIds,
+  toggleQuestTracked,
   acceptQuest,
   abortQuest,
   notifyTalk,
@@ -43,7 +45,28 @@ import { MAX_LEVEL, LEVEL_UP_DISPLAY_MS } from './constants'
 import { getKeyBinding, codeToDisplayName } from './key-settings'
 import { subscribeConnection } from './multiplayer'
 import type { ConnectionStatus } from './multiplayer/types'
-import type { BlockType } from './types'
+import type { Biome, BlockType } from './types'
+import { WORLD_SEED } from './game-terrain'
+import { createTerrainSampling } from './terrain-sampling'
+import {
+  addWorldPlaytime,
+  applyWorldSlotSeed,
+  createWorldSlot,
+  duplicateWorldSlot,
+  deleteWorldSlot,
+  ensureWorldSlots,
+  exportWorldSlot,
+  getStoredWorldSeed,
+  importWorldSlot,
+  loadWorldSave,
+  listWorldSlots,
+  markWorldLaunched,
+  renameWorldSlot,
+  setActiveWorldSlotId,
+  setWorldPinned,
+  type ImportConflictStrategy,
+  type WorldSlotMeta,
+} from './save'
 import { BLOCK_ICON, BLOCK_LABEL } from './hotbar-icons'
 import {
   getAllSlots,
@@ -53,7 +76,6 @@ import {
   moveSlots,
   craftOne,
   craftOne3x3,
-  clearCraftingGrid,
   returnCraftingGridToInventory,
   returnCraftingTableToInventory,
   moveToCraftingTable,
@@ -94,6 +116,289 @@ const questLogOfferedIds = ref<string[] | null>(null)
 const mapOpen = ref(false)
 const connectionStatus = ref<ConnectionStatus>({ connected: false, playerCount: 0 })
 const hintVisible = ref(true)
+/** True while the game is initializing (materials, scene, chunks) after mode selection. */
+const loadingRef = ref(false)
+/** World slots shown in the start menu (new world / continue world). */
+const worldSlotsRef = ref<WorldSlotMeta[]>([])
+/** Selected world id in start menu. */
+const selectedWorldIdRef = ref<string | null>(null)
+/** Last known biome snapshots keyed by world id. */
+const worldLastBiomeByIdRef = ref<Record<string, Biome | null>>({})
+/** Currently running world id for launcher playtime tracking. */
+const activeSessionWorldIdRef = ref<string | null>(null)
+/** Last time we flushed accumulated playtime to storage. */
+const lastPlaytimeFlushAtRef = ref(0)
+
+const PENDING_WORLD_LAUNCH_KEY = 'voxely-pending-world-launch'
+
+interface PendingWorldLaunch {
+  mode: 'singleplayer' | 'multiplayer'
+  worldId: string
+}
+
+/** Refreshes world slots from storage and keeps selection valid. */
+function refreshWorldSlots() {
+  const ensured = ensureWorldSlots()
+  worldSlotsRef.value = listWorldSlots()
+  worldLastBiomeByIdRef.value = resolveWorldLastBiomes(worldSlotsRef.value)
+  if (worldSlotsRef.value.length === 0) {
+    selectedWorldIdRef.value = null
+    return
+  }
+  const selected = selectedWorldIdRef.value
+  if (selected && worldSlotsRef.value.some((world) => world.id === selected)) return
+  selectedWorldIdRef.value = ensured.activeWorldId ?? worldSlotsRef.value[0].id
+}
+
+/**
+ * Resolves last known player biome per world using saved player coordinates.
+ *
+ * @param worlds - Launcher world metadata
+ * @returns Biome mapping keyed by world id
+ */
+function resolveWorldLastBiomes(worlds: WorldSlotMeta[]): Record<string, Biome | null> {
+  const biomeByWorldId: Record<string, Biome | null> = {}
+  const samplingBySeed = new Map<number, ReturnType<typeof createTerrainSampling>>()
+  for (const world of worlds) {
+    const save = loadWorldSave(world.id)
+    if (!save || !save.player) {
+      biomeByWorldId[world.id] = null
+      continue
+    }
+    const px = Number.isFinite(save.player.x) ? Math.floor(save.player.x) : null
+    const pz = Number.isFinite(save.player.z) ? Math.floor(save.player.z) : null
+    if (px == null || pz == null) {
+      biomeByWorldId[world.id] = null
+      continue
+    }
+    const seed =
+      typeof save.worldSeed === 'number' && Number.isFinite(save.worldSeed)
+        ? Math.floor(save.worldSeed) >>> 0
+        : world.seed
+    const sampling =
+      samplingBySeed.get(seed) ??
+      (() => {
+        const created = createTerrainSampling(seed)
+        samplingBySeed.set(seed, created)
+        return created
+      })()
+    biomeByWorldId[world.id] = sampling.getResolvedBiome(px, pz, sampling.getSmoothedHeight)
+  }
+  return biomeByWorldId
+}
+
+/** Selects a world in the start menu and marks it active for save/load. */
+function selectWorld(worldId: string) {
+  selectedWorldIdRef.value = worldId
+  setActiveWorldSlotId(worldId)
+}
+
+/**
+ * Creates a new world slot from launcher form data and selects it.
+ *
+ * @param name - Requested world name
+ * @param seedInput - Optional numeric seed from launcher form
+ */
+function createWorldFromMenu(name: string, seedInput?: number) {
+  const world = createWorldSlot(name, seedInput)
+  refreshWorldSlots()
+  selectedWorldIdRef.value = world.id
+  setActiveWorldSlotId(world.id)
+}
+
+/**
+ * Renames a world from launcher actions.
+ *
+ * @param worldId - Slot id
+ * @param name - New world name
+ */
+function renameWorldFromMenu(worldId: string, name: string) {
+  if (!renameWorldSlot(worldId, name)) return
+  refreshWorldSlots()
+  selectedWorldIdRef.value = worldId
+}
+
+/**
+ * Deletes a world from launcher actions.
+ *
+ * @param worldId - Slot id
+ */
+function deleteWorldFromMenu(worldId: string) {
+  if (!deleteWorldSlot(worldId)) return
+  refreshWorldSlots()
+}
+
+/**
+ * Pins or unpins a world from launcher actions.
+ *
+ * @param worldId - Slot id
+ * @param pinned - Pin state
+ */
+function setWorldPinnedFromMenu(worldId: string, pinned: boolean) {
+  if (!setWorldPinned(worldId, pinned)) return
+  refreshWorldSlots()
+  selectedWorldIdRef.value = worldId
+}
+
+/**
+ * Duplicates a world and switches selection to the duplicate.
+ *
+ * @param worldId - Source world id
+ */
+function duplicateWorldFromMenu(worldId: string) {
+  const duplicated = duplicateWorldSlot(worldId)
+  if (!duplicated) return
+  refreshWorldSlots()
+  selectedWorldIdRef.value = duplicated.id
+}
+
+/**
+ * Exports one world slot as a JSON download.
+ *
+ * @param worldId - Slot id
+ */
+function exportWorldFromMenu(worldId: string) {
+  const json = exportWorldSlot(worldId)
+  if (!json) return
+
+  const world = worldSlotsRef.value.find((entry) => entry.id === worldId)
+  const safeName = (world?.name ?? 'world').replace(/[^a-z0-9_-]+/gi, '_').toLowerCase()
+  const filename = `voxely-world-${safeName || 'world'}.json`
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Imports a world from exported JSON content.
+ *
+ * @param json - Export file content
+ * @returns true when import succeeded
+ */
+function importWorldFromMenu(
+  json: string,
+  conflictStrategy: ImportConflictStrategy = 'rename',
+): boolean {
+  const imported = importWorldSlot(json, conflictStrategy)
+  if (!imported) return false
+  refreshWorldSlots()
+  selectedWorldIdRef.value = imported.id
+  return true
+}
+
+/**
+ * Flushes elapsed session time into the active world metadata.
+ */
+function flushSessionPlaytime(): void {
+  const worldId = activeSessionWorldIdRef.value
+  if (!worldId) return
+  const now = Date.now()
+  if (!Number.isFinite(lastPlaytimeFlushAtRef.value) || lastPlaytimeFlushAtRef.value <= 0) {
+    lastPlaytimeFlushAtRef.value = now
+    return
+  }
+  const delta = now - lastPlaytimeFlushAtRef.value
+  if (delta <= 0) return
+  addWorldPlaytime(worldId, delta)
+  lastPlaytimeFlushAtRef.value = now
+}
+
+/** Starts selected world using its last played mode (defaults to singleplayer). */
+function continueSelectedWorld() {
+  const selectedId = selectedWorldIdRef.value ?? worldSlotsRef.value[0]?.id ?? null
+  if (!selectedId) return
+  const world =
+    worldSlotsRef.value.find((entry) => entry.id === selectedId) ?? worldSlotsRef.value[0]
+  if (!world) return
+  startGameFromMenu(world.lastMode ?? 'singleplayer')
+}
+
+/**
+ * Stores pending launch intent for the next reload.
+ *
+ * @param pending - Pending mode + world selection
+ */
+function setPendingWorldLaunch(pending: PendingWorldLaunch) {
+  try {
+    sessionStorage.setItem(PENDING_WORLD_LAUNCH_KEY, JSON.stringify(pending))
+  } catch {
+    // Ignore session storage failures
+  }
+}
+
+/** Reads and clears pending launch intent left before a seed-switch reload. */
+function consumePendingWorldLaunch(): PendingWorldLaunch | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_WORLD_LAUNCH_KEY)
+    if (!raw) return null
+    sessionStorage.removeItem(PENDING_WORLD_LAUNCH_KEY)
+    const parsed = JSON.parse(raw) as PendingWorldLaunch
+    if (!parsed || (parsed.mode !== 'singleplayer' && parsed.mode !== 'multiplayer')) return null
+    if (typeof parsed.worldId !== 'string' || parsed.worldId.trim().length === 0) return null
+    return { mode: parsed.mode, worldId: parsed.worldId }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Starts game mode for selected world. If world seed differs from runtime seed, reloads once so terrain modules re-bootstrap with that seed.
+ *
+ * @param mode - Requested game mode
+ */
+function startGameFromMenu(mode: 'singleplayer' | 'multiplayer') {
+  const selectedId = selectedWorldIdRef.value ?? worldSlotsRef.value[0]?.id ?? null
+  if (!selectedId) return
+  const world =
+    worldSlotsRef.value.find((entry) => entry.id === selectedId) ?? worldSlotsRef.value[0]
+  if (!world) return
+  markWorldLaunched(world.id, mode)
+  setActiveWorldSlotId(world.id)
+  const appliedSeed = applyWorldSlotSeed(world.id)
+  const storedSeed = getStoredWorldSeed()
+  if (appliedSeed != null && storedSeed === appliedSeed && appliedSeed !== WORLD_SEED) {
+    setPendingWorldLaunch({ mode, worldId: world.id })
+    window.location.reload()
+    return
+  }
+  activeSessionWorldIdRef.value = world.id
+  lastPlaytimeFlushAtRef.value = Date.now()
+  gameMode.value = mode
+}
+
+/**
+ * Exits the current session back to the launcher menu.
+ *
+ * Flushes playtime first, clears stale pending-launch data, then reloads so the
+ * game runtime is recreated in a clean menu state.
+ */
+function exitToMenu() {
+  flushSessionPlaytime()
+  activeSessionWorldIdRef.value = null
+  lastPlaytimeFlushAtRef.value = 0
+  pauseMenuOpen.value = false
+  try {
+    sessionStorage.removeItem(PENDING_WORLD_LAUNCH_KEY)
+  } catch {
+    // Ignore unavailable session storage
+  }
+  window.location.reload()
+}
+
+/** Builds the controls hint from current key bindings so rebinded keys are shown correctly. */
+const controlsHintText = computed(() => {
+  const jump = codeToDisplayName(getKeyBinding('jump'))
+  const view = codeToDisplayName(getKeyBinding('toggleView'))
+  const map = codeToDisplayName(getKeyBinding('openMap'))
+  const place = codeToDisplayName(getKeyBinding('place'))
+  return `Click to start · WASD = Move · ${jump} = Jump · Mouse = Look · ${view} = Third-person · T = Chat · ${map} = Map · 1–9 / Scroll = Block · ${place} = Place · I = Inventory · ESC / O = Pause / Options`
+})
 
 /** Toggles inventory overlay; exits pointer lock when opening so user can interact with UI. */
 function toggleInventory() {
@@ -146,11 +451,32 @@ const TABLE_END = 44
 function handleCraftingTableMove(fromIndex: number, toIndex: number, amount?: number) {
   if (fromIndex >= 0 && fromIndex <= MAIN_END && toIndex >= 0 && toIndex <= MAIN_END) {
     moveSlots(fromIndex, toIndex, amount)
+<<<<<<< HEAD
   } else if (fromIndex >= 0 && fromIndex <= MAIN_END && toIndex >= TABLE_START && toIndex <= TABLE_START + 8) {
     moveToCraftingTable(fromIndex, toIndex - TABLE_START, amount)
   } else if (fromIndex >= TABLE_START && fromIndex <= TABLE_START + 8 && toIndex >= 0 && toIndex <= MAIN_END) {
+=======
+  } else if (
+    fromIndex >= 0 &&
+    fromIndex <= invEnd &&
+    toIndex >= TABLE_START &&
+    toIndex <= TABLE_START + 8
+  ) {
+    moveToCraftingTable(fromIndex, toIndex - TABLE_START, amount)
+  } else if (
+    fromIndex >= TABLE_START &&
+    fromIndex <= TABLE_START + 8 &&
+    toIndex >= 0 &&
+    toIndex <= invEnd
+  ) {
+>>>>>>> dev
     moveFromCraftingTable(fromIndex - TABLE_START, toIndex, amount)
-  } else if (fromIndex >= TABLE_START && fromIndex <= TABLE_START + 8 && toIndex >= TABLE_START && toIndex <= TABLE_START + 8) {
+  } else if (
+    fromIndex >= TABLE_START &&
+    fromIndex <= TABLE_START + 8 &&
+    toIndex >= TABLE_START &&
+    toIndex <= TABLE_START + 8
+  ) {
     moveWithinCraftingTable(fromIndex - TABLE_START, toIndex - TABLE_START, amount)
   }
 }
@@ -189,7 +515,7 @@ function handleCraftingTableShiftClick(virtualIndex: number) {
 /** Hides the controls hint when the user first presses WASD. */
 function hideHintOnFirstMove(e: KeyboardEvent) {
   if (gameMode.value === null) return
-  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code))   hintVisible.value = false
+  if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) hintVisible.value = false
 }
 
 /** Global key handler: I = inventory, O = pause menu, Escape = close overlay or open pause. Skips when chat has focus. */
@@ -333,11 +659,12 @@ const levelUpDisplayRef = ref<number | null>(null)
 let levelXpInterval: ReturnType<typeof setInterval> | null = null
 let levelUpHideTimeout: ReturnType<typeof setTimeout> | null = null
 
-/** Quest log data (updated when opening and after accept/turn-in). */
+/** Quest log and tracker data (updated when opening log and after accept/turn-in/track). */
 const questListRef = ref({
   activeQuests: [] as ReturnType<typeof getActiveQuests>,
   availableQuestIds: [] as string[],
   completedQuestIds: [] as string[],
+  trackedQuestIds: [] as string[],
 })
 
 function refreshQuestList() {
@@ -346,8 +673,33 @@ function refreshQuestList() {
     activeQuests: getActiveQuests(),
     availableQuestIds: getAvailableQuestIds(),
     completedQuestIds: getCompletedQuestIds(),
+    trackedQuestIds: getTrackedQuestIds(),
   }
 }
+
+/** Tracked quests with title and objectives for the HUD tracker panel. */
+const questTrackerEntries = computed(() => {
+  const tracked = questListRef.value.trackedQuestIds
+  const active = questListRef.value.activeQuests
+  return tracked
+    .map((questId) => {
+      const quest = getQuestById(questId)
+      const a = active.find((x) => x.questId === questId)
+      if (!quest || !a) return null
+      const objectives = quest.objectives.map((obj, i) => {
+        const progress = a.progress[i] ?? 0
+        const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
+        const done = progress >= need
+        const label =
+          obj.type === 'talk'
+            ? `${obj.label}: ${done ? 'Done' : '—'}`
+            : `${obj.label}: ${progress}/${need}`
+        return { label, progress, need, done }
+      })
+      return { questId, title: quest.title, objectives }
+    })
+    .filter((e): e is NonNullable<typeof e> => e != null)
+})
 
 /** Quest log props filtered by context: at NPC (questLogOfferedIds set) vs personal (Q). */
 const questLogActiveQuests = computed(() => {
@@ -381,6 +733,7 @@ let unsubscribeConnection: (() => void) | null = null
 
 watch(gameMode, async (mode) => {
   if (!mode) return
+<<<<<<< HEAD
   await nextTick()
   const crackEl = document.getElementById('block-crack')
   setBlockCrackElement(crackEl)
@@ -409,16 +762,46 @@ watch(gameMode, async (mode) => {
       return quest.objectives.every((obj, i) => {
         const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
         return a.progress[i] >= need
+=======
+  loadingRef.value = true
+  try {
+    await nextTick()
+    const crackEl = document.getElementById('block-crack')
+    setBlockCrackElement(crackEl)
+    function openQuestLogFromNpc(questGiver: {
+      offeredQuestIds: string[]
+      prerequisiteQuestIds?: string[]
+    }) {
+      refreshQuestList()
+      questLogOfferedIds.value = [...questGiver.offeredQuestIds]
+      const active = getActiveQuests()
+      const available = getAvailableQuestIds()
+      const offeredQuestIds = questGiver.offeredQuestIds
+      const prereqsMet =
+        questGiver.prerequisiteQuestIds == null ||
+        questGiver.prerequisiteQuestIds.length === 0 ||
+        questGiver.prerequisiteQuestIds.every((id) => getCompletedQuestIds().includes(id))
+      const readyToTurnInId = offeredQuestIds.find((id) => {
+        const a = active.find((q) => q.questId === id)
+        if (!a) return false
+        const quest = getQuestById(id)
+        if (!quest) return false
+        return quest.objectives.every((obj, i) => {
+          const need = obj.type === 'kill' || obj.type === 'collect' ? obj.count : 1
+          return a.progress[i] >= need
+        })
+>>>>>>> dev
       })
-    })
-    const availableId =
-      prereqsMet ? offeredQuestIds.find((id) => available.includes(id)) : undefined
-    questLogInitialSelectedId.value = readyToTurnInId ?? availableId ?? null
-    questLogAtQuestGiver.value = true
-    document.exitPointerLock()
-    questLogOpen.value = true
-  }
+      const availableId = prereqsMet
+        ? offeredQuestIds.find((id) => available.includes(id))
+        : undefined
+      questLogInitialSelectedId.value = readyToTurnInId ?? availableId ?? null
+      questLogAtQuestGiver.value = true
+      document.exitPointerLock()
+      questLogOpen.value = true
+    }
 
+<<<<<<< HEAD
   const opts = {
     multiplayer: mode === 'multiplayer',
     onHotbarChange,
@@ -434,23 +817,83 @@ watch(gameMode, async (mode) => {
   inventorySlots.value = getAllSlots()
   craftingTableSlots.value = getCraftingTableSlots()
   setOnInventoryChange(() => {
+=======
+    const opts = {
+      multiplayer: mode === 'multiplayer',
+      onHotbarChange,
+      onCraftingTableUse: openCraftingTableMenu,
+      onQuestNpcInteract: openQuestLogFromNpc,
+    }
+    if (canvasContainer.value) {
+      await initGame(canvasContainer.value, opts)
+    } else {
+      await initGame(undefined, opts)
+    }
+>>>>>>> dev
     inventorySlots.value = getAllSlots()
     craftingTableSlots.value = getCraftingTableSlots()
-    const h = getHotbarSlots()
-    onHotbarChange(
-      h.map((s) => s.type ?? ''),
-      h.map((s) => s.count),
-    )
-    refreshQuestCollectObjectives()
-  })
-  const refreshEquipment = () => {
-    const eq: Record<string, { type: BlockType | null; count: number }> = {}
-    for (const slot of EQUIPMENT_SLOTS) {
-      const s = getEquipped(slot)
-      eq[slot] = { type: s.type, count: s.count }
+    setOnInventoryChange(() => {
+      inventorySlots.value = getAllSlots()
+      craftingTableSlots.value = getCraftingTableSlots()
+      const h = getHotbarSlots()
+      onHotbarChange(
+        h.map((s) => s.type ?? ''),
+        h.map((s) => s.count),
+      )
+      refreshQuestCollectObjectives()
+    })
+    const refreshEquipment = () => {
+      const eq: Record<string, { type: BlockType | null; count: number }> = {}
+      for (const slot of EQUIPMENT_SLOTS) {
+        const s = getEquipped(slot)
+        eq[slot] = { type: s.type, count: s.count }
+      }
+      equipmentSlotsRef.value = eq as Record<
+        EquipmentSlot,
+        { type: BlockType | null; count: number }
+      >
     }
-    equipmentSlotsRef.value = eq as Record<EquipmentSlot, { type: BlockType | null; count: number }>
+    refreshEquipment()
+    setOnEquipmentChange(refreshEquipment)
+    setOnGoldChange(() => {
+      playerGoldRef.value = getGold()
+    })
+    playerGoldRef.value = getGold()
+    previousLevelRef.value = null
+    if (levelXpInterval) clearInterval(levelXpInterval)
+    levelXpInterval = setInterval(() => {
+      const lvl = getPlayerLevel()
+      const xp = getPlayerExperience()
+      if (previousLevelRef.value !== null && lvl > previousLevelRef.value) {
+        levelUpDisplayRef.value = lvl
+        if (levelUpHideTimeout) clearTimeout(levelUpHideTimeout)
+        levelUpHideTimeout = setTimeout(() => {
+          levelUpDisplayRef.value = null
+          levelUpHideTimeout = null
+        }, LEVEL_UP_DISPLAY_MS)
+      }
+      previousLevelRef.value = lvl
+      playerLevelRef.value = lvl
+      xpProgressRef.value = getLevelProgress(lvl, xp)
+      playerHealthRef.value = getPlayerHealth()
+      playerMaxHealthRef.value = getPlayerMaxHealth()
+      playerHungerRef.value = getPlayerHunger()
+      playerMaxHungerRef.value = getPlayerMaxHunger()
+      playerGoldRef.value = getGold()
+      playerFactionRef.value = getFactionDisplayName(getPlayerFaction())
+      playerClassRef.value = getClassDisplayName(getPlayerClass())
+      const firstSkill = getFirstSkillForClass(getPlayerClass())
+      skillNameRef.value = firstSkill?.name ?? ''
+      skillCooldownRef.value = firstSkill ? getSkillCooldownRemaining(firstSkill.id) : 0
+      playerYawRef.value = getPlayerYaw()
+    }, 400)
+    unsubscribeConnection = subscribeConnection((status) => {
+      connectionStatus.value = status
+    })
+  } finally {
+    loadingRef.value = false
   }
+<<<<<<< HEAD
   refreshEquipment()
   setOnEquipmentChange(refreshEquipment)
   setOnGoldChange(() => {
@@ -489,16 +932,30 @@ watch(gameMode, async (mode) => {
   unsubscribeConnection = subscribeConnection((status) => {
     connectionStatus.value = status
   })
+=======
+>>>>>>> dev
 })
 
 let hintTimeout: ReturnType<typeof setTimeout> | null = null
+let playtimeFlushInterval: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
+  refreshWorldSlots()
+  const pendingLaunch = consumePendingWorldLaunch()
+  if (pendingLaunch) {
+    selectedWorldIdRef.value = pendingLaunch.worldId
+    startGameFromMenu(pendingLaunch.mode)
+  }
   document.addEventListener('keydown', onKeyDown, true)
   hintTimeout = setTimeout(() => {
     hintVisible.value = false
   }, 8000)
+  playtimeFlushInterval = setInterval(() => {
+    flushSessionPlaytime()
+  }, 30000)
 })
 onUnmounted(() => {
+  flushSessionPlaytime()
+  if (playtimeFlushInterval) clearInterval(playtimeFlushInterval)
   if (hintTimeout) clearTimeout(hintTimeout)
   if (levelUpHideTimeout) clearTimeout(levelUpHideTimeout)
   if (levelXpInterval) clearInterval(levelXpInterval)
@@ -513,12 +970,36 @@ onUnmounted(() => {
     <!-- Menü: Singleplayer / Multiplayer -->
     <Menu
       v-if="gameMode === null"
-      :on-singleplayer="() => (gameMode = 'singleplayer')"
-      :on-multiplayer="() => (gameMode = 'multiplayer')"
+      :worlds="worldSlotsRef"
+      :world-last-biome-by-id="worldLastBiomeByIdRef"
+      :selected-world-id="selectedWorldIdRef"
+      :on-select-world="selectWorld"
+      :on-create-world="createWorldFromMenu"
+      :on-rename-world="renameWorldFromMenu"
+      :on-delete-world="deleteWorldFromMenu"
+      :on-set-world-pinned="setWorldPinnedFromMenu"
+      :on-duplicate-world="duplicateWorldFromMenu"
+      :on-export-world="exportWorldFromMenu"
+      :on-import-world="importWorldFromMenu"
+      :on-continue="continueSelectedWorld"
+      :on-singleplayer="() => startGameFromMenu('singleplayer')"
+      :on-multiplayer="() => startGameFromMenu('multiplayer')"
     />
 
     <!-- Game (after mode selection) -->
     <template v-else>
+      <!-- Loading overlay while initGame runs -->
+      <div
+        v-if="loadingRef"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <span class="text-lg font-medium text-white" style="font-family: var(--ui-font)"
+          >Loading…</span
+        >
+      </div>
+
       <!-- Level + XP (top left) -->
       <div
         aria-hidden="true"
@@ -526,7 +1007,9 @@ onUnmounted(() => {
       >
         <div class="flex items-center justify-between text-xs font-semibold text-[var(--ui-text)]">
           <span>Lv {{ playerLevelRef }}</span>
-          <span v-if="playerLevelRef < MAX_LEVEL" class="text-[10px] opacity-80">{{ Math.round(xpProgressRef * 100) }}%</span>
+          <span v-if="playerLevelRef < MAX_LEVEL" class="text-[10px] opacity-80"
+            >{{ Math.round(xpProgressRef * 100) }}%</span
+          >
         </div>
         <div
           v-if="playerLevelRef < MAX_LEVEL"
@@ -541,7 +1024,9 @@ onUnmounted(() => {
             :style="{ width: `${xpProgressRef * 100}%` }"
           />
         </div>
-        <div class="mt-1 text-[10px] text-[var(--ui-text)] opacity-90">Gold: {{ playerGoldRef }}</div>
+        <div class="mt-1 text-[10px] text-[var(--ui-text)] opacity-90">
+          Gold: {{ playerGoldRef }}
+        </div>
         <div class="mt-1 text-[10px] text-[var(--ui-text)] opacity-80">
           {{ playerFactionRef }} · {{ playerClassRef }}
         </div>
@@ -582,6 +1067,29 @@ onUnmounted(() => {
         0 FPS
       </div>
 
+      <!-- Quest tracker (right side): tracked quests with objectives and progress. -->
+      <div
+        v-if="questTrackerEntries.length > 0"
+        aria-label="Quest objectives"
+        class="hud-panel fixed right-4 top-14 z-10 w-56 max-h-[50vh] overflow-y-auto rounded-[var(--ui-radius-md)] border-2 border-amber-800/50 px-2 py-1.5 text-[var(--ui-text)] pointer-events-none space-y-2"
+      >
+        <div v-for="entry in questTrackerEntries" :key="entry.questId" class="space-y-0.5">
+          <div class="text-xs font-semibold text-amber-200 truncate" :title="entry.title">
+            {{ entry.title }}
+          </div>
+          <ul class="space-y-0.5 pl-2 text-[11px] text-stone-300">
+            <li
+              v-for="(obj, oi) in entry.objectives"
+              :key="oi"
+              class="truncate"
+              :class="obj.done ? 'text-amber-400/90' : ''"
+            >
+              {{ obj.label }}
+            </li>
+          </ul>
+        </div>
+      </div>
+
       <!-- Multiplayer status (below FPS, left) -->
       <div
         class="fixed left-3 top-12 z-10 rounded-[var(--ui-radius-md)] border-2 px-2.5 py-1.5 text-xs pointer-events-none"
@@ -607,8 +1115,7 @@ onUnmounted(() => {
           class="hud-panel fixed left-1/2 top-6 z-10 -translate-x-1/2 rounded-[var(--ui-radius-lg)] border-2 px-4 py-2 text-sm text-[var(--ui-text)] pointer-events-none"
           style="font-family: var(--ui-font)"
         >
-          Click to start · WASD = Move · Space = Jump · Mouse = Look · V = Third-person · T = Chat ·
-          1–9 / Scroll = Block · ESC / O = Pause / Options
+          {{ controlsHintText }}
         </div>
       </Transition>
 
@@ -690,13 +1197,17 @@ onUnmounted(() => {
           <div
             class="h-2 flex-1 min-w-0 overflow-hidden rounded bg-black/40"
             role="progressbar"
-            :aria-valuenow="playerMaxHealthRef ? Math.round((playerHealthRef / playerMaxHealthRef) * 100) : 100"
+            :aria-valuenow="
+              playerMaxHealthRef ? Math.round((playerHealthRef / playerMaxHealthRef) * 100) : 100
+            "
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <div
               class="h-full rounded bg-red-500 transition-[width] duration-300"
-              :style="{ width: `${playerMaxHealthRef ? (playerHealthRef / playerMaxHealthRef) * 100 : 100}%` }"
+              :style="{
+                width: `${playerMaxHealthRef ? (playerHealthRef / playerMaxHealthRef) * 100 : 100}%`,
+              }"
             />
           </div>
         </div>
@@ -714,20 +1225,28 @@ onUnmounted(() => {
               :style="{ width: `${xpProgressRef * 100}%` }"
             />
           </div>
-          <span v-if="playerLevelRef < MAX_LEVEL" class="shrink-0 text-[10px] opacity-80 text-[var(--ui-text)]">{{ Math.round(xpProgressRef * 100) }}%</span>
+          <span
+            v-if="playerLevelRef < MAX_LEVEL"
+            class="shrink-0 text-[10px] opacity-80 text-[var(--ui-text)]"
+            >{{ Math.round(xpProgressRef * 100) }}%</span
+          >
         </div>
         <div class="flex items-center gap-2">
           <span class="w-12 shrink-0 text-[10px] font-medium text-[var(--ui-text)]">Hunger</span>
           <div
             class="h-2 flex-1 min-w-0 overflow-hidden rounded bg-black/40"
             role="progressbar"
-            :aria-valuenow="playerMaxHungerRef ? Math.round((playerHungerRef / playerMaxHungerRef) * 100) : 100"
+            :aria-valuenow="
+              playerMaxHungerRef ? Math.round((playerHungerRef / playerMaxHungerRef) * 100) : 100
+            "
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <div
               class="h-full rounded bg-amber-600 transition-[width] duration-300"
-              :style="{ width: `${playerMaxHungerRef ? (playerHungerRef / playerMaxHungerRef) * 100 : 100}%` }"
+              :style="{
+                width: `${playerMaxHungerRef ? (playerHungerRef / playerMaxHungerRef) * 100 : 100}%`,
+              }"
             />
           </div>
         </div>
@@ -779,7 +1298,10 @@ onUnmounted(() => {
           :on-move="(from: number, to: number, amount?: number) => moveSlots(from, to, amount)"
           :on-shift-click="handleInventoryShiftClick"
           :on-craft-one="craftOne"
-          :on-equip-from-inventory="(invIndex: number, equipSlot: EquipmentSlot) => tryEquipFromInventory(invIndex, equipSlot, getPlayerClass())"
+          :on-equip-from-inventory="
+            (invIndex: number, equipSlot: EquipmentSlot) =>
+              tryEquipFromInventory(invIndex, equipSlot, getPlayerClass())
+          "
           :on-unequip="tryUnequipToInventory"
           @close="closeInventory"
         />
@@ -799,9 +1321,9 @@ onUnmounted(() => {
         <Furnace v-if="furnaceOpen" @close="closeFurnace" />
       </Transition>
 
-      <!-- Pause menu (ESC): Resume, Options · Graphics -->
+      <!-- Pause menu (ESC): Resume, Options · Graphics, Exit to Menu -->
       <Transition name="modal">
-        <PauseMenu v-if="pauseMenuOpen" @close="pauseMenuOpen = false" />
+        <PauseMenu v-if="pauseMenuOpen" @close="pauseMenuOpen = false" @exit="exitToMenu" />
       </Transition>
 
       <!-- Quest Log (Q): active, available, turn-in -->
@@ -811,12 +1333,38 @@ onUnmounted(() => {
           :active-quests="questLogActiveQuests"
           :available-quest-ids="questLogAvailableQuestIds"
           :completed-quest-ids="questLogCompletedQuestIds"
+          :tracked-quest-ids="questListRef.trackedQuestIds"
+          :on-accept="
+            (id) => {
+              const ok = acceptQuest(id)
+              if (ok) refreshQuestList()
+              return ok
+            }
+          "
+          :on-turn-in="
+            (id, rewardChoiceIndex) => {
+              const ok = claimQuestReward(id, rewardChoiceIndex)
+              if (ok) refreshQuestList()
+              return ok
+            }
+          "
+          :on-abort="
+            (id) => {
+              const ok = abortQuest(id)
+              if (ok) refreshQuestList()
+              return ok
+            }
+          "
+          :on-toggle-track="
+            (id) => {
+              toggleQuestTracked(id)
+              refreshQuestList()
+            }
+          "
           :initial-selected-quest-id="questLogInitialSelectedId"
           :at-quest-giver="questLogAtQuestGiver"
           :player-class="getPlayerClass()"
-          :on-accept="(id) => { const ok = acceptQuest(id); if (ok) refreshQuestList(); return ok }"
-          :on-turn-in="(id, rewardChoiceIndex) => { const ok = claimQuestReward(id, rewardChoiceIndex); if (ok) refreshQuestList(); return ok }"
-          :on-abort="(id) => { const ok = abortQuest(id); if (ok) refreshQuestList(); return ok }"
+          :player-level="playerLevelRef"
           @close="questLogOpen = false"
         />
       </Transition>

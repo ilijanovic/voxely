@@ -153,6 +153,7 @@ describe('inventory', () => {
 
     it('moves to empty slot', () => {
       setSlot(0, 'dirt', 5)
+      setSlot(MAIN_INVENTORY_START, null, 0) // ensure dest is empty so we move, not swap
       expect(moveSlots(0, MAIN_INVENTORY_START)).toBe(true)
       expect(getSlot(0)).toEqual({ type: null, count: 0 })
       expect(getSlot(MAIN_INVENTORY_START)).toEqual({ type: 'dirt', count: 5 })
@@ -255,8 +256,9 @@ describe('inventory', () => {
     it('sets default hotbar and empty main inventory', () => {
       initDefaultInventory()
       expect(getSlot(0).type).toBe('wood_sword')
-      expect(getSlot(3).type).toBe('stone')
-      expect(getSlot(MAIN_INVENTORY_START)).toEqual({ type: null, count: 0 })
+      expect(getSlot(3).type).toBe('dirt')
+      expect(getSlot(4).type).toBe('stone')
+      expect(getSlot(MAIN_INVENTORY_START).type).toBe('oak_fence')
     })
   })
 })

@@ -1,6 +1,0 @@
-{
-    "parent": "blue_skies:block/blueskies_leaves",
-    "textures": {
-        "all": "blue_skies:blocks/leaves/nectarine_leaves_0"
-    }
-}

@@ -1,7 +1,7 @@
 /**
- * Stage 2: 3D noise carving. Sets voxels to "carved" (air) where cave noise exceeds threshold.
+ * 3D noise carving: sets voxels to "carved" (air) where cave noise exceeds threshold. Part of the carvers pipeline stage (stage 6).
  */
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MAX_Y, WORLD_MIN_Y } from '../../constants'
 import { localKey, CARVED_ID } from '../block-ids'
 import type { ChunkContext, PipelineStage } from '../pipeline-types'
 
@@ -37,8 +37,9 @@ function getEdgeCappedTopY(options: {
   const wx = worldX + lx
   const wz = worldZ + lz
 
-  /** Clamp a float surface height to a valid integer Y in [0..WORLD_HEIGHT]. */
-  const clampSurfaceY = (y: number): number => Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, y)))
+  /** Clamp a float surface height to valid world Y in [WORLD_MIN_Y..WORLD_MAX_Y]. */
+  const clampSurfaceY = (y: number): number =>
+    Math.floor(Math.max(WORLD_MIN_Y, Math.min(WORLD_MAX_Y, y)))
 
   if (lx === 0) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx - 1, wz)))
   if (lx === CHUNK_SIZE - 1) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx + 1, wz)))
@@ -56,13 +57,13 @@ export function createStage2(deps: Stage2Deps): PipelineStage {
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const topY = getEdgeCappedTopY({ worldX, worldZ, lx, lz, topY: heightmap[lx][lz], getHeightAt })
-        const carveCeiling = Math.max(1, topY - minDepthBelowSurface)
-        // Carve only below surface (ly < carveCeiling) and above bedrock (ly >= 1).
-        for (let ly = 1; ly < carveCeiling && ly < WORLD_HEIGHT; ly++) {
+        const carveCeilingWorldY = Math.max(WORLD_MIN_Y + 1, topY - minDepthBelowSurface)
+        for (let ly = 1; ly < WORLD_HEIGHT; ly++) {
+          const worldY = WORLD_MIN_Y + ly
+          if (worldY >= carveCeilingWorldY) break
           const wx = worldX + lx
-          const wy = ly
           const wz = worldZ + lz
-          if (caveNoise3D(wx, wy, wz) > carveThreshold) {
+          if (caveNoise3D(wx, worldY, wz) > carveThreshold) {
             voxelMap[localKey(lx, ly, lz)] = CARVED_ID
           }
         }

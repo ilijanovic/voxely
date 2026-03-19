@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { getMapState } from '../game'
+import { getMapState, type MapState } from '../game'
 import { chunkKeyNumeric } from '../chunk-runtime'
 import { ALL_BIOMES } from '../terrain-core'
 import {
@@ -17,6 +17,12 @@ import {
   MAP_COLOR_UNDISCOVERED,
   MAP_BIOME_COLORS,
 } from '../constants'
+import type {
+  FullMapTilePayload,
+  FullMapWorkerDoneMessage,
+  FullMapWorkerFrameMessage,
+  FullMapWorkerMessage,
+} from './full-map-worker-protocol'
 
 const props = defineProps<{
   /** When true, overlay is shown and canvas is updated. */
@@ -29,6 +35,14 @@ const emit = defineEmits<{
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 let rafId: number | null = null
+let mapWorker: Worker | null = null
+let usingOffscreenWorker = false
+let offscreenInitAttempted = false
+let workerFramePending = false
+let workerFrameStartedAtMs = 0
+
+/** If no worker ack arrives before this timeout, allow submitting a new frame anyway. */
+const WORKER_FRAME_TIMEOUT_MS = 250
 
 /** View center in world coordinates (X). */
 const viewCenterX = ref(0)
@@ -148,12 +162,137 @@ function centerOnPlayer(): void {
   zoomLevel.value = 1
 }
 
-/** Draws the full map once. Uses viewCenter and zoomLevel; clamps to discovered bounds. */
-function draw(): void {
+/**
+ * Returns true when OffscreenCanvas worker rendering can be used for this canvas.
+ */
+function canUseOffscreenWorker(canvas: HTMLCanvasElement): boolean {
+  return (
+    typeof Worker !== 'undefined' &&
+    typeof canvas.transferControlToOffscreen === 'function'
+  )
+}
+
+/**
+ * Tries to initialize a dedicated OffscreenCanvas worker renderer for the map.
+ */
+function tryInitOffscreenWorker(): void {
+  const canvas = canvasRef.value
+  if (!canvas || offscreenInitAttempted || usingOffscreenWorker) return
+  offscreenInitAttempted = true
+  if (!canUseOffscreenWorker(canvas)) return
+
+  try {
+    const worker = new Worker(new URL('./full-map.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (e: MessageEvent<FullMapWorkerDoneMessage>) => {
+      if (e.data?.type === 'frame-done') {
+        workerFramePending = false
+      }
+    }
+    worker.onerror = (event) => {
+      workerFramePending = false
+      console.warn('[full-map] offscreen worker error; map updates may stall.', event.message)
+    }
+    const offscreen = canvas.transferControlToOffscreen()
+    const initMessage: FullMapWorkerMessage = {
+      type: 'init',
+      canvas: offscreen,
+      width: canvas.width,
+      height: canvas.height,
+    }
+    worker.postMessage(initMessage, [offscreen])
+    mapWorker = worker
+    usingOffscreenWorker = true
+  } catch (error) {
+    console.warn('[full-map] OffscreenCanvas worker unavailable, using main-thread canvas.', error)
+  }
+}
+
+/**
+ * Disposes the map worker when this component is unmounted.
+ */
+function disposeMapWorker(): void {
+  if (!mapWorker) return
+  try {
+    const disposeMessage: FullMapWorkerMessage = { type: 'dispose' }
+    mapWorker.postMessage(disposeMessage)
+  } catch {
+    // Ignore worker shutdown errors.
+  }
+  mapWorker.terminate()
+  mapWorker = null
+  usingOffscreenWorker = false
+  workerFramePending = false
+}
+
+/**
+ * Applies view-center clamping based on current map state and zoom.
+ */
+function clampViewCenterForState(state: MapState, canvas: HTMLCanvasElement): void {
+  const radiusBlocks = FULL_MAP_RADIUS_CHUNKS * CHUNK_SIZE
+  const size = Math.min(512, Math.floor(Math.min(canvas.width, canvas.height)))
+  const baseScale = size / (2 * radiusBlocks)
+  const scale = baseScale * zoomLevel.value
+  const visibleHalfW = canvas.width / 2 / scale
+  const visibleHalfH = canvas.height / 2 / scale
+  const bounds = getDiscoveredBounds(state.discoveredChunkKeys)
+  const clamped = clampViewCenter(
+    viewCenterX.value,
+    viewCenterZ.value,
+    bounds,
+    state.playerX,
+    state.playerZ,
+    visibleHalfW,
+    visibleHalfH,
+  )
+  viewCenterX.value = clamped.x
+  viewCenterZ.value = clamped.z
+}
+
+/**
+ * Builds worker tile payloads from map state.
+ */
+function toWorkerTiles(state: MapState): FullMapTilePayload[] {
+  return state.chunkTiles.map((tile) => ({
+    keyNum: chunkKeyNumeric(tile.cx, tile.cz),
+    heightmapBuffer: tile.heightmapBuffer,
+    biomeMapBuffer: tile.biomeMapBuffer,
+  }))
+}
+
+/** Draws one frame through the OffscreenCanvas worker path. */
+function drawWithWorker(): void {
+  const canvas = canvasRef.value
+  const worker = mapWorker
+  if (!canvas || !worker || !props.open) return
+
+  const now = performance.now()
+  if (workerFramePending && now - workerFrameStartedAtMs < WORKER_FRAME_TIMEOUT_MS) return
+  workerFramePending = true
+  workerFrameStartedAtMs = now
+
+  const state = getMapState()
+  clampViewCenterForState(state, canvas)
+  const frameMessage: FullMapWorkerFrameMessage = {
+    type: 'frame',
+    playerX: state.playerX,
+    playerZ: state.playerZ,
+    playerRotationY: state.playerRotationY,
+    viewCenterX: viewCenterX.value,
+    viewCenterZ: viewCenterZ.value,
+    zoomLevel: zoomLevel.value,
+    discoveredChunkKeys: state.discoveredChunkKeys,
+    tiles: toWorkerTiles(state),
+  }
+  worker.postMessage(frameMessage)
+}
+
+/** Draws one frame on the main thread (fallback when OffscreenCanvas is unavailable). */
+function drawOnMainThread(): void {
   const canvas = canvasRef.value
   if (!canvas || !props.open) return
 
   const state = getMapState()
+  clampViewCenterForState(state, canvas)
   const ctx = canvas.getContext('2d')
   if (!ctx) return
 
@@ -164,21 +303,6 @@ function draw(): void {
   const size = Math.min(512, Math.floor(Math.min(canvas.width, canvas.height)))
   const baseScale = size / (2 * radiusBlocks)
   const scale = baseScale * zoomLevel.value
-
-  const visibleHalfW = canvas.width / 2 / scale
-  const visibleHalfH = canvas.height / 2 / scale
-  const bounds = getDiscoveredBounds(state.discoveredChunkKeys)
-  const clamped = clampViewCenter(
-    viewCenterX.value,
-    viewCenterZ.value,
-    bounds,
-    playerX,
-    playerZ,
-    visibleHalfW,
-    visibleHalfH,
-  )
-  viewCenterX.value = clamped.x
-  viewCenterZ.value = clamped.z
 
   const centerX = canvas.width / 2
   const centerZ = canvas.height / 2
@@ -257,17 +381,22 @@ function draw(): void {
   ctx.restore()
 }
 
+/** Draw loop tick: chooses worker or fallback renderer, then schedules the next frame while open. */
 function tick() {
-  draw()
+  if (!usingOffscreenWorker) tryInitOffscreenWorker()
+  if (usingOffscreenWorker) drawWithWorker()
+  else drawOnMainThread()
   if (props.open) rafId = requestAnimationFrame(tick)
 }
 
 onMounted(() => {
-  if (props.open) rafId = requestAnimationFrame(tick)
+  if (props.open && rafId === null) rafId = requestAnimationFrame(tick)
 })
 
 onUnmounted(() => {
   if (rafId !== null) cancelAnimationFrame(rafId)
+  disposeMapWorker()
+  unbindPanListeners()
 })
 
 watch(
@@ -280,10 +409,16 @@ watch(
     } else {
       isDragging.value = false
       unbindPanListeners()
+      workerFramePending = false
       if (rafId !== null) {
         cancelAnimationFrame(rafId)
         rafId = null
       }
+      // The canvas is unmounted while the overlay is closed (`v-if="open"`).
+      // Any OffscreenCanvas/worker binding created for the previous canvas
+      // becomes invalid, so dispose and allow re-init on the next open.
+      disposeMapWorker()
+      offscreenInitAttempted = false
     }
   },
 )

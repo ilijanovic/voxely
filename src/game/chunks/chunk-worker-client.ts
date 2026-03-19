@@ -1,4 +1,4 @@
-import type { ChunkDataPayload, BlockModEntry } from '../../terrain-core'
+import type { ChunkDataPayload, BlockModEntry, OverhangProfile } from '../../terrain-core'
 import type { WorldPoi } from '../../world-pois'
 import { chunkKeyNumeric } from '../../chunk-runtime'
 import { SNOW_ACCUMULATION_HEIGHT } from '../../constants'
@@ -31,6 +31,8 @@ export function initChunkWorkerClient(options: {
   seed: number
   /** Snow layer height 0–8 for terrain. Default from SNOW_ACCUMULATION_HEIGHT. */
   snowAccumulationHeight?: number
+  /** Overhang carving profile for terrain generation. */
+  overhangProfile?: OverhangProfile
   /** Pre-defined POIs for biome override and fixed village/NPC/mob placement. */
   pois?: WorldPoi[]
   /**
@@ -114,6 +116,7 @@ export function initChunkWorkerClient(options: {
         type: 'init',
         seed: options.seed,
         snowAccumulationHeight: options.snowAccumulationHeight ?? SNOW_ACCUMULATION_HEIGHT,
+        overhangProfile: options.overhangProfile ?? 'vanilla',
         pois: options.pois,
       })
       workers.push(state)

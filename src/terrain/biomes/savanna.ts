@@ -30,11 +30,11 @@ export const savannaDefinition: BiomeDefinition = {
   climate: { tempMin: 0.55, tempMax: 0.75, humidityMin: 0.35, humidityMax: 0.55 },
   multiNoise: {
     center: {
-      continentalness: 0.68,
+      continentalness: 0.296,
       erosion: 0.12,
       temperature: 0.3,
       humidity: -0.1,
-      weirdness: 0.05,
+      weirdness: 0.1,
       y: 0.25,
     },
     weights: {

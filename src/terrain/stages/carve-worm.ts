@@ -1,9 +1,9 @@
 /**
- * Stage 2d: Optional worm carver (Minecraft-style random-walk caves).
+ * Optional worm carver (Minecraft-style random-walk caves). Part of the carvers pipeline stage (stage 6).
  * Fewer, wider tunnels than spaghetti; deterministic and chunk-stable.
  * Parameters: start rate (per grid cell), step count, radius (constant or curve).
  */
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_MAX_Y, WORLD_MIN_Y } from '../../constants'
 import { localKey, CARVED_ID } from '../block-ids'
 import type { ChunkContext, PipelineStage } from '../pipeline-types'
 import { makeSeededRandom } from '../utils'
@@ -62,9 +62,9 @@ function getWormPath(
   const rng = makeSeededRandom(seed + WORM_SEED_OFFSET + gx * 7907 + gz * 7927)
   const x0 = gx * cellSize + rng() * cellSize
   const z0 = gz * cellSize + rng() * cellSize
-  const yRange = maxY - 20
-  const rawY0 = yRange > 0 ? 10 + rng() * yRange : 10
-  const y0 = Math.max(1, Math.min(maxY, Math.floor(rawY0)))
+  const yRange = maxY - (WORLD_MIN_Y + 20)
+  const rawY0 = yRange > 0 ? WORLD_MIN_Y + 10 + rng() * yRange : WORLD_MIN_Y + 10
+  const y0 = Math.max(WORLD_MIN_Y + 1, Math.min(maxY, Math.floor(rawY0)))
   const path: WormPoint[] = [{ x: x0, y: y0, z: z0 }]
   let x = x0,
     y = y0,
@@ -77,7 +77,7 @@ function getWormPath(
     x += dx * len
     y += dy * len
     z += dz * len
-    y = Math.max(1, Math.min(maxY, y))
+    y = Math.max(WORLD_MIN_Y + 1, Math.min(maxY, y))
     path.push({ x, y, z })
   }
   return path
@@ -137,13 +137,12 @@ function carveSphereAt(
   const r = Math.ceil(radius)
   const minVx = Math.floor(cx - r)
   const maxVx = Math.floor(cx + r)
-  const minVy = Math.max(1, Math.floor(cy - r))
-  const maxVy = Math.min(WORLD_HEIGHT - 1, Math.floor(cy + r))
+  const minVy = Math.max(WORLD_MIN_Y + 1, Math.floor(cy - r))
+  const maxVy = Math.min(WORLD_MAX_Y, Math.floor(cy + r))
   const minVz = Math.floor(cz - r)
   const maxVz = Math.floor(cz + r)
   const radiusSq = radius * radius
 
-  /** Caps the per-column carve ceiling at chunk edges using neighbor surface height. */
   const getEdgeCappedTopY = (options: { lx: number; lz: number; topY: number }): number => {
     const { lx, lz, topY } = options
     if (!getHeightAt) return topY
@@ -151,7 +150,7 @@ function carveSphereAt(
     const wx = worldX + lx
     const wz = worldZ + lz
     const clampSurfaceY = (y: number): number =>
-      Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, y)))
+      Math.floor(Math.max(WORLD_MIN_Y, Math.min(WORLD_MAX_Y, y)))
     if (lx === 0) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx - 1, wz)))
     if (lx === CHUNK_SIZE - 1) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx + 1, wz)))
     if (lz === 0) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx, wz - 1)))
@@ -166,14 +165,14 @@ function carveSphereAt(
       const lz = vz - worldZ
       if (lz < 0 || lz >= CHUNK_SIZE) continue
       const topYCol = getEdgeCappedTopY({ lx, lz, topY: heightmap[lx][lz] })
-      const carveCeiling = Math.max(1, topYCol - minDepthBelowSurface)
-      for (let vy = minVy; vy <= maxVy && vy < carveCeiling; vy++) {
-        if (vy >= WORLD_HEIGHT) break
+      const carveCeilingWorldY = Math.max(WORLD_MIN_Y + 1, topYCol - minDepthBelowSurface)
+      for (let vy = minVy; vy <= maxVy && vy < carveCeilingWorldY; vy++) {
+        const ly = vy - WORLD_MIN_Y
         const dx = vx + 0.5 - cx,
           dy = vy + 0.5 - cy,
           dz = vz + 0.5 - cz
         if (dx * dx + dy * dy + dz * dz <= radiusSq) {
-          voxelMap[localKey(lx, vy, lz)] = CARVED_ID
+          voxelMap[localKey(lx, ly, lz)] = CARVED_ID
         }
       }
     }

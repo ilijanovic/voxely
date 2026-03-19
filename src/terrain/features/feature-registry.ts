@@ -8,6 +8,7 @@ import type { FeatureFn } from '../pipeline-types'
 
 /** Stable feature identifiers; order matches the sequence used in terrain/index.ts. */
 export const FEATURE_ORDER = [
+  'ore',
   'trees',
   'ferns',
   'flowers',
@@ -49,10 +50,10 @@ export function createOrderedFeatureList(featuresById: Record<FeatureId, Feature
 export const FEATURE_DENSITY_BY_BIOME: Partial<Record<FeatureId, Partial<Record<Biome, number>>>> = {
   trees: {
     plains: 0.04,
-    forest: 0.12,
+    forest: 0.2,
     jungle: 0.18,
     savanna: 0.03,
-    meadow: 0.05,
+    meadow: 0.02,
     cherry_grove: 0.08,
     snow: 0.02,
     snowy_slopes: 0.02,
@@ -64,13 +65,13 @@ export const FEATURE_DENSITY_BY_BIOME: Partial<Record<FeatureId, Partial<Record<
   },
   flowers: {
     plains: 0.15,
-    meadow: 0.2,
+    meadow: 0.3,
     forest: 0.08,
     cherry_grove: 0.12,
   },
   ground: {
     plains: 0.9,
-    meadow: 0.85,
+    meadow: 0.95,
     forest: 0.7,
     jungle: 0.8,
     savanna: 0.6,

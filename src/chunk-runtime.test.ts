@@ -7,18 +7,18 @@ import {
   chunkKeyNumeric,
   blockKeyNumeric,
   blockKeyFromNumeric,
-  blockKeyString,
   columnCacheKey,
   localKey as runtimeLocalKey,
   decodeLocalKey,
   chunks,
-  blockModifications,
+  clearBlockModifications,
   columnHeightCache,
   getBlockAt,
   getBlockModsForChunk,
+  setBlockModification,
 } from './chunk-runtime'
 import { localKey as terrainLocalKey } from './terrain/block-ids'
-import { CHUNK_SIZE, WORLD_HEIGHT } from './constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_HEIGHT, WORLD_MIN_Y } from './constants'
 import type { ChunkData } from './types'
 
 // Minimal ChunkData for tests (no THREE)
@@ -72,10 +72,10 @@ describe('chunkKeyNumeric', () => {
 describe('blockKeyNumeric and blockKeyFromNumeric', () => {
   it('roundtrip for typical coords', () => {
     const coords: [number, number, number][] = [
-      [0, 0, 0],
-      [1, 64, 1],
-      [-1, 127, -1],
-      [16, 0, 16],
+      [0, WORLD_MIN_Y, 0],
+      [1, WATER_LEVEL, 1],
+      [-1, WORLD_MIN_Y + WORLD_HEIGHT - 1, -1],
+      [16, WORLD_MIN_Y, 16],
     ]
     for (const [bx, by, bz] of coords) {
       const k = blockKeyNumeric(bx, by, bz)
@@ -117,79 +117,85 @@ describe('localKey and decodeLocalKey', () => {
 describe('getBlockAt', () => {
   beforeEach(() => {
     chunks.clear()
-    blockModifications.clear()
+    clearBlockModifications()
     columnHeightCache.clear()
   })
 
-  it('returns air for y < 0 or y >= WORLD_HEIGHT', () => {
-    expect(getBlockAt(0, -1, 0)).toBe('air')
-    expect(getBlockAt(0, WORLD_HEIGHT, 0)).toBe('air')
+  it('returns air for y < WORLD_MIN_Y or y >= WORLD_MIN_Y + WORLD_HEIGHT', () => {
+    expect(getBlockAt(0, WORLD_MIN_Y - 1, 0)).toBe('air')
+    expect(getBlockAt(0, WORLD_MIN_Y + WORLD_HEIGHT, 0)).toBe('air')
   })
 
   it('returns null when chunk not loaded', () => {
-    expect(getBlockAt(0, 64, 0)).toBe(null)
+    expect(getBlockAt(0, WORLD_MIN_Y + 100, 0)).toBe(null)
   })
 
   it('returns block from chunk voxelMap when no mod', () => {
     const voxel = new Map<number, string>()
-    voxel.set(runtimeLocalKey(0, 64, 0), 'stone')
+    const worldY = 64
+    const ly = worldY - WORLD_MIN_Y
+    voxel.set(runtimeLocalKey(0, ly, 0), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
-    expect(getBlockAt(0, 64, 0)).toBe('stone')
+    expect(getBlockAt(0, worldY, 0)).toBe('stone')
   })
 
   it('returns air for position not in voxelMap', () => {
     const voxel = new Map<number, string>()
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
-    expect(getBlockAt(0, 64, 0)).toBe('air')
+    expect(getBlockAt(0, WORLD_MIN_Y + 100, 0)).toBe('air')
   })
 
   it('mod overrides chunk data', () => {
+    const worldY = WORLD_MIN_Y + 100
     const voxel = new Map<number, string>()
-    voxel.set(runtimeLocalKey(0, 64, 0), 'stone')
+    voxel.set(runtimeLocalKey(0, worldY - WORLD_MIN_Y, 0), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
-    blockModifications.set(blockKeyString(0, 64, 0), 'air')
-    expect(getBlockAt(0, 64, 0)).toBe('air')
+    setBlockModification(0, worldY, 0, 'air')
+    expect(getBlockAt(0, worldY, 0)).toBe('air')
   })
 
   it('mod overrides to different block', () => {
+    const worldY = WORLD_MIN_Y + 100
     const voxel = new Map<number, string>()
-    voxel.set(runtimeLocalKey(0, 64, 0), 'stone')
+    voxel.set(runtimeLocalKey(0, worldY - WORLD_MIN_Y, 0), 'stone')
     chunks.set(chunkKeyNumeric(0, 0), makeChunkData(0, 0, voxel))
-    blockModifications.set(blockKeyString(0, 64, 0), 'grass')
-    expect(getBlockAt(0, 64, 0)).toBe('grass')
+    setBlockModification(0, worldY, 0, 'grass')
+    expect(getBlockAt(0, worldY, 0)).toBe('grass')
   })
 
   it('string key avoids collision: -268,75,280 vs 1780,75,280 (same blockKeyNumeric)', () => {
+    const worldY = 75
+    const ly = worldY - WORLD_MIN_Y
     const cx = Math.floor(-268 / CHUNK_SIZE)
     const cz = Math.floor(280 / CHUNK_SIZE)
     const lx = -268 - cx * CHUNK_SIZE
     const lz = 280 - cz * CHUNK_SIZE
     const voxel = new Map<number, string>()
-    voxel.set(runtimeLocalKey(lx, 75, lz), 'stone')
+    voxel.set(runtimeLocalKey(lx, ly, lz), 'stone')
     chunks.set(chunkKeyNumeric(cx, cz), makeChunkData(cx, cz, voxel))
     const cx2 = Math.floor(1780 / CHUNK_SIZE)
     const cz2 = Math.floor(280 / CHUNK_SIZE)
     const voxel2 = new Map<number, string>()
-    voxel2.set(runtimeLocalKey(1780 - cx2 * CHUNK_SIZE, 75, 280 - cz2 * CHUNK_SIZE), 'dirt')
+    voxel2.set(runtimeLocalKey(1780 - cx2 * CHUNK_SIZE, ly, 280 - cz2 * CHUNK_SIZE), 'dirt')
     chunks.set(chunkKeyNumeric(cx2, cz2), makeChunkData(cx2, cz2, voxel2))
-    expect(blockKeyNumeric(-268, 75, 280)).toBe(blockKeyNumeric(1780, 75, 280))
-    blockModifications.set(blockKeyString(1780, 75, 280), 'air')
-    expect(getBlockAt(-268, 75, 280)).toBe('stone')
-    expect(getBlockAt(1780, 75, 280)).toBe('air')
+    expect(blockKeyNumeric(-268, worldY, 280)).toBe(blockKeyNumeric(1780, worldY, 280))
+    setBlockModification(1780, worldY, 280, 'air')
+    expect(getBlockAt(-268, worldY, 280)).toBe('stone')
+    expect(getBlockAt(1780, worldY, 280)).toBe('air')
   })
 })
 
 describe('getBlockModsForChunk', () => {
   beforeEach(() => {
     chunks.clear()
-    blockModifications.clear()
+    clearBlockModifications()
     columnHeightCache.clear()
   })
 
   it('returns only mods in the given chunk', () => {
-    blockModifications.set(blockKeyString(0, 64, 0), 'grass') // chunk 0,0
-    blockModifications.set(blockKeyString(16, 64, 0), 'dirt') // chunk 1,0
-    blockModifications.set(blockKeyString(0, 64, 16), 'stone') // chunk 0,1
+    setBlockModification(0, 64, 0, 'grass') // chunk 0,0
+    setBlockModification(16, 64, 0, 'dirt') // chunk 1,0
+    setBlockModification(0, 64, 16, 'stone') // chunk 0,1
     const mods = getBlockModsForChunk(0, 0)
     expect(mods).toHaveLength(1)
     expect(mods[0].bx).toBe(0)
@@ -199,8 +205,8 @@ describe('getBlockModsForChunk', () => {
   })
 
   it('returns multiple mods in same chunk', () => {
-    blockModifications.set(blockKeyString(1, 65, 1), 'grass')
-    blockModifications.set(blockKeyString(2, 65, 2), 'dirt')
+    setBlockModification(1, 65, 1, 'grass')
+    setBlockModification(2, 65, 2, 'dirt')
     const mods = getBlockModsForChunk(0, 0)
     expect(mods).toHaveLength(2)
   })

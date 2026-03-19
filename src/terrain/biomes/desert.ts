@@ -30,7 +30,7 @@ export const desertDefinition: BiomeDefinition = {
   climate: { tempMin: 0.65, tempMax: 1, humidityMin: 0, humidityMax: 0.35 },
   multiNoise: {
     center: {
-      continentalness: 0.7,
+      continentalness: 0.34,
       erosion: 0.1,
       temperature: 0.65,
       humidity: -0.65,

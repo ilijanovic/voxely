@@ -2,7 +2,7 @@
  * Flower feature for Stage 4: places flowers (dandelion, poppy, tulips, oxeye_daisy, cornflower, etc.) on grass/dirt surface by biome.
  */
 import type { Biome, BlockType } from '../../types'
-import { CHUNK_SIZE, WATER_LEVEL } from '../../constants'
+import { CHUNK_SIZE, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
 import { localKey, typeToId, idToType } from '../block-ids'
 import { FEATURE_PLACEMENT_NOISE_SCALE } from '../constants'
 import { getFeatureDensityForBiome } from './feature-registry'
@@ -38,13 +38,16 @@ const BIOME_FLOWERS: Partial<Record<Biome, FlowerEntry[]>> = {
     { block: 'azure_bluet', minThreshold: 0.95, maxThreshold: 0.98 },
   ],
   meadow: [
-    { block: 'dandelion', minThreshold: 0.06, maxThreshold: 0.28 },
-    { block: 'poppy', minThreshold: 0.28, maxThreshold: 0.5 },
-    { block: 'blue_orchid', minThreshold: 0.5, maxThreshold: 0.62 },
-    { block: 'oxeye_daisy', minThreshold: 0.62, maxThreshold: 0.74 },
-    { block: 'allium', minThreshold: 0.74, maxThreshold: 0.84 },
-    { block: 'tulip_red', minThreshold: 0.84, maxThreshold: 0.92 },
-    { block: 'cornflower', minThreshold: 0.92, maxThreshold: 0.97 },
+    { block: 'dandelion', minThreshold: 0.02, maxThreshold: 0.2 },
+    { block: 'poppy', minThreshold: 0.2, maxThreshold: 0.35 },
+    { block: 'cornflower', minThreshold: 0.35, maxThreshold: 0.5 },
+    { block: 'oxeye_daisy', minThreshold: 0.5, maxThreshold: 0.62 },
+    { block: 'allium', minThreshold: 0.62, maxThreshold: 0.74 },
+    { block: 'azure_bluet', minThreshold: 0.74, maxThreshold: 0.84 },
+    { block: 'tulip_red', minThreshold: 0.84, maxThreshold: 0.89 },
+    { block: 'tulip_orange', minThreshold: 0.89, maxThreshold: 0.93 },
+    { block: 'tulip_white', minThreshold: 0.93, maxThreshold: 0.97 },
+    { block: 'tulip_pink', minThreshold: 0.97, maxThreshold: 0.995 },
   ],
   forest: [
     { block: 'poppy', minThreshold: 0.1, maxThreshold: 0.3 },
@@ -126,12 +129,13 @@ export function createFlowersFeature(): FeatureFn {
         const entries = BIOME_FLOWERS[biome]
         if (!entries || entries.length === 0) continue
 
-        const surfaceKey = localKey(lx, topY, lz)
+        const surfaceLy = topY - WORLD_MIN_Y
+        const surfaceKey = localKey(lx, surfaceLy, lz)
         const surfaceId = voxelMap[surfaceKey]
         const surfaceType = idToType(surfaceId) as BlockType
         if (!SURFACE_BLOCKS_FOR_FLOWERS.includes(surfaceType)) continue
 
-        const keyAbove = localKey(lx, topY + 1, lz)
+        const keyAbove = localKey(lx, surfaceLy + 1, lz)
         if (voxelMap[keyAbove]) continue
 
         const wx = worldX + lx

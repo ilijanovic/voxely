@@ -1,4 +1,5 @@
 import type { BlockPos, BlockType, ChunkData } from '../../types'
+import { WORLD_MIN_Y } from '../../constants'
 
 /**
  * Breaks one block at the given world position: updates block mods, chunk voxel map, height cache; optionally refreshes meshes and spawns drop.
@@ -13,8 +14,7 @@ export function breakBlock(params: {
   chunks: Map<number, ChunkData>
   getLayerPositions: (data: ChunkData, blockType: BlockType) => BlockPos[] | null
   isUnbreakableBlock: (blockType: BlockType) => boolean
-  blockModifications: Map<string, BlockType | 'air'>
-  blockKeyString: (x: number, y: number, z: number) => string
+  setBlockModification: (x: number, y: number, z: number, value: BlockType | 'air') => void
   invalidateColumnHeight: (x: number, z: number) => void
   localKey: (lx: number, ly: number, lz: number) => number
   chunkSize: number
@@ -64,18 +64,18 @@ export function breakBlock(params: {
     if (otherBy !== null) {
       const otherType = params.getBlockAt(pos.x, otherBy, pos.z)
       if (otherType !== null && otherType !== 'air') affectedBlockTypes.add(otherType as BlockType)
-      params.blockModifications.set(params.blockKeyString(pos.x, otherBy, pos.z), 'air')
+      params.setBlockModification(pos.x, otherBy, pos.z, 'air')
       const lxOther = pos.x - data.cx * params.chunkSize
       const lzOther = pos.z - data.cz * params.chunkSize
-      data.voxelMap.delete(params.localKey(lxOther, otherBy, lzOther))
+      data.voxelMap.delete(params.localKey(lxOther, otherBy - WORLD_MIN_Y, lzOther))
     }
   }
 
-  params.blockModifications.set(params.blockKeyString(pos.x, pos.y, pos.z), 'air')
+  params.setBlockModification(pos.x, pos.y, pos.z, 'air')
   params.invalidateColumnHeight(pos.x, pos.z)
   const lx = pos.x - data.cx * params.chunkSize
   const lz = pos.z - data.cz * params.chunkSize
-  data.voxelMap.delete(params.localKey(lx, pos.y, lz))
+  data.voxelMap.delete(params.localKey(lx, pos.y - WORLD_MIN_Y, lz))
   const neighbors: [number, number, number][] = [
     [pos.x + 1, pos.y, pos.z],
     [pos.x - 1, pos.y, pos.z],
@@ -99,7 +99,7 @@ export function breakBlock(params: {
   const dropSize = 0.35
   const startY = pos.y + 0.5
   let groundY = pos.y - 1 + 0.5
-  for (let by = pos.y - 1; by >= 0; by--) {
+  for (let by = pos.y - 1; by >= WORLD_MIN_Y; by--) {
     const t = params.getBlockAt(pos.x, by, pos.z)
     if (t !== null && t !== 'air' && params.isSolidBlock(t as BlockType)) {
       groundY = by + params.getBlockHeight(t as BlockType)

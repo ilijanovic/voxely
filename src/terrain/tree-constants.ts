@@ -21,15 +21,19 @@ export const JUNGLE_TREE_SHAPE_OFFSET_Z = -300
 /** Min forest density to allow trees in forest / jungle / windswept_forest. */
 export const FOREST_DENSITY_THRESHOLD = 0.0
 
-export const TREE_PLACEMENT_FOREST_THRESHOLD = -0.1
+export const TREE_PLACEMENT_FOREST_THRESHOLD = -0.25
 export const TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD = 0.0
 /** Lower than forest so jungle has noticeably more trees (denser canopy). */
 export const TREE_PLACEMENT_JUNGLE_THRESHOLD = -0.88
 export const TREE_PLACEMENT_PLAINS_THRESHOLD = 0.93
+/** Meadow trees are rarer than plains to preserve open flower fields. */
+export const TREE_PLACEMENT_MEADOW_THRESHOLD = 0.98
 export const TREE_PLACEMENT_MOUNTAIN_THRESHOLD = 0.97
 export const TREE_PLACEMENT_SNOW_THRESHOLD = 0.55
 /** Very sparse trees on snowy_slopes (high threshold so only a few conifers appear). */
 export const TREE_PLACEMENT_SNOWY_SLOPES_THRESHOLD = 0.88
+/** Chance for a meadow tree to get a bee nest attachment. */
+export const MEADOW_BEE_NEST_CHANCE = 0.08
 
 /** Max height difference between column and 4 neighbours for tree placement. */
 export const TREE_MAX_SLOPE = 2
@@ -46,7 +50,9 @@ export const BIOMES_WITHOUT_GRASS_SNOW: ReadonlySet<Biome> = new Set([
   'plains',
   'frozen_peaks',
   'jagged_peaks',
+  'frozen_river',
   'snowy_slopes',
+  'snowy_beach',
   'badlands',
   'mushroom_fields',
   'mangrove_swamp',
@@ -65,7 +71,7 @@ export const TREE_PLACEMENT_CONFIG: Partial<Record<Biome, TreePlacementConfig>> 
   jungle: { useForestDensity: true, threshold: TREE_PLACEMENT_JUNGLE_THRESHOLD },
   mountain: { useForestDensity: false, threshold: TREE_PLACEMENT_MOUNTAIN_THRESHOLD },
   plains: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
-  meadow: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
+  meadow: { useForestDensity: false, threshold: TREE_PLACEMENT_MEADOW_THRESHOLD },
   savanna: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
   cherry_grove: { useForestDensity: false, threshold: TREE_PLACEMENT_PLAINS_THRESHOLD },
   windswept_forest: { useForestDensity: true, threshold: TREE_PLACEMENT_WINDSWEPT_FOREST_THRESHOLD },

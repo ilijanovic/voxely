@@ -1,6 +1,7 @@
 /**
  * Web Worker: generates chunk terrain data off the main thread.
- * Receives: { type: "init", seed } then { type: "generate", chunkX, chunkZ, blockMods, requestId? }.
+ * Receives: { type: "init", seed, overhangProfile? } then
+ * { type: "generate", chunkX, chunkZ, blockMods, requestId? }.
  * Sends back: ChunkDataPayload (optionally with requestId for stale filtering on main thread).
  *
  * Core logic lives in chunk-worker-handler.ts so it can be tested without a Worker scope.

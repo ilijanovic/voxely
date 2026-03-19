@@ -5,8 +5,16 @@ import type { BlockType } from '../types'
 import type { AnimalKind } from '../entities/types'
 import type { PlayerClass } from '../player/faction'
 
+<<<<<<< HEAD
 /** Objective type: kill mobs, collect items, talk to NPC, or reach area. */
 export type QuestObjectiveType = 'kill' | 'collect' | 'talk' | 'reach'
+=======
+/** Quest category for grouping and repeat behaviour (WoW-style). */
+export type QuestCategory = 'main' | 'side' | 'daily' | 'repeatable'
+
+/** Objective type: kill mobs, collect items, or talk to NPC. */
+export type QuestObjectiveType = 'kill' | 'collect' | 'talk'
+>>>>>>> dev
 
 export interface QuestObjectiveKill {
   type: 'kill'
@@ -62,6 +70,12 @@ export interface Quest {
   id: string
   title: string
   description: string
+  /** Recommended (or minimum) level for this quest; used for display and difficulty color. */
+  level?: number
+  /** Category for grouping and repeat behaviour (repeatable quests can be accepted again after turn-in). */
+  category?: QuestCategory
+  /** Zone or region id for grouping in the quest log (e.g. "first_spawn_village"). */
+  zoneId?: string
   /** Short "where to go" hint for the quest list (e.g. "Sheep · Head North-West, about 200m"). Can be a function for dynamic text (e.g. direction from world seed). */
   locationHint?: string | (() => string)
   objectives: QuestObjective[]

@@ -47,8 +47,11 @@ const WALKWAY_LANTERN_POST_BLOCKS = ['wood', 'stone_bricks'] as const
 /** Village center plaza radius in blocks (diamond-ish). */
 const VILLAGE_PLAZA_RADIUS = 5
 
-/** Village fountain footprint half-size (3x3). */
-const VILLAGE_FOUNTAIN_HALF = 1
+/** Well (Brunnen) outer half-size in blocks; total footprint (2*WELL_OUTER_HALF+1)². */
+const WELL_OUTER_HALF = 2
+
+/** Well water area: 2×2 cells centered (dx, dz in [-1, 0] × [-1, 0]). */
+const WELL_WATER_HALF = 1
 
 /**
  * Places a guaranteed torch next to a village house door (best-effort within chunk bounds and empty cells).
@@ -112,8 +115,9 @@ function hashSeededXZ(seed: number, x: number, z: number): number {
 }
 
 /**
- * Paints a small village plaza around (centerX, centerZ): gravel/grass_path ring and a simple fountain.
- * Only paints inside the current chunk bounds. Uses isAirOrCarved checks to avoid overwriting houses.
+ * Paints a small village plaza around (centerX, centerZ): gravel/grass_path ring and a Minecraft-style
+ * well (Brunnen) with 2×2 water, raised stone rim, and corner posts. Only paints inside the current
+ * chunk bounds. Uses isAirOrCarved checks to avoid overwriting houses.
  */
 function paintVillagePlaza(
   ctx: ChunkContext,
@@ -144,10 +148,13 @@ function paintVillagePlaza(
   const gravelId = typeToId('gravel')
   const pathId = typeToId('grass_path')
   const stoneId = typeToId('stone')
+  const stoneBricksId = typeToId('stone_bricks')
   const waterId = typeToId('water_source')
   const torchId = typeToId('torch')
   const woodId = typeToId('wood')
   const flowerIds = [typeToId('poppy'), typeToId('dandelion'), typeToId('azure_bluet')]
+
+  const wellRimId = (hashSeededXZ(seed + 5555, cx, cz) & 1) === 1 ? stoneBricksId : stoneId
 
   // Place a plaza band around the center. Use a seeded pattern so villages don't look identical.
   for (let dx = -VILLAGE_PLAZA_RADIUS; dx <= VILLAGE_PLAZA_RADIUS; dx++) {
@@ -185,27 +192,67 @@ function paintVillagePlaza(
     }
   }
 
-  // Fountain: 3x3 stone ring with water center. Slightly raised in the middle for visibility.
-  for (let dx = -VILLAGE_FOUNTAIN_HALF; dx <= VILLAGE_FOUNTAIN_HALF; dx++) {
-    for (let dz = -VILLAGE_FOUNTAIN_HALF; dz <= VILLAGE_FOUNTAIN_HALF; dz++) {
+  // Well (Brunnen): Minecraft-style 5×5 base with 2×2 water, raised rim, and corner posts.
+  const wellCornerOffsets: Array<{ dx: number; dz: number }> = [
+    { dx: -WELL_OUTER_HALF, dz: -WELL_OUTER_HALF },
+    { dx: -WELL_OUTER_HALF, dz: WELL_OUTER_HALF },
+    { dx: WELL_OUTER_HALF, dz: -WELL_OUTER_HALF },
+    { dx: WELL_OUTER_HALF, dz: WELL_OUTER_HALF },
+  ]
+  for (let dx = -WELL_OUTER_HALF; dx <= WELL_OUTER_HALF; dx++) {
+    for (let dz = -WELL_OUTER_HALF; dz <= WELL_OUTER_HALF; dz++) {
       const wx = cx + dx
       const wz = cz + dz
       if (wx < worldX || wx >= worldX + CHUNK_SIZE) continue
       if (wz < worldZ || wz >= worldZ + CHUNK_SIZE) continue
+      const isWater =
+        dx >= -WELL_WATER_HALF && dx <= 0 && dz >= -WELL_WATER_HALF && dz <= 0
       const by = centerY
       if (by < 0 || by >= WORLD_HEIGHT) continue
       const lx = wx - worldX
       const lz = wz - worldZ
       const key = localKey(lx, by, lz)
       const existing = voxelMap[key]
-      // Allow the fountain to overwrite plaza ground blocks.
       if (!isAirOrCarved(existing) && existing !== gravelId && existing !== pathId) continue
-      const isCenter = dx === 0 && dz === 0
-      voxelMap[key] = isCenter ? waterId : stoneId
+      voxelMap[key] = isWater ? waterId : wellRimId
+    }
+  }
+  for (let dx = -WELL_OUTER_HALF; dx <= WELL_OUTER_HALF; dx++) {
+    for (let dz = -WELL_OUTER_HALF; dz <= WELL_OUTER_HALF; dz++) {
+      const isWater =
+        dx >= -WELL_WATER_HALF && dx <= 0 && dz >= -WELL_WATER_HALF && dz <= 0
+      if (isWater) continue
+      const wx = cx + dx
+      const wz = cz + dz
+      if (wx < worldX || wx >= worldX + CHUNK_SIZE) continue
+      if (wz < worldZ || wz >= worldZ + CHUNK_SIZE) continue
+      const by = centerY + 1
+      if (by < 0 || by >= WORLD_HEIGHT) continue
+      const lx = wx - worldX
+      const lz = wz - worldZ
+      const key = localKey(lx, by, lz)
+      if (!isAirOrCarved(voxelMap[key])) continue
+      voxelMap[key] = wellRimId
+    }
+  }
+  for (const o of wellCornerOffsets) {
+    const wx = cx + o.dx
+    const wz = cz + o.dz
+    if (wx < worldX || wx >= worldX + CHUNK_SIZE) continue
+    if (wz < worldZ || wz >= worldZ + CHUNK_SIZE) continue
+    const postId = (hashSeededXZ(seed + 6666, wx, wz) & 1) === 1 ? woodId : stoneBricksId
+    for (let yOff = 1; yOff <= 2; yOff++) {
+      const by = centerY + yOff
+      if (by < 0 || by >= WORLD_HEIGHT) continue
+      const lx = wx - worldX
+      const lz = wz - worldZ
+      const key = localKey(lx, by, lz)
+      if (!isAirOrCarved(voxelMap[key])) continue
+      voxelMap[key] = postId
     }
   }
 
-  // Four simple plaza lanterns (short posts + torch) around the fountain for night readability.
+  // Four simple plaza lanterns (short posts + torch) around the well for night readability.
   const lanternOffsets: Array<{ dx: number; dz: number }> = [
     { dx: 0, dz: VILLAGE_PLAZA_RADIUS - 1 },
     { dx: 0, dz: -(VILLAGE_PLAZA_RADIUS - 1) },
@@ -268,11 +315,13 @@ function paintVillageWalkwayLanterns(
 ): void {
   const { worldX, worldZ, voxelMap } = ctx
 
-  const gravel = walkwayBlocks.filter((b) => b.block === 'gravel')
-  if (gravel.length === 0) return
+  const pathBlocks = walkwayBlocks.filter(
+    (b) => b.block === 'gravel' || b.block === 'grass_path',
+  )
+  if (pathBlocks.length === 0) return
 
   const walkwaySet = new Set<string>()
-  for (const p of gravel) walkwaySet.add(`${p.bx},${p.bz}`)
+  for (const p of pathBlocks) walkwaySet.add(`${p.bx},${p.bz}`)
 
   const torchId = typeToId('torch')
   const placed: Array<{ x: number; z: number }> = []
@@ -292,7 +341,7 @@ function paintVillageWalkwayLanterns(
     return true
   }
 
-  for (const p of gravel) {
+  for (const p of pathBlocks) {
     const h = hashSeededXZ(seed, p.bx, p.bz)
     // Always try to place at least one lantern per walkway cluster if any valid spot exists.
     // After the first, thin placement out with a deterministic roll + spacing constraint.
@@ -346,9 +395,9 @@ function paintVillageWalkwayLanterns(
   }
 
   // Fallback: in rare cases all adjacent candidates can be blocked (e.g. dense structures in small chunks).
-  // Guarantee at least one lantern for any non-empty gravel walkway cluster when there is vertical space.
+  // Guarantee at least one lantern for any non-empty walkway cluster when there is vertical space.
   if (placed.length === 0) {
-    for (const p of gravel) {
+    for (const p of pathBlocks) {
       const lx = p.bx - worldX
       const lz = p.bz - worldZ
       if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) continue
@@ -547,7 +596,7 @@ export function paintStructures(ctx: ChunkContext, deps: PaintStructuresDeps): v
       const lz = bz - worldZ
       const key = localKey(lx, by, lz)
       const existing = voxelMap[key]
-      // Do not overwrite already-painted structures/plaza elements (e.g. fountain water/stone).
+      // Do not overwrite already-painted structures/plaza elements (e.g. well water/stone).
       // Allow repainting over air/carved or existing path/gravel.
       if (!isAirOrCarved(existing) && existing !== gravelId && existing !== pathId) continue
       voxelMap[key] = typeToId(block)

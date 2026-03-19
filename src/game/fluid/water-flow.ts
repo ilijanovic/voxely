@@ -53,94 +53,150 @@ export interface WaterSpreadChange {
   bx: number
   by: number
   bz: number
-  value: BlockType
+  value: BlockType | 'air'
 }
 
 /**
  * Computes which blocks should become or update to water this tick.
- * Rules: (1) Flow down into air first; (2) flow horizontally into air or higher-level water; (3) create source when 2 sources adjacent + solid below.
- * Returns a list of changes; same cell appears at most once (lowest level wins).
+ * Rules: (1) flow from sources (down first, then horizontal), (2) create source with 2-source rule, (3) remove unsupported flowing water.
+ * Returns a list of changes; same cell appears at most once.
  */
 export function computeWaterSpread(options: WaterSpreadOptions): WaterSpreadChange[] {
   const { getBlockAt, isSolid, waterPositions, maxChangesPerTick } = options
-  const changes = new Map<string, { level: number; value: BlockType }>()
+  const horizontalOffsets: Array<[number, number]> = [
+    [0, 1],
+    [0, -1],
+    [1, 0],
+    [-1, 0],
+  ]
+  const localOffsets: Array<[number, number, number]> = [
+    [0, 0, 0],
+    [0, -1, 0],
+    [0, 1, 0],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+  ]
+  const snapshotCache = new Map<string, BlockType | 'air' | null>()
+  const candidateKeys = new Set<string>()
+
+  const keyOf = (bx: number, by: number, bz: number): string => `${bx},${by},${bz}`
+
+  const readSnapshot = (bx: number, by: number, bz: number): BlockType | 'air' | null => {
+    const key = keyOf(bx, by, bz)
+    const cached = snapshotCache.get(key)
+    if (cached !== undefined) return cached
+    const value = getBlockAt(bx, by, bz)
+    snapshotCache.set(key, value)
+    return value
+  }
 
   for (const { bx, by, bz } of waterPositions) {
-    const type = getBlockAt(bx, by, bz)
+    const type = readSnapshot(bx, by, bz)
     if (type === null || !isWaterBlock(type)) continue
-    const level = getWaterLevel(type)
-    if (level < 0) continue
-
-    const below = getBlockAt(bx, by - 1, bz)
-    const belowSolid = below !== null && below !== 'air' && isSolid(below)
-
-    if (below === 'air') {
-      const newLevel = Math.min(level + 1, WATER_MAX_LEVEL)
-      const newType = waterLevelToBlockType(newLevel)
-      const key = `${bx},${by - 1},${bz}`
-      const existing = changes.get(key)
-      if (!existing || existing.level > newLevel) changes.set(key, { level: newLevel, value: newType })
+    for (const [dx, dy, dz] of localOffsets) {
+      const nx = bx + dx
+      const ny = by + dy
+      const nz = bz + dz
+      if (readSnapshot(nx, ny, nz) === null) continue
+      candidateKeys.add(keyOf(nx, ny, nz))
     }
-
-    if (below !== 'air' && belowSolid) {
-      const newLevel = level + 1
-      if (newLevel <= WATER_MAX_LEVEL) {
-        const newType = waterLevelToBlockType(newLevel)
-        for (const [dx, dz] of [
-          [0, 1],
-          [0, -1],
-          [1, 0],
-          [-1, 0],
-        ]) {
-          const nx = bx + dx
-          const nz = bz + dz
-          const neighbor = getBlockAt(nx, by, nz)
-          if (neighbor === null) continue
-          const key = `${nx},${by},${nz}`
-          const cur = changes.get(key)
-          const currentLevel = cur ? cur.level : neighbor === 'air' ? 999 : getWaterLevel(neighbor)
-          const shouldSet = neighbor === 'air' || (currentLevel >= 0 && currentLevel > newLevel)
-          if (shouldSet && (!cur || cur.level > newLevel)) {
-            changes.set(key, { level: newLevel, value: newType })
-          }
-        }
-      }
-    }
-
-    if (maxChangesPerTick !== undefined && changes.size >= maxChangesPerTick) break
   }
 
-  // Source creation: upgrade water_flowing_1 to water_source when 2+ horizontal neighbours are water_source and block below is solid
-  for (const [key, entry] of changes) {
-    if (entry.value !== 'water_flowing_1') continue
+  if (candidateKeys.size === 0) return []
+
+  const sourceKeys = new Set<string>()
+  for (const key of candidateKeys) {
     const [bx, by, bz] = key.split(',').map(Number)
+    if (readSnapshot(bx, by, bz) === 'water_source') sourceKeys.add(key)
+  }
+
+  // Infinite water source rule: 2+ adjacent sources + solid below.
+  for (const key of candidateKeys) {
+    const [bx, by, bz] = key.split(',').map(Number)
+    const cur = readSnapshot(bx, by, bz)
+    if (cur === null) continue
+    if (cur !== 'air' && !isWaterBlock(cur)) continue
+    const below = readSnapshot(bx, by - 1, bz)
+    const solidBelow = below !== null && below !== 'air' && !isWaterBlock(below) && isSolid(below)
+    if (!solidBelow) continue
     let sourceCount = 0
-    for (const [dx, dz] of [
-      [0, 1],
-      [0, -1],
-      [1, 0],
-      [-1, 0],
-    ]) {
-      const t = getBlockAt(bx + dx, by, bz + dz)
-      if (t === 'water_source') sourceCount++
-      else if (t !== null && t !== 'air' && isWaterBlock(t) && getWaterLevel(t) === 0) sourceCount++
-      else {
-        const changeKey = `${bx + dx},${by},${bz + dz}`
-        const ch = changes.get(changeKey)
-        if (ch?.value === 'water_source') sourceCount++
-      }
+    for (const [dx, dz] of horizontalOffsets) {
+      if (sourceKeys.has(keyOf(bx + dx, by, bz + dz))) sourceCount++
     }
-    const below = getBlockAt(bx, by - 1, bz)
-    const solidBelow = below !== null && below !== 'air' && isSolid(below)
-    if (sourceCount >= 2 && solidBelow) entry.value = 'water_source' as BlockType
+    if (sourceCount >= 2) sourceKeys.add(key)
   }
 
-  const out: WaterSpreadChange[] = []
-  const limit = maxChangesPerTick ?? changes.size
-  for (const [key, entry] of changes) {
-    if (out.length >= limit) break
-    const [bx, by, bz] = key.split(',').map(Number)
-    out.push({ bx, by, bz, value: entry.value })
+  const desiredLevels = new Map<string, number>()
+  const queue: Array<{ bx: number; by: number; bz: number; level: number }> = []
+  let queueIndex = 0
+  const enqueueIfBetter = (bx: number, by: number, bz: number, level: number): void => {
+    const key = keyOf(bx, by, bz)
+    if (!candidateKeys.has(key)) return
+    const cur = readSnapshot(bx, by, bz)
+    if (cur === null) return
+    if (cur !== 'air' && !isWaterBlock(cur)) return
+    const prev = desiredLevels.get(key)
+    if (prev !== undefined && prev <= level) return
+    desiredLevels.set(key, level)
+    queue.push({ bx, by, bz, level })
   }
-  return out
+
+  for (const key of sourceKeys) {
+    const [bx, by, bz] = key.split(',').map(Number)
+    enqueueIfBetter(bx, by, bz, 0)
+  }
+
+  while (queueIndex < queue.length) {
+    const current = queue[queueIndex++]!
+    const { bx, by, bz, level } = current
+
+    // Falling water resets to flowing_1 regardless of parent level.
+    enqueueIfBetter(bx, by - 1, bz, 1)
+
+    const below = readSnapshot(bx, by - 1, bz)
+    const belowSolid = below !== null && below !== 'air' && !isWaterBlock(below) && isSolid(below)
+    if (!belowSolid || level >= WATER_MAX_LEVEL) continue
+
+    const horizontalLevel = level + 1
+    for (const [dx, dz] of horizontalOffsets) {
+      enqueueIfBetter(bx + dx, by, bz + dz, horizontalLevel)
+    }
+  }
+
+  const writeChanges: Array<WaterSpreadChange & { level: number }> = []
+  const removeChanges: WaterSpreadChange[] = []
+
+  for (const key of candidateKeys) {
+    const [bx, by, bz] = key.split(',').map(Number)
+    const cur = readSnapshot(bx, by, bz)
+    if (cur === null) continue
+    if (cur !== 'air' && !isWaterBlock(cur)) continue
+
+    const desired = desiredLevels.get(key)
+    if (desired === undefined) {
+      if (cur !== 'air' && cur !== 'water_source') removeChanges.push({ bx, by, bz, value: 'air' })
+      continue
+    }
+
+    const next = waterLevelToBlockType(desired)
+    if (cur !== next) writeChanges.push({ bx, by, bz, value: next, level: desired })
+  }
+
+  writeChanges.sort((a, b) => {
+    if (a.by !== b.by) return b.by - a.by
+    if (a.level !== b.level) return a.level - b.level
+    if (a.bx !== b.bx) return a.bx - b.bx
+    return a.bz - b.bz
+  })
+  removeChanges.sort((a, b) => {
+    if (a.by !== b.by) return a.by - b.by
+    if (a.bx !== b.bx) return a.bx - b.bx
+    return a.bz - b.bz
+  })
+
+  const out = [...writeChanges.map(({ bx, by, bz, value }) => ({ bx, by, bz, value })), ...removeChanges]
+  const limit = maxChangesPerTick ?? out.length
+  return out.slice(0, limit)
 }

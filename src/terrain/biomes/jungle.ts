@@ -29,11 +29,11 @@ export const jungleDefinition: BiomeDefinition = {
   climate: { tempMin: 0.5, tempMax: 0.95, humidityMin: 0.7, humidityMax: 1 },
   multiNoise: {
     center: {
-      continentalness: 0.72,
+      continentalness: 0.384,
       erosion: -0.12,
       temperature: 0.25,
       humidity: 0.7,
-      weirdness: 0.05,
+      weirdness: 0.1,
       y: 0.3,
     },
     weights: {

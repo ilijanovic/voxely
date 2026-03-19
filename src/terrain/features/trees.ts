@@ -1,9 +1,9 @@
 /**
- * Tree feature for Stage 4: places trees using placement/density noise and getTreeBlocks.
+ * Tree feature for Stage 4: places trees (wood/leaves + optional bee nests) using placement/density noise.
  */
 import type { Biome } from '../../types'
-import { CHUNK_SIZE } from '../../constants'
-import { localKey, typeToId } from '../block-ids'
+import { CHUNK_SIZE, WORLD_MIN_Y } from '../../constants'
+import { idToType, localKey, typeToId } from '../block-ids'
 import type { ChunkContext, FeatureFn } from '../pipeline-types'
 
 export interface TreeFeatureDeps {
@@ -23,6 +23,7 @@ export interface TreeFeatureDeps {
   ): {
     wood: Array<{ x: number; y: number; z: number }>
     leaves: Array<{ x: number; y: number; z: number }>
+    beeNests: Array<{ x: number; y: number; z: number }>
   }
 }
 
@@ -45,7 +46,7 @@ export function createTreeFeature(deps: TreeFeatureDeps): FeatureFn {
         const lz = twz - worldZ
         const baseY = heightmap[lx][lz]
         const biome = biomeMap[lx][lz]
-        const { wood, leaves } = getTreeBlocks(twx, baseY, twz, biome)
+        const { wood, leaves, beeNests } = getTreeBlocks(twx, baseY, twz, biome)
         for (const b of wood) {
           if (
             b.x >= worldX &&
@@ -55,7 +56,7 @@ export function createTreeFeature(deps: TreeFeatureDeps): FeatureFn {
           ) {
             const lkx = b.x - worldX
             const lkz = b.z - worldZ
-            voxelMap[localKey(lkx, b.y, lkz)] = typeToId('wood')
+            voxelMap[localKey(lkx, b.y - WORLD_MIN_Y, lkz)] = typeToId('wood')
           }
         }
         for (const b of leaves) {
@@ -68,7 +69,21 @@ export function createTreeFeature(deps: TreeFeatureDeps): FeatureFn {
             const lkx = b.x - worldX
             const lkz = b.z - worldZ
             const topY = heightmap[lkx][lkz]
-            if (b.y > topY) voxelMap[localKey(lkx, b.y, lkz)] = typeToId('leaves')
+            if (b.y > topY) voxelMap[localKey(lkx, b.y - WORLD_MIN_Y, lkz)] = typeToId('leaves')
+          }
+        }
+        for (const b of beeNests) {
+          if (
+            b.x >= worldX &&
+            b.x < worldX + CHUNK_SIZE &&
+            b.z >= worldZ &&
+            b.z < worldZ + CHUNK_SIZE
+          ) {
+            const lkx = b.x - worldX
+            const lkz = b.z - worldZ
+            const key = localKey(lkx, b.y - WORLD_MIN_Y, lkz)
+            const existing = idToType(voxelMap[key] ?? 0)
+            if (existing === 'air' || existing === 'leaves') voxelMap[key] = typeToId('bee_nest')
           }
         }
       }

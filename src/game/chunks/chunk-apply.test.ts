@@ -10,8 +10,8 @@ import {
   getTallGrassPositions,
 } from './chunk-apply'
 import { localKey } from '../../chunk-runtime'
-import { CHUNK_SIZE, WORLD_HEIGHT, WATER_LEVEL } from '../../constants'
-import { CARVED_ID } from '../../terrain-core'
+import { CHUNK_SIZE, WORLD_HEIGHT, WATER_LEVEL, WORLD_MIN_Y } from '../../constants'
+import { ALL_BIOMES, CARVED_ID } from '../../terrain-core'
 import type { BlockPos } from '../../types'
 
 describe('buildVoxelMapFromBuffer', () => {
@@ -73,8 +73,8 @@ describe('buildPositionsByTypeFromVisibleKeys', () => {
     expect(out.size).toBe(1)
     const positions = out.get('stone')!
     expect(positions).toHaveLength(2)
-    expect(positions[0]).toEqual({ x: worldX + 0, y: 0, z: worldZ + 0 })
-    expect(positions[1]).toEqual({ x: worldX + 1, y: 1, z: worldZ + 1 })
+    expect(positions[0]).toEqual({ x: worldX + 0, y: WORLD_MIN_Y + 0, z: worldZ + 0 })
+    expect(positions[1]).toEqual({ x: worldX + 1, y: WORLD_MIN_Y + 1, z: worldZ + 1 })
   })
 
   it('skips air blockTypeId', () => {
@@ -130,6 +130,26 @@ describe('buildChunkWaterGeometry', () => {
     const posAttr = geo!.getAttribute('position')
     expect(posAttr?.count).toBe((CHUNK_SIZE + 1) * (CHUNK_SIZE + 1))
   })
+
+  it('builds geometry for river columns at WATER_LEVEL when biomeMap marks river', () => {
+    const heightmap2D: number[][] = []
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      heightmap2D[lx] = []
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        heightmap2D[lx][lz] = WATER_LEVEL
+      }
+    }
+
+    const biomeMapBuffer = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE)
+    const plainsIdx = ALL_BIOMES.indexOf('plains')
+    const riverIdx = ALL_BIOMES.indexOf('river')
+    biomeMapBuffer.fill(plainsIdx)
+    biomeMapBuffer[0] = riverIdx
+
+    const geo = buildChunkWaterGeometry(worldX, worldZ, heightmap2D, biomeMapBuffer)
+    expect(geo).not.toBeNull()
+    expect(geo!.index?.count ?? geo!.getAttribute('position')?.count).toBeGreaterThan(0)
+  })
 })
 
 describe('getTallGrassPositions', () => {
@@ -138,7 +158,8 @@ describe('getTallGrassPositions', () => {
 
   it('excludes positions with block above (voxelMap has keyAbove)', () => {
     const voxelMap = new Map<number, string>()
-    voxelMap.set(localKey(0, 1, 0), 'stone') // block above (0,0,0)
+    // World (0,0,0): block above is (0,1,0) → local ly = 1 - WORLD_MIN_Y
+    voxelMap.set(localKey(0, 1 - WORLD_MIN_Y, 0), 'stone')
     const positionsByType = new Map<string, BlockPos[]>()
     positionsByType.set('grass', [{ x: 0, y: 0, z: 0 }])
     const out = getTallGrassPositions(12345, worldX, worldZ, voxelMap, positionsByType)
@@ -148,10 +169,11 @@ describe('getTallGrassPositions', () => {
   it('includes worker-placed tall_grass with y-1 mesh base', () => {
     const voxelMap = new Map<number, string>()
     const positionsByType = new Map<string, BlockPos[]>()
-    positionsByType.set('tall_grass', [{ x: 5, y: 65, z: 5 }]) // block at topY+1 in worker
+    const topYPlusOne = WATER_LEVEL + 4 // e.g. 66
+    positionsByType.set('tall_grass', [{ x: 5, y: topYPlusOne, z: 5 }]) // block at topY+1 in worker
     const out = getTallGrassPositions(999, worldX, worldZ, voxelMap, positionsByType)
     expect(out).toHaveLength(1)
-    expect(out[0]).toEqual({ x: 5, y: 64, z: 5 })
+    expect(out[0]).toEqual({ x: 5, y: topYPlusOne - 1, z: 5 })
   })
 
   it('respects pseudoRandom threshold so some grass positions are skipped', () => {

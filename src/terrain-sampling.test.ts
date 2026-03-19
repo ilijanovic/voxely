@@ -2,17 +2,22 @@ import { describe, it, expect } from 'vitest'
 import { createTerrainSampling } from './terrain-sampling'
 import type { Biome } from './types'
 import { createChunkGenerator } from './terrain-core'
-import { WORLD_HEIGHT } from './constants'
+import { WATER_LEVEL, WORLD_HEIGHT } from './constants'
 
 const ALL_BIOMES: Biome[] = [
   'plains',
   'ocean',
+  'river',
+  'beach',
+  'stony_shore',
   'desert',
   'savanna',
   'forest',
   'jungle',
   'mountain',
   'snow',
+  'frozen_river',
+  'snowy_beach',
   'meadow',
   'grove',
   'snowy_slopes',
@@ -74,15 +79,15 @@ describe('createTerrainSampling().isShore', () => {
   const s = createTerrainSampling(42)
 
   it('returns true when topY is at water level', () => {
-    expect(s.isShore(64)).toBe(true)
+    expect(s.isShore(WATER_LEVEL)).toBe(true)
   })
 
   it('returns true for topY one above water level', () => {
-    expect(s.isShore(65)).toBe(true)
+    expect(s.isShore(WATER_LEVEL + 1)).toBe(true)
   })
 
   it('returns true for topY one below water level', () => {
-    expect(s.isShore(63)).toBe(true)
+    expect(s.isShore(WATER_LEVEL - 1)).toBe(true)
   })
 
   it('returns false for topY well above water level', () => {
@@ -110,7 +115,7 @@ describe('createTerrainSampling().getBlockTypeAt', () => {
   })
 
   it('returns sand at shore surface', () => {
-    expect(s.getBlockTypeAt('plains', 64, 64)).toBe('sand')
+    expect(s.getBlockTypeAt('plains', WATER_LEVEL, WATER_LEVEL)).toBe('sand')
   })
 
   it('returns sand for underwater surface', () => {
@@ -152,6 +157,31 @@ describe('createTerrainSampling().getResolvedBiome', () => {
     }
   })
 
+  it('finds snowy_beach on at least one cold coast sample', () => {
+    const seeds = [42, 1337, 24680]
+    const min = -2048
+    const max = 2048
+    const step = 24
+    const coastHeight = () => WATER_LEVEL + 2
+    let found = false
+
+    for (const seed of seeds) {
+      const sampling = createTerrainSampling(seed)
+      for (let x = min; x <= max; x += step) {
+        for (let z = min; z <= max; z += step) {
+          if (sampling.getResolvedBiome(x, z, coastHeight) === 'snowy_beach') {
+            found = true
+            break
+          }
+        }
+        if (found) break
+      }
+      if (found) break
+    }
+
+    expect(found).toBe(true)
+  })
+
   it('resolves highland biomes for high elevations in mountain/snow base', () => {
     const highlandBiomes: Biome[] = [
       'meadow',
@@ -178,6 +208,70 @@ describe('createTerrainSampling().getResolvedBiome', () => {
       if (foundHighland) break
     }
     expect(foundHighland).toBe(true)
+  })
+
+  it('keeps a snowy_slopes buffer between grove and jagged_peaks in sampled terrain', () => {
+    const SEED = 42
+    const MIN = -768
+    const MAX = 768
+    const STEP = 16
+    const sampling = createTerrainSampling(SEED)
+    const heightCache = new Map<string, number>()
+    const biomeCache = new Map<string, Biome>()
+    let groveCount = 0
+    let jaggedCount = 0
+
+    function key(x: number, z: number): string {
+      return `${x},${z}`
+    }
+
+    function getHeightFloor(x: number, z: number): number {
+      const k = key(x, z)
+      const cached = heightCache.get(k)
+      if (cached !== undefined) return cached
+      const value = Math.floor(sampling.getSmoothedHeight(x, z))
+      heightCache.set(k, value)
+      return value
+    }
+
+    function getResolved(x: number, z: number): Biome {
+      const k = key(x, z)
+      const cached = biomeCache.get(k)
+      if (cached !== undefined) return cached
+      const value = sampling.getResolvedBiome(x, z, getHeightFloor)
+      biomeCache.set(k, value)
+      return value
+    }
+
+    for (let x = MIN; x <= MAX; x += STEP) {
+      for (let z = MIN; z <= MAX; z += STEP) {
+        const center = getResolved(x, z)
+        if (center === 'grove') groveCount++
+        if (center === 'jagged_peaks') jaggedCount++
+
+        const right = getResolved(x + STEP, z)
+        const down = getResolved(x, z + STEP)
+        const rightIsForbiddenPair =
+          (center === 'grove' && right === 'jagged_peaks') ||
+          (center === 'jagged_peaks' && right === 'grove')
+        const downIsForbiddenPair =
+          (center === 'grove' && down === 'jagged_peaks') ||
+          (center === 'jagged_peaks' && down === 'grove')
+
+        expect(
+          !rightIsForbiddenPair,
+          `found grove/jagged direct adjacency at (${x}, ${z}) -> (${x + STEP}, ${z})`,
+        ).toBe(true)
+        expect(
+          !downIsForbiddenPair,
+          `found grove/jagged direct adjacency at (${x}, ${z}) -> (${x}, ${z + STEP})`,
+        ).toBe(true)
+      }
+    }
+
+    // Guard against false-positive pass from a scan that never hits either biome.
+    expect(groveCount).toBeGreaterThan(0)
+    expect(jaggedCount).toBeGreaterThan(0)
   })
 })
 
@@ -249,5 +343,71 @@ describe('pipeline vs terrain-sampling height parity (worker/sync contract)', ()
         `height at (${x}, ${z}): pipeline ${pipelineH} vs sampling ${samplingH}`,
       ).toBe(samplingH)
     }
+  })
+})
+
+/**
+ * Worker vs main-thread contract for biome resolution.
+ * For the same seed and (x, z), the resolved biome from the pipeline generator and
+ * from terrain-sampling should agree when using the same height function.
+ */
+describe('pipeline vs terrain-sampling biome parity', () => {
+  const SEED = 4242
+
+  it('getResolvedBiome matches terrain-sampling for typical positions', () => {
+    const gen = createChunkGenerator(SEED)
+    const sampling = createTerrainSampling(SEED)
+
+    for (let x = -64; x <= 64; x += 16) {
+      for (let z = -64; z <= 64; z += 16) {
+        // Pipeline resolves biomes from integer column heights; mirror that here.
+        const h = Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, sampling.getSmoothedHeight(x, z))))
+        const samplingBiome = sampling.getResolvedBiome(x, z, () => h)
+        const pipelineBiome = gen.getResolvedBiome(x, z)
+        expect(
+          pipelineBiome,
+          `biome at (${x}, ${z}): pipeline ${pipelineBiome} vs sampling ${samplingBiome}`,
+        ).toBe(samplingBiome)
+      }
+    }
+  })
+})
+
+describe('river generation', () => {
+  const SEED = 7331
+
+  it('produces river biome columns in a broad inland scan', () => {
+    const gen = createChunkGenerator(SEED)
+    let riverCount = 0
+
+    for (let x = -1024; x <= 1024; x += 16) {
+      for (let z = -1024; z <= 1024; z += 16) {
+        if (gen.getResolvedBiome(x, z) === 'river') riverCount++
+      }
+    }
+
+    expect(riverCount).toBeGreaterThan(40)
+  })
+
+  it('keeps river beds near sea level and often underwater', () => {
+    const gen = createChunkGenerator(SEED)
+    let riverCount = 0
+    let underwaterRiverCount = 0
+    let highestRiverY = -Infinity
+
+    for (let x = -1024; x <= 1024; x += 16) {
+      for (let z = -1024; z <= 1024; z += 16) {
+        if (gen.getResolvedBiome(x, z) !== 'river') continue
+        riverCount++
+        const y = gen.getHeight(x, z)
+        highestRiverY = Math.max(highestRiverY, y)
+        if (y < WATER_LEVEL) underwaterRiverCount++
+      }
+    }
+
+    expect(riverCount).toBeGreaterThan(0)
+    expect(underwaterRiverCount).toBeGreaterThan(40)
+    expect(underwaterRiverCount / riverCount).toBeGreaterThan(0.4)
+    expect(highestRiverY).toBeLessThanOrEqual(WATER_LEVEL + 8)
   })
 })

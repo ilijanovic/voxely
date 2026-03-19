@@ -1,15 +1,17 @@
 /**
- * Stage 2b: Cheese caves. Large, blobby caverns via 3D noise at a larger scale.
+ * Cheese caves: large, blobby caverns via 3D noise at a larger scale. Part of the carvers pipeline stage (stage 6).
  * Carves only below surface and above bedrock (ly >= 1).
  */
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MAX_Y, WORLD_MIN_Y } from '../../constants'
 import { localKey, CARVED_ID } from '../block-ids'
 import type { ChunkContext, PipelineStage } from '../pipeline-types'
 
 export interface Stage2CheeseDeps {
   cheeseNoise3D(x: number, y: number, z: number): number
-  /** Scale for noise sampling (larger = bigger caverns). */
-  scale: number
+  /** Horizontal scale for noise sampling (x, z). Vanilla xz_scale 1.0; we use ~0.03. */
+  scaleXZ: number
+  /** Vertical scale for noise sampling (y). Vanilla y_scale 2/3 of xz; smaller = taller blobs. */
+  scaleY: number
   /** Carve where noise > threshold. */
   threshold: number
   /** Minimum blocks between cave ceiling and surface (avoids caves directly under grass). Default 0. */
@@ -42,8 +44,9 @@ function getEdgeCappedTopY(options: {
   const wx = worldX + lx
   const wz = worldZ + lz
 
-  /** Clamp a float surface height to a valid integer Y in [0..WORLD_HEIGHT]. */
-  const clampSurfaceY = (y: number): number => Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, y)))
+  /** Clamp a float surface height to valid world Y in [WORLD_MIN_Y..WORLD_MAX_Y]. */
+  const clampSurfaceY = (y: number): number =>
+    Math.floor(Math.max(WORLD_MIN_Y, Math.min(WORLD_MAX_Y, y)))
 
   if (lx === 0) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx - 1, wz)))
   if (lx === CHUNK_SIZE - 1) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx + 1, wz)))
@@ -54,7 +57,7 @@ function getEdgeCappedTopY(options: {
 }
 
 export function createStage2Cheese(deps: Stage2CheeseDeps): PipelineStage {
-  const { cheeseNoise3D, scale, threshold, minDepthBelowSurface = 0, caveDensityFactor, getHeightAt } = deps
+  const { cheeseNoise3D, scaleXZ, scaleY, threshold, minDepthBelowSurface = 0, caveDensityFactor, getHeightAt } = deps
   const densityAt = caveDensityFactor ?? (() => 1)
 
   return function stage2Cheese(ctx: ChunkContext): void {
@@ -62,13 +65,14 @@ export function createStage2Cheese(deps: Stage2CheeseDeps): PipelineStage {
     for (let lz = 0; lz < CHUNK_SIZE; lz++) {
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
         const topY = getEdgeCappedTopY({ worldX, worldZ, lx, lz, topY: heightmap[lx][lz], getHeightAt })
-        const carveCeiling = Math.max(1, topY - minDepthBelowSurface)
-        for (let ly = 1; ly < carveCeiling && ly < WORLD_HEIGHT; ly++) {
+        const carveCeilingWorldY = Math.max(WORLD_MIN_Y + 1, topY - minDepthBelowSurface)
+        for (let ly = 1; ly < WORLD_HEIGHT; ly++) {
+          const worldY = WORLD_MIN_Y + ly
+          if (worldY >= carveCeilingWorldY) break
           const wx = worldX + lx
-          const wy = ly
           const wz = worldZ + lz
-          const effectiveThreshold = threshold / Math.max(0.01, densityAt(wy))
-          if (cheeseNoise3D(wx * scale, wy * scale, wz * scale) > effectiveThreshold) {
+          const effectiveThreshold = threshold / Math.max(0.01, densityAt(worldY))
+          if (cheeseNoise3D(wx * scaleXZ, worldY * scaleY, wz * scaleXZ) > effectiveThreshold) {
             voxelMap[localKey(lx, ly, lz)] = CARVED_ID
           }
         }

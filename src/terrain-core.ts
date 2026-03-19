@@ -7,5 +7,6 @@ export {
   ALL_BIOMES,
   type BlockModEntry,
   type ChunkDataPayload,
+  type OverhangProfile,
 } from './terrain'
 export { idToType, CARVED_ID } from './terrain/block-ids'

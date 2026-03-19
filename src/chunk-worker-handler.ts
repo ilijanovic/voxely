@@ -5,6 +5,7 @@
  */
 import { createChunkGenerator } from './terrain-core'
 import type { BlockModEntry, ChunkDataPayload } from './terrain-core'
+import type { OverhangProfile } from './terrain-core'
 import type { WorldPoi } from './world-pois'
 import { CHUNK_SIZE, SNOW_ACCUMULATION_HEIGHT } from './constants'
 import { buildWorkerGeometryFromVoxelBuffer } from './terrain/worker-geometry'
@@ -13,6 +14,8 @@ export type InitMsg = {
   type: 'init'
   seed: number
   snowAccumulationHeight?: number
+  /** Overhang carving profile: 'vanilla' or 'dramatic'. */
+  overhangProfile?: OverhangProfile
   /** Pre-defined POIs for biome override and fixed structures (passed to terrain generator). */
   pois?: WorldPoi[]
 }
@@ -56,6 +59,7 @@ export function createWorkerHandler() {
     if (msg.type === 'init' && typeof msg.seed === 'number') {
       const gen = createChunkGenerator(msg.seed, {
         snowAccumulationHeight: msg.snowAccumulationHeight ?? SNOW_ACCUMULATION_HEIGHT,
+        overhangProfile: msg.overhangProfile ?? 'vanilla',
         pois: msg.pois,
       })
       generateChunkData = gen.generateChunkData

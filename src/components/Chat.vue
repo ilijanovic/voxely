@@ -121,23 +121,33 @@ function messageClass(msg: ChatMessage): string {
     <button
       v-if="!open"
       type="button"
-      class="rounded-[var(--ui-radius-md)] border-2 px-3 py-2 text-sm font-medium shadow focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)] focus:ring-offset-2 focus:ring-offset-transparent"
-      style="border-color: var(--ui-border); background: var(--ui-bg); color: var(--ui-text)"
+      class="rounded-[var(--ui-radius-md)] border px-3 py-2 text-sm font-semibold shadow-[0_6px_16px_rgba(0,0,0,0.35)] transition-[background,border-color,transform] duration-150 hover:-translate-y-px focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)] focus:ring-offset-2 focus:ring-offset-transparent"
+      style="
+        border-color: rgba(180, 207, 241, 0.24);
+        background: rgba(14, 23, 37, 0.86);
+        color: var(--ui-text);
+      "
       aria-label="Open chat"
       title="Chat (T or Enter)"
       @click="openChat"
     >
-      Chat
+      Chat (T)
     </button>
 
     <!-- Chat panel -->
     <div
       v-else
-      class="flex w-80 max-w-[calc(100vw-2rem)] flex-col rounded-[var(--ui-radius-lg)] border-2 shadow-lg"
-      style="border-color: var(--ui-border); background: rgba(0, 0, 0, 0.85)"
+      class="flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[var(--ui-radius-lg)] border shadow-[0_18px_42px_rgba(0,0,0,0.55)]"
+      style="
+        border-color: rgba(180, 207, 241, 0.24);
+        background: linear-gradient(180deg, rgba(10, 15, 26, 0.95) 0%, rgba(4, 8, 15, 0.95) 100%);
+      "
     >
-      <div class="flex items-center justify-between border-b border-[#3a3a3a] px-3 py-2">
-        <span class="font-semibold text-[var(--ui-text)]">Chat</span>
+      <div class="flex items-center justify-between border-b border-white/10 px-3 py-2">
+        <div class="flex flex-col">
+          <span class="font-semibold text-[var(--ui-text)]">Chat</span>
+          <span class="text-[10px] text-white/50">Press Enter to send · Esc to close</span>
+        </div>
         <button
           type="button"
           class="rounded p-1 text-gray-400 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)]"
@@ -158,14 +168,14 @@ function messageClass(msg: ChatMessage): string {
           No messages. Type something or wait for someone to join.
         </div>
       </div>
-      <form class="border-t border-[#3a3a3a] p-2" @submit.prevent="submit">
+      <form class="border-t border-white/10 p-2" @submit.prevent="submit">
         <input
           ref="inputEl"
           v-model="input"
           type="text"
           class="w-full rounded-[var(--ui-radius-sm)] border px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)]"
-          style="border-color: var(--ui-border); background: #1a1a1a"
-          placeholder="Enter message… (Enter to send)"
+          style="border-color: rgba(180, 207, 241, 0.24); background: rgba(2, 8, 16, 0.82)"
+          placeholder="Message or /command"
           maxlength="500"
           autocomplete="off"
         />

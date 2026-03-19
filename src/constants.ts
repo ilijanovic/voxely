@@ -37,21 +37,38 @@ export const BLOCK_TEXTURE_PATH = DEFAULT_BLOCK_TEXTURE_PATH
 export const RENDER_DISTANCE = 4
 export const RENDER_DISTANCE_SQ = RENDER_DISTANCE * RENDER_DISTANCE
 
-/** World height in blocks (Y 0 to WORLD_HEIGHT), like original Minecraft. */
-export const WORLD_HEIGHT = 128
+/** Minimum world Y (Vanilla 1.18+). Bedrock at this level. */
+export const WORLD_MIN_Y = -64
+/**
+ * World height in blocks (Vanilla 1.18+). Valid world Y is WORLD_MIN_Y to WORLD_MIN_Y + WORLD_HEIGHT - 1 (384 blocks).
+ */
+export const WORLD_HEIGHT = 384
+/** Maximum world Y (inclusive). WORLD_MIN_Y + WORLD_HEIGHT - 1. */
+export const WORLD_MAX_Y = WORLD_MIN_Y + WORLD_HEIGHT - 1
+
+/** Color for the block outline shown when aiming at a block (hex). */
+export const BLOCK_OUTLINE_COLOR = 0x333333
+/** Scale of the block outline mesh (slightly > 1 to reduce z-fighting). */
+export const BLOCK_OUTLINE_SCALE = 1.002
 
 /**
  * Fog range is scaled with render distance (chunks). Near = start of fog; far = full fog at horizon.
- * Higher FOG_NEAR_CHUNK_FACTOR starts fog later so the blue haze is confined to the far distance (avoids terrain looking foggy while trees stay clear).
+ * Higher FOG_NEAR_CHUNK_FACTOR starts fog later so haze stays near the horizon instead of tinting mid-distance terrain.
  */
+<<<<<<< HEAD
 export const FOG_NEAR_CHUNK_FACTOR = 0.95
 /** Multiplier for fog far distance in chunks (slightly beyond render distance for smooth fade). */
 export const FOG_FAR_CHUNK_FACTOR = 1.15
 /** Minimum terrain brightness in caves (0–1). Light level 0 still shows this much so caves aren't pitch black. */
 export const TERRAIN_LIGHT_MIN = 0.18
+=======
+export const FOG_NEAR_CHUNK_FACTOR = 1.05
+/** Multiplier for fog far distance in chunks (further beyond render distance to avoid a dense fog wall at high chunk distance). */
+export const FOG_FAR_CHUNK_FACTOR = 1.35
+>>>>>>> dev
 
-/** Global water level (block Y). Same as classic Minecraft (~sea level). */
-export const WATER_LEVEL = 64
+/** Global water level (block Y). Vanilla 1.18+ sea level. */
+export const WATER_LEVEL = 62
 
 /** Minimum blocks of solid terrain between cave ceiling and surface. Avoids caves opening directly under grass. Vanilla reference: docs/VANILLA_BIOME_REFERENCE.md §6. */
 export const MIN_CAVE_DEPTH_BELOW_SURFACE = 5
@@ -108,6 +125,8 @@ export const SPAWN_ABOVE_CAVE_DEBUG = false
 
 /** Max block height (world units) that the player can step over without being blocked in X/Z. 1.0 = step over any partial block (snow layers, slabs). */
 export const STEP_HEIGHT = 1
+/** Max climb height for step-up when grounded (Minecraft: ~0.6). Only obstacles lower than this can be stepped onto; full blocks (1.0) are not step-up-able. */
+export const STEP_UP_MAX_CLIMB = 0.6
 /** Block height threshold: blocks with height <= this never act as walls in X/Z; player can walk onto them (e.g. snow layers, steps). */
 export const STEP_BLOCK_HEIGHT = 0.5
 
@@ -171,6 +190,11 @@ export const AUTOSAVE_INTERVAL_MS = 10000
 export const MAP_BIOME_COLORS: Record<string, string> = {
   plains: '#6b8c5d',
   ocean: '#3a7eb8',
+  river: '#4a8ec6',
+  frozen_river: '#b7d8ee',
+  beach: '#e3d39a',
+  stony_shore: '#8f8f8f',
+  snowy_beach: '#dfe7ed',
   desert: '#e3d39a',
   savanna: '#bdb25f',
   forest: '#4a7c47',

@@ -3,13 +3,23 @@
  * applyChunkPayload, updateChunks, generateChunk stay in game.ts (scene/worker/meshes).
  */
 import type { BlockType, ChunkData } from './types'
-import { CHUNK_SIZE, WORLD_HEIGHT } from './constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y } from './constants'
 import type { BlockModEntry } from './terrain-core'
-import { getBlockCollisionBoxesLocal, type CollisionBoxLocal, getBlockHeight } from './block-registry'
+import {
+  getBlockCollisionBoxesLocal,
+  type CollisionBoxLocal,
+  getBlockHeight,
+  isFenceBlock,
+  getFenceConnectionMask,
+  getFenceCollisionBoxesLocal,
+} from './block-registry'
 
 export const chunks = new Map<number, ChunkData>()
 export const blockModifications = new Map<string, BlockType | 'air'>()
 export const columnHeightCache = new Map<number, number>()
+
+/** Block modifications indexed by chunk key for fast worker requests (no global scan). */
+const blockModsByChunkKeyNum = new Map<number, Map<string, BlockModEntry>>()
 
 export function chunkKey(cx: number, cz: number): string {
   return `${cx},${cz}`
@@ -19,11 +29,14 @@ export function chunkKeyNumeric(cx: number, cz: number): number {
   return ((cx & 0xffff) << 16) | (cz & 0xffff)
 }
 
+/** 9-bit Y index (world Y - WORLD_MIN_Y) for block key; supports Y in [-64, 319]. */
+const BLOCK_KEY_Y_MASK = 0x1ff
+
 export function blockKeyNumeric(bx: number, by: number, bz: number): number {
   const ix = (Math.floor(bx) + 1024) & 0x7ff
-  const iy = Math.floor(by) & 0xff
+  const iy = (Math.floor(by) - WORLD_MIN_Y) & BLOCK_KEY_Y_MASK
   const iz = (Math.floor(bz) + 1024) & 0x7ff
-  return ix | (iy << 11) | (iz << 19)
+  return ix | (iy << 11) | (iz << 20)
 }
 
 export function columnCacheKey(bx: number, bz: number): number {
@@ -46,13 +59,62 @@ export function decodeLocalKey(key: number): { lx: number; ly: number; lz: numbe
 
 export function blockKeyFromNumeric(k: number): { bx: number; by: number; bz: number } {
   const bx = (k & 0x7ff) - 1024
-  const by = (k >> 11) & 0xff
-  const bz = ((k >> 19) & 0x7ff) - 1024
+  const by = ((k >> 11) & BLOCK_KEY_Y_MASK) + WORLD_MIN_Y
+  const bz = ((k >> 20) & 0x7ff) - 1024
   return { bx, by, bz }
 }
 
 export function blockKeyString(bx: number, by: number, bz: number): string {
   return `${Math.floor(bx)},${Math.floor(by)},${Math.floor(bz)}`
+}
+
+/**
+ * Sets or overwrites a block modification at the given integer cell.
+ * Also updates the per-chunk index used by getBlockModsForChunk.
+ */
+export function setBlockModification(bx: number, by: number, bz: number, value: BlockType | 'air'): void {
+  const x = Math.floor(bx)
+  const y = Math.floor(by)
+  const z = Math.floor(bz)
+  const keyStr = blockKeyString(x, y, z)
+  blockModifications.set(keyStr, value)
+  const cx = Math.floor(x / CHUNK_SIZE)
+  const cz = Math.floor(z / CHUNK_SIZE)
+  const chunkKeyNum = chunkKeyNumeric(cx, cz)
+  let byChunk = blockModsByChunkKeyNum.get(chunkKeyNum)
+  if (!byChunk) {
+    byChunk = new Map<string, BlockModEntry>()
+    blockModsByChunkKeyNum.set(chunkKeyNum, byChunk)
+  }
+  byChunk.set(keyStr, { bx: x, by: y, bz: z, value })
+}
+
+/**
+ * Removes a block modification override at the given integer cell (reverts to generated chunk data).
+ * Also updates the per-chunk index used by getBlockModsForChunk.
+ */
+export function deleteBlockModification(bx: number, by: number, bz: number): void {
+  const x = Math.floor(bx)
+  const y = Math.floor(by)
+  const z = Math.floor(bz)
+  const keyStr = blockKeyString(x, y, z)
+  blockModifications.delete(keyStr)
+  const cx = Math.floor(x / CHUNK_SIZE)
+  const cz = Math.floor(z / CHUNK_SIZE)
+  const chunkKeyNum = chunkKeyNumeric(cx, cz)
+  const byChunk = blockModsByChunkKeyNum.get(chunkKeyNum)
+  if (!byChunk) return
+  byChunk.delete(keyStr)
+  if (byChunk.size === 0) blockModsByChunkKeyNum.delete(chunkKeyNum)
+}
+
+/**
+ * Clears all block modifications and their chunk index.
+ * Intended for tests and full world resets.
+ */
+export function clearBlockModifications(): void {
+  blockModifications.clear()
+  blockModsByChunkKeyNum.clear()
 }
 
 export function invalidateColumnHeight(bx: number, bz: number): void {
@@ -67,7 +129,7 @@ export function getBlockAt(bx: number, by: number, bz: number): BlockType | 'air
   const ix = Math.floor(bx)
   const iy = Math.floor(by)
   const iz = Math.floor(bz)
-  if (iy < 0 || iy >= WORLD_HEIGHT) return 'air'
+  if (iy < WORLD_MIN_Y || iy >= WORLD_MIN_Y + WORLD_HEIGHT) return 'air'
   const mod = blockModifications.get(blockKeyString(ix, iy, iz))
   if (mod !== undefined) return mod
   const cx = Math.floor(ix / CHUNK_SIZE)
@@ -75,8 +137,9 @@ export function getBlockAt(bx: number, by: number, bz: number): BlockType | 'air
   const data = chunks.get(chunkKeyNumeric(cx, cz))
   if (!data) return null
   const lx = ix - data.cx * CHUNK_SIZE
+  const ly = iy - WORLD_MIN_Y
   const lz = iz - data.cz * CHUNK_SIZE
-  const type = data.voxelMap.get(localKey(lx, iy, lz))
+  const type = data.voxelMap.get(localKey(lx, ly, lz))
   return type ?? 'air'
 }
 
@@ -115,12 +178,15 @@ export type CollisionBoxWorld = {
 
 /**
  * Returns collision boxes for the block at (bx, by, bz) in world space.
+ * For fences, boxes depend on connection mask so gaps between adjacent fences are closed.
  * @returns Empty array for air/unloaded/non-solid blocks.
  */
 export function getBlockCollisionBoxesAt(bx: number, by: number, bz: number): CollisionBoxWorld[] {
   const type = getBlockAt(bx, by, bz)
   if (type === null || type === 'air') return []
-  const local: CollisionBoxLocal[] = getBlockCollisionBoxesLocal(type)
+  const local: CollisionBoxLocal[] = isFenceBlock(type)
+    ? getFenceCollisionBoxesLocal(getFenceConnectionMask(bx, by, bz, getBlockAt))
+    : getBlockCollisionBoxesLocal(type)
   if (local.length === 0) return []
   return local.map((b) => ({
     minX: bx + b.minX,
@@ -156,14 +222,43 @@ export function isSolidBlockLoadedOnly(
 }
 
 export function getBlockModsForChunk(chunkX: number, chunkZ: number): BlockModEntry[] {
-  const entries: BlockModEntry[] = []
-  for (const [strKey, value] of blockModifications) {
-    const parts = strKey.split(',')
-    const bx = Number(parts[0])
-    const by = Number(parts[1])
-    const bz = Number(parts[2])
-    if (Math.floor(bx / CHUNK_SIZE) !== chunkX || Math.floor(bz / CHUNK_SIZE) !== chunkZ) continue
-    entries.push({ bx, by, bz, value })
+  const keyNum = chunkKeyNumeric(chunkX, chunkZ)
+  const byChunk = blockModsByChunkKeyNum.get(keyNum)
+  if (byChunk && byChunk.size > 0) return Array.from(byChunk.values())
+
+  // Backward-compatible fallback: some call sites/tests may mutate `blockModifications` directly
+  // without using setBlockModification(), which bypasses the per-chunk index.
+  const out: BlockModEntry[] = []
+  const x0 = chunkX * CHUNK_SIZE
+  const z0 = chunkZ * CHUNK_SIZE
+  const x1 = x0 + CHUNK_SIZE
+  const z1 = z0 + CHUNK_SIZE
+
+  for (const [k, value] of blockModifications) {
+    const parsed = parseBlockKeyString(k)
+    if (!parsed) continue
+    if (parsed.bx >= x0 && parsed.bx < x1 && parsed.bz >= z0 && parsed.bz < z1) {
+      out.push({ bx: parsed.bx, by: parsed.by, bz: parsed.bz, value })
+    }
   }
-  return entries
+
+  return out
+}
+
+/**
+ * Parses a `blockKeyString()` value back into coordinates.
+ *
+ * @param key - Key in the form "bx,by,bz"
+ * @returns Parsed coordinates or null when invalid
+ */
+function parseBlockKeyString(key: string): { bx: number; by: number; bz: number } | null {
+  const a = key.indexOf(',')
+  if (a < 0) return null
+  const b = key.indexOf(',', a + 1)
+  if (b < 0) return null
+  const bx = Number(key.slice(0, a))
+  const by = Number(key.slice(a + 1, b))
+  const bz = Number(key.slice(b + 1))
+  if (!Number.isFinite(bx) || !Number.isFinite(by) || !Number.isFinite(bz)) return null
+  return { bx, by, bz }
 }

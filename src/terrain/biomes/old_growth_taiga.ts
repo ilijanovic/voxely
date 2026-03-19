@@ -23,7 +23,7 @@ export const oldGrowthTaigaDefinition: BiomeDefinition = {
   climate: { tempMin: 0.2, tempMax: 0.4, humidityMin: 0.55, humidityMax: 0.85 },
   multiNoise: {
     center: {
-      continentalness: 0.7,
+      continentalness: 0.34,
       erosion: -0.1,
       temperature: -0.5,
       humidity: 0.4,

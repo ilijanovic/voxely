@@ -2,9 +2,10 @@ import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const meadowTerrain: TerrainParams = {
   baseOffset: 0,
-  detailAmp: 1.3,
+  // Meadows should feel gently rolling and relatively open.
+  detailAmp: 1.1,
   detailFreq: 0.015,
-  flatness: 0.97,
+  flatness: 0.98,
   mountainAllowed: false,
 }
 

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { getShadowMapSize } from '../../graphics-settings'
 import { SUN_DISTANCE } from '../../atmosphere'
+import { randomFloat, randomInt } from '../../random'
 
 export interface LightsAndSky {
   sunLight: THREE.DirectionalLight
@@ -118,31 +119,37 @@ export function initLightsAndSky(scene: THREE.Scene, shadowRadius: number): Ligh
     opacity: 0.75,
     depthWrite: false,
   })
-  const cloudHeight = 120
+  const cloudLayerBottomY = 192
+  const cloudLayerTopY = 196
+  const cloudHeight = (cloudLayerBottomY + cloudLayerTopY) * 0.5
+  const cloudHeightJitter = 0.8
   const cloudArea = 420
   const cloudCount = 125
+  const cloudWestSpeed = 1
+  clouds.userData.cloudArea = cloudArea
+  clouds.userData.cloudWestSpeed = cloudWestSpeed
   for (let i = 0; i < cloudCount; i++) {
     const cloud = new THREE.Group()
-    const blocks = 12 + Math.floor(Math.random() * 14)
-    const cloudSpread = 18 + Math.random() * 12
+    const blocks = randomInt(12, 25)
+    const cloudSpread = 18 + randomFloat() * 12
     for (let j = 0; j < blocks; j++) {
-      const w = 5 + Math.random() * 6
-      const h = 1.2 + Math.random() * 0.8
-      const d = 5 + Math.random() * 6
+      const w = 5 + randomFloat() * 6
+      const h = 0.8 + randomFloat() * 0.5
+      const d = 5 + randomFloat() * 6
       const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), cloudMaterial)
       box.castShadow = false
       box.receiveShadow = false
       box.position.set(
-        (Math.random() - 0.5) * cloudSpread,
-        (Math.random() - 0.3) * 2,
-        (Math.random() - 0.5) * cloudSpread,
+        (randomFloat() - 0.5) * cloudSpread,
+        (randomFloat() - 0.5) * 1.4,
+        (randomFloat() - 0.5) * cloudSpread,
       )
       cloud.add(box)
     }
     cloud.position.set(
-      (Math.random() - 0.5) * cloudArea,
-      cloudHeight + (Math.random() - 0.5) * 8,
-      (Math.random() - 0.5) * cloudArea,
+      (randomFloat() - 0.5) * cloudArea,
+      cloudHeight + (randomFloat() - 0.5) * cloudHeightJitter,
+      (randomFloat() - 0.5) * cloudArea,
     )
     clouds.add(cloud)
   }
@@ -153,8 +160,8 @@ export function initLightsAndSky(scene: THREE.Scene, shadowRadius: number): Ligh
   const starPositions = new Float32Array(starCount * 3)
   for (let i = 0; i < starCount; i++) {
     const r = 450
-    const theta = Math.random() * Math.PI * 2
-    const phi = Math.random() * Math.PI
+    const theta = randomFloat() * Math.PI * 2
+    const phi = randomFloat() * Math.PI
     starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta)
     starPositions[i * 3 + 1] = r * Math.cos(phi)
     starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta)

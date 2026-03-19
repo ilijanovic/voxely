@@ -1,8 +1,8 @@
 /**
- * Stage 2c: Spaghetti caves. Long, thin, winding tunnels via deterministic worm paths.
+ * Spaghetti caves: long, thin, winding tunnels via deterministic worm paths. Part of the carvers pipeline stage (stage 6).
  * Carves only below surface and above bedrock (ly >= 1).
  */
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_MAX_Y, WORLD_MIN_Y } from '../../constants'
 import { localKey, CARVED_ID } from '../block-ids'
 import type { ChunkContext, PipelineStage } from '../pipeline-types'
 import { makeSeededRandom } from '../utils'
@@ -48,9 +48,9 @@ function getWormPath(
   const rng = makeSeededRandom(seed + gx * 7901 + gz * 7919)
   const x0 = gx * cellSize + rng() * cellSize
   const z0 = gz * cellSize + rng() * cellSize
-  const yRange = maxY - 16
-  const rawY0 = yRange > 0 ? 8 + rng() * yRange : 8
-  const y0 = Math.max(1, Math.min(maxY, Math.floor(rawY0)))
+  const yRange = maxY - (WORLD_MIN_Y + 16)
+  const rawY0 = yRange > 0 ? WORLD_MIN_Y + 8 + rng() * yRange : WORLD_MIN_Y + 8
+  const y0 = Math.max(WORLD_MIN_Y + 1, Math.min(maxY, Math.floor(rawY0)))
   const path: WormPoint[] = [{ x: x0, y: y0, z: z0 }]
   let x = x0,
     y = y0,
@@ -63,7 +63,7 @@ function getWormPath(
     x += dx * len
     y += dy * len
     z += dz * len
-    y = Math.max(1, Math.min(maxY, y))
+    y = Math.max(WORLD_MIN_Y + 1, Math.min(maxY, y))
     path.push({ x, y, z })
   }
   return path
@@ -112,8 +112,8 @@ function carveSphereAt(
   const r = Math.ceil(radius)
   const minVx = Math.floor(cx - r)
   const maxVx = Math.floor(cx + r)
-  const minVy = Math.max(1, Math.floor(cy - r))
-  const maxVy = Math.min(WORLD_HEIGHT - 1, Math.floor(cy + r))
+  const minVy = Math.max(WORLD_MIN_Y + 1, Math.floor(cy - r))
+  const maxVy = Math.min(WORLD_MAX_Y, Math.floor(cy + r))
   const minVz = Math.floor(cz - r)
   const maxVz = Math.floor(cz + r)
   const radiusSq = radius * radius
@@ -126,8 +126,8 @@ function carveSphereAt(
     let capped = topY
     const wx = worldX + lx
     const wz = worldZ + lz
-    /** Clamp a float surface height to a valid integer Y in [0..WORLD_HEIGHT]. */
-    const clampSurfaceY = (y: number): number => Math.floor(Math.max(0, Math.min(WORLD_HEIGHT, y)))
+    const clampSurfaceY = (y: number): number =>
+      Math.floor(Math.max(WORLD_MIN_Y, Math.min(WORLD_MAX_Y, y)))
 
     if (lx === 0) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx - 1, wz)))
     if (lx === CHUNK_SIZE - 1) capped = Math.min(capped, clampSurfaceY(getHeightAt(wx + 1, wz)))
@@ -144,14 +144,14 @@ function carveSphereAt(
       const lz = vz - worldZ
       if (lz < 0 || lz >= CHUNK_SIZE) continue
       const topYCol = getEdgeCappedTopY({ lx, lz, topY: heightmap[lx][lz] })
-      const carveCeiling = Math.max(1, topYCol - minDepthBelowSurface)
-      for (let vy = minVy; vy <= maxVy && vy < carveCeiling; vy++) {
-        if (vy >= WORLD_HEIGHT) break
+      const carveCeilingWorldY = Math.max(WORLD_MIN_Y + 1, topYCol - minDepthBelowSurface)
+      for (let vy = minVy; vy <= maxVy && vy < carveCeilingWorldY; vy++) {
+        const ly = vy - WORLD_MIN_Y
         const dx = vx + 0.5 - cx,
           dy = vy + 0.5 - cy,
           dz = vz + 0.5 - cz
         if (dx * dx + dy * dy + dz * dz <= radiusSq) {
-          voxelMap[localKey(lx, vy, lz)] = CARVED_ID
+          voxelMap[localKey(lx, ly, lz)] = CARVED_ID
         }
       }
     }

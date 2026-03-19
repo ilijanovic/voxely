@@ -2,8 +2,23 @@
 import type { Biome } from '../types'
 export type { Biome }
 
+<<<<<<< HEAD
 /** Animal kinds: sheep, pig, wolf, villager (villager spawns only in villages), zombie/skeleton/creeper (hostile, night-only). */
 export type AnimalKind = 'sheep' | 'pig' | 'wolf' | 'villager' | 'zombie' | 'skeleton' | 'creeper'
+=======
+/** Animal kinds: passive livestock, meadow fauna (donkey/rabbit), wolf, villager (villages only), zombie (hostile, night-only). */
+export type AnimalKind =
+  | 'sheep'
+  | 'pig'
+  | 'cow'
+  | 'chicken'
+  | 'horse'
+  | 'donkey'
+  | 'rabbit'
+  | 'wolf'
+  | 'villager'
+  | 'zombie'
+>>>>>>> dev
 
 /** AABB for collision: half extents in XZ and full height in Y. */
 export interface EntityAABB {
@@ -44,7 +59,11 @@ export interface Entity {
   questGiver?: {
     offeredQuestIds: string[]
     prerequisiteQuestIds?: string[]
+<<<<<<< HEAD
     /** Id used for talk objectives (e.g. "elder_npc"); when player interacts, notifyTalk(talkTargetId) is called. */
+=======
+    /** Id used for "talk" objectives; when player interacts, notifyTalk(talkTargetId) is called. */
+>>>>>>> dev
     talkTargetId?: string
   }
   /** Spawn point for leashed mobs (e.g. from creature zones). Used with wanderRadius. */

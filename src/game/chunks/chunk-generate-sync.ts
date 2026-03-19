@@ -6,9 +6,12 @@ import {
   WATER_BLOCK_HEIGHT,
   WATER_PLANE_Y_OFFSET,
   WORLD_HEIGHT,
+  WORLD_MAX_Y,
+  WORLD_MIN_Y,
   SNOW_GROWTH_INTERVAL_SEC,
   SNOW_GROWTH_CANDIDATES_PER_INTERVAL,
 } from '../../constants'
+import { randomInt } from '../../random'
 import {
   WORLD_SEED,
   getHeight,
@@ -30,6 +33,7 @@ import {
   decodeLocalKey,
   invalidateColumnHeight,
   getBlockAt,
+  setBlockModification,
 } from '../../chunk-runtime'
 import { filterVisibleBlocks as filterVisibleBlocksPure } from './visible-blocks'
 import {
@@ -37,6 +41,8 @@ import {
   isOccludingBlock as isBlockTypeOccluding,
   isUnbreakableBlock,
   getBlockHeight,
+  isFenceBlock,
+  getFenceConnectionMask,
 } from '../../block-registry'
 import {
   setGrassInstanceColors,
@@ -48,6 +54,7 @@ import {
   getMaterialForBlockType,
   getSnowLayerGeometry,
   isSharedBlockOrSnowLayerGeometry,
+  getFenceGeometry,
 } from '../../block-materials'
 import { despawnEntitiesInChunk } from '../../entities/spawn'
 import { spawnDrop as spawnDropItem, type Drop } from '../world-interactions/drops'
@@ -59,7 +66,11 @@ import {
 } from '../world-interactions/torches'
 import { breakBlock as breakBlockSystem } from '../world-interactions/mining'
 import { RaycastMeshCache } from './raycast-cache'
+<<<<<<< HEAD
 import { setInstanceLightLevels } from '../../terrain-light'
+=======
+import { CROSS_GEOMETRY_BLOCK_TYPES } from './cross-geometry-block-types'
+>>>>>>> dev
 
 // Scratch buffers (reused every frame to avoid allocations)
 const _matrix = new THREE.Matrix4()
@@ -69,6 +80,8 @@ let _snowGrowthAccumulator = 0
 
 const COLD_BIOMES: Set<Biome> = new Set([
   'snow',
+  'frozen_river',
+  'snowy_beach',
   'grove',
   'snowy_slopes',
   'frozen_peaks',
@@ -216,7 +229,10 @@ export function buildChunkWaterGeometry(
   for (let lz = 0; lz < CHUNK_SIZE; lz++) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       const topY = heightmap ? heightmap[lx][lz] : getHeight(worldX + lx, worldZ + lz)
-      if (topY >= WATER_LEVEL) continue
+      const biome = getResolvedBiome(worldX + lx, worldZ + lz)
+      const isRiverAtSeaLevel =
+        topY === WATER_LEVEL && (biome === 'river' || biome === 'frozen_river')
+      if (topY >= WATER_LEVEL && !isRiverAtSeaLevel) continue
       const i00 = lx + lz * gridSize
       const i10 = lx + 1 + lz * gridSize
       const i01 = lx + (lz + 1) * gridSize
@@ -241,7 +257,7 @@ export function buildPositionsByType(
   const byType = new Map<BlockType, BlockPos[]>()
   for (const [key, blockType] of voxelMapEntries) {
     const { lx, ly, lz } = decodeLocalKey(key)
-    const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz }
+    const pos: BlockPos = { x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz }
     const arr = byType.get(blockType) ?? []
     arr.push(pos)
     byType.set(blockType, arr)
@@ -250,15 +266,6 @@ export function buildPositionsByType(
 }
 
 const GRASS_BLOCK_TYPES_FOR_TALL_GRASS: BlockType[] = ['grass', 'grass_savanna']
-/** Block types that use cross geometry (flowers, fern) – same list as in chunk-apply. */
-const CROSS_GEOMETRY_BLOCK_TYPES: BlockType[] = [
-  'dandelion',
-  'poppy',
-  'tulip_red',
-  'oxeye_daisy',
-  'blue_orchid',
-  'fern',
-]
 const TALL_GRASS_SPAWN_CHANCE = 0.05
 const TALL_GRASS_SPAWN_CHANCE_WOODLAND = 0.12
 const TALL_GRASS_Y_OFFSET = -0.02
@@ -288,7 +295,7 @@ export function getTallGrassPositions(
     for (const p of positions) {
       const lx = p.x - worldX
       const lz = p.z - worldZ
-      const keyAbove = localKey(lx, p.y + 1, lz)
+      const keyAbove = localKey(lx, p.y + 1 - WORLD_MIN_Y, lz)
       if (voxelMap.has(keyAbove)) continue
       const chance =
         getBiome && (getBiome(p.x, p.z) === 'forest' || getBiome(p.x, p.z) === 'jungle')
@@ -332,6 +339,56 @@ function addCrossGeometryLayer(
   return mesh
 }
 
+/**
+ * Returns a block lookup that prefers the current chunk's voxelMap for positions inside the chunk.
+ */
+function makeGetBlockForChunk(
+  worldX: number,
+  worldZ: number,
+  voxelMap: Map<number, BlockType>,
+  getBlockAt: (bx: number, by: number, bz: number) => BlockType | null,
+): (bx: number, by: number, bz: number) => BlockType {
+  return (bx: number, by: number, bz: number) => {
+    const lx = bx - worldX
+    const lz = bz - worldZ
+    if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
+      const key = localKey(lx, by - WORLD_MIN_Y, lz)
+      return voxelMap.get(key) ?? 'air'
+    }
+    return getBlockAt(bx, by, bz) ?? 'air'
+  }
+}
+
+function addFenceInstancedLayer(
+  group: THREE.Group,
+  positions: BlockPos[],
+  mask: number,
+  material: THREE.Material | THREE.Material[],
+  userData?: { chunkKeyNum: number; blockType: BlockType },
+): THREE.InstancedMesh | null {
+  const count = positions.length
+  if (count === 0) return null
+  const mesh = new THREE.InstancedMesh(
+    getFenceGeometry(mask),
+    material as THREE.Material,
+    count,
+  )
+  mesh.count = count
+  for (let i = 0; i < count; i++) {
+    const p = positions[i]
+    _position.set(p.x, p.y, p.z)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, count)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  if (userData) mesh.userData = userData
+  group.add(mesh)
+  return mesh
+}
+
 export function addTallGrassLayer(
   group: THREE.Group,
   positions: BlockPos[],
@@ -363,6 +420,7 @@ export function filterVisibleBlocks(
   return filterVisibleBlocksPure({
     worldX,
     worldZ,
+    worldMinY: WORLD_MIN_Y,
     chunkSize: CHUNK_SIZE,
     worldHeight: WORLD_HEIGHT,
     voxelMap,
@@ -503,6 +561,32 @@ export function rebuildChunkLayer(
     return
   }
 
+  // Fences: connection-dependent geometry per position.
+  if (isFenceBlock(blockType)) {
+    const worldX = data.cx * CHUNK_SIZE
+    const worldZ = data.cz * CHUNK_SIZE
+    const getBlock = makeGetBlockForChunk(worldX, worldZ, data.voxelMap, (bx, by, bz) =>
+      getBlockAt(bx, by, bz),
+    )
+    const byMask = new Map<number, BlockPos[]>()
+    for (const p of positions) {
+      const mask = getFenceConnectionMask(p.x, p.y, p.z, getBlock)
+      const arr = byMask.get(mask) ?? []
+      arr.push(p)
+      byMask.set(mask, arr)
+    }
+    for (const [mask, fencePositions] of byMask) {
+      addFenceInstancedLayer(
+        data.group,
+        fencePositions,
+        mask,
+        getMaterialForBlockType(blockType),
+        { chunkKeyNum: keyNum, blockType },
+      )
+    }
+    return
+  }
+
   const mesh = addInstancedLayer(
     data.group,
     positions,
@@ -587,8 +671,7 @@ export function breakBlock(
     chunks,
     getLayerPositions,
     isUnbreakableBlock,
-    blockModifications,
-    blockKeyString,
+    setBlockModification,
     invalidateColumnHeight,
     localKey,
     chunkSize: CHUNK_SIZE,
@@ -654,16 +737,17 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
       const topY = heightmap[x][z]
       const biome = getResolvedBiome(wx, wz)
 
-      for (let y = 0; y <= topY; y++) {
+      for (let worldY = WORLD_MIN_Y; worldY <= topY; worldY++) {
+        const ly = worldY - WORLD_MIN_Y
         let type =
-          y === topY
+          worldY === topY
             ? getSurfaceBlockAt(wx, wz, biome, topY)
-            : getBlockTypeAt(biome, y, topY)
-        const mod = blockModifications.get(blockKeyString(wx, y, wz))
+            : getBlockTypeAt(biome, worldY, topY)
+        const mod = blockModifications.get(blockKeyString(wx, worldY, wz))
         if (mod === 'air') continue
         if (mod !== undefined) type = mod
         if (type === 'water') continue
-        voxelMap.set(localKey(x, y, z), type)
+        voxelMap.set(localKey(x, ly, z), type)
       }
     }
   }
@@ -689,7 +773,7 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
     for (let twz = minZ; twz <= maxZ; twz++) {
       if (!shouldPlaceTree(twx, twz, treeCaches)) continue
       const baseY = getHeight(twx, twz)
-      const { wood, leaves } = generateTree(twx, baseY, twz)
+      const { wood, leaves, beeNests } = generateTree(twx, baseY, twz)
       for (const b of wood) {
         if (
           b.x >= worldX &&
@@ -698,7 +782,7 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
           b.z < worldZ + CHUNK_SIZE &&
           blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== 'air'
         ) {
-          voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), 'wood')
+          voxelMap.set(localKey(b.x - worldX, b.y - WORLD_MIN_Y, b.z - worldZ), 'wood')
         }
       }
       for (const b of leaves) {
@@ -710,7 +794,18 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
           blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== 'air' &&
           b.y > getHeight(b.x, b.z)
         ) {
-          voxelMap.set(localKey(b.x - worldX, b.y, b.z - worldZ), 'leaves')
+          voxelMap.set(localKey(b.x - worldX, b.y - WORLD_MIN_Y, b.z - worldZ), 'leaves')
+        }
+      }
+      for (const b of beeNests) {
+        if (
+          b.x >= worldX &&
+          b.x < worldX + CHUNK_SIZE &&
+          b.z >= worldZ &&
+          b.z < worldZ + CHUNK_SIZE &&
+          blockModifications.get(blockKeyString(b.x, b.y, b.z)) !== 'air'
+        ) {
+          voxelMap.set(localKey(b.x - worldX, b.y - WORLD_MIN_Y, b.z - worldZ), 'bee_nest')
         }
       }
     }
@@ -723,6 +818,7 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
 
   // Torches are stored in voxel data but rendered as custom meshes + lights (not instanced cubes).
   removeTorchesInChunk({ chunkKeyNum: keyNum, torchContainer: ctx.torchContainer, placedTorches: ctx.placedTorches })
+  const getBlock = makeGetBlockForChunk(worldX, worldZ, voxelMap, (bx, by, bz) => getBlockAt(bx, by, bz))
   for (const [blockType, positions] of positionsByType) {
     const visible = filterVisibleBlocks(worldX, worldZ, voxelMap, positions)
     blockPositionsByType.set(blockType, visible)
@@ -755,6 +851,25 @@ export function generateChunk(ctx: ChunkSyncContext, chunkX: number, chunkZ: num
         if (ctx.grassColormapData) {
           setGrassInstanceColors(mesh, visible, getResolvedBiome, ctx.grassColormapData)
         }
+      }
+      continue
+    }
+    if (isFenceBlock(blockType)) {
+      const byMask = new Map<number, BlockPos[]>()
+      for (const p of visible) {
+        const mask = getFenceConnectionMask(p.x, p.y, p.z, getBlock)
+        const arr = byMask.get(mask) ?? []
+        arr.push(p)
+        byMask.set(mask, arr)
+      }
+      for (const [mask, fencePositions] of byMask) {
+        addFenceInstancedLayer(
+          group,
+          fencePositions,
+          mask,
+          getMaterialForBlockType(blockType),
+          { chunkKeyNum: keyNum, blockType },
+        )
       }
       continue
     }
@@ -832,7 +947,7 @@ export function tryUpdateSnowAccumulation(
   snowForced: boolean | null,
   waterSurfaceY: number,
 ): void {
-  if (waterSurfaceY >= WORLD_HEIGHT) return
+  if (waterSurfaceY > WORLD_MAX_Y) return
 
   _snowGrowthAccumulator += dt
   if (_snowGrowthAccumulator < SNOW_GROWTH_INTERVAL_SEC) return
@@ -845,12 +960,13 @@ export function tryUpdateSnowAccumulation(
   const chunksToRefresh = new Map<number, Set<BlockType>>()
 
   for (let c = 0; c < SNOW_GROWTH_CANDIDATES_PER_INTERVAL; c++) {
-    const keyNum = loadedChunkKeys[Math.floor(Math.random() * loadedChunkKeys.length)]
+    const keyIndex = randomInt(0, loadedChunkKeys.length - 1)
+    const keyNum = loadedChunkKeys[keyIndex]
     const data = chunks.get(keyNum)
     if (!data) continue
 
-    const lx = Math.floor(Math.random() * CHUNK_SIZE)
-    const lz = Math.floor(Math.random() * CHUNK_SIZE)
+    const lx = randomInt(0, CHUNK_SIZE - 1)
+    const lz = randomInt(0, CHUNK_SIZE - 1)
     const bx = data.cx * CHUNK_SIZE + lx
     const bz = data.cz * CHUNK_SIZE + lz
 
@@ -859,7 +975,7 @@ export function tryUpdateSnowAccumulation(
 
     let topY = -1
     let topType: BlockType | 'air' | null = null
-    for (let by = WORLD_HEIGHT - 1; by >= 0; by--) {
+    for (let by = WORLD_MAX_Y; by >= WORLD_MIN_Y; by--) {
       const t = getBlockAt(bx, by, bz)
       if (t !== null && t !== 'air' && isBlockTypeSolid(t as BlockType)) {
         topY = by
@@ -867,9 +983,9 @@ export function tryUpdateSnowAccumulation(
         break
       }
     }
-    if (topY < 0 || topType === null) continue
+    if (topY < WORLD_MIN_Y || topType === null) continue
 
-    const above = topY + 1 < WORLD_HEIGHT ? getBlockAt(bx, topY + 1, bz) : null
+    const above = topY < WORLD_MAX_Y ? getBlockAt(bx, topY + 1, bz) : null
 
     let affectedBlockTypes = chunksToRefresh.get(keyNum)
     if (!affectedBlockTypes) {
@@ -880,8 +996,8 @@ export function tryUpdateSnowAccumulation(
     if (BLOCKS_SNOW_CAN_LAY_ON.has(topType) && (above === null || above === 'air')) {
       const ny = topY + 1
       const newType: BlockType = 'snow_layer_1'
-      blockModifications.set(blockKeyString(bx, ny, bz), newType)
-      const lk = localKey(lx, ny, lz)
+      setBlockModification(bx, ny, bz, newType)
+      const lk = localKey(lx, ny - WORLD_MIN_Y, lz)
       data.voxelMap.set(lk, newType)
       invalidateColumnHeight(bx, bz)
       affectedBlockTypes.add(newType)
@@ -892,8 +1008,8 @@ export function tryUpdateSnowAccumulation(
     if (snowLayerMatch != null) {
       const k = parseInt(snowLayerMatch[1], 10)
       const newType = `snow_layer_${k + 1}` as BlockType
-      blockModifications.set(blockKeyString(bx, topY, bz), newType)
-      const lk = localKey(lx, topY, lz)
+      setBlockModification(bx, topY, bz, newType)
+      const lk = localKey(lx, topY - WORLD_MIN_Y, lz)
       data.voxelMap.set(lk, newType)
       invalidateColumnHeight(bx, bz)
       affectedBlockTypes.add(topType)

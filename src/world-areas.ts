@@ -2,6 +2,7 @@
  * World areas by level band (1–10, 10–20, …). Areas are distance rings from spawn origin.
  */
 import { SPAWN_X, SPAWN_Z, MAX_LEVEL } from './constants'
+import { randomInt } from './random'
 
 /** Level range for an area (inclusive min, inclusive max). */
 export interface AreaLevelRange {
@@ -55,10 +56,8 @@ export function getAreaLevelRange(area: WorldArea): AreaLevelRange {
 
 /**
  * Picks a random mob level in the area's range (inclusive).
- * Uses a simple seeded RNG so the same (wx, wz, kind) gives the same level (optional for determinism).
- * For now uses Math.random() for variety.
+ * Uses the shared gameplay RNG for variety.
  */
 export function getRandomMobLevelInArea(area: WorldArea): number {
-  const range = area.levelMax - area.levelMin + 1
-  return area.levelMin + Math.floor(Math.random() * range)
+  return randomInt(area.levelMin, area.levelMax)
 }

@@ -7,10 +7,12 @@ import {
   WATER_LEVEL,
   WATER_BLOCK_HEIGHT,
   WATER_SPREAD_INTERVAL_SEC,
-  SPAWN_X,
-  SPAWN_Z,
   SPAWN_ABOVE_CAVE_DEBUG,
   WORLD_HEIGHT,
+  WORLD_MAX_Y,
+  WORLD_MIN_Y,
+  BLOCK_OUTLINE_COLOR,
+  BLOCK_OUTLINE_SCALE,
   ENTITY_ATTACK_DISTANCE,
   HURT_FLASH_DURATION_SECONDS,
   KNOCKBACK_HORIZONTAL_SPEED,
@@ -91,14 +93,20 @@ import {
   getBloomStrength,
   getBloomRadius,
   getBloomThreshold,
+  getFogNoiseEnabled,
 } from './graphics-settings'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
-import { syncTerrainFogFromSceneFog } from './terrain-fog'
+import { syncTerrainFogFromSceneFog, updateTerrainFogNoise } from './terrain-fog'
 import { getKeyBinding, type KeyAction } from './key-settings'
+<<<<<<< HEAD
 import { initMultiplayer, updateMultiplayer } from './multiplayer'
 import { setWorldApi, getWorldApi } from './world-api'
+=======
+import { initMultiplayer, updateMultiplayer, addSystemMessage } from './multiplayer'
+import { setWorldApi } from './world-api'
+>>>>>>> dev
 import { spawnEntitiesForChunk } from './entities/spawn'
 import { updateMovement } from './entities/movement'
 import { updateAI, FLEE_DURATION_AFTER_HIT } from './entities/ai'
@@ -114,6 +122,7 @@ import {
   isStairsBlock,
   getPlacedStairsId,
   type StairFacing,
+  type StairsHalf,
   getBlockCollisionBoxesLocal,
   isUnbreakableBlock,
   getBlockBreakTimeWithTool,
@@ -124,6 +133,7 @@ import {
   getItemTextureName,
   isWeapon,
   getWeaponType,
+  isFenceBlock,
 } from './block-registry'
 import { loadTextureSafe, loadItemTextureSafe, setPixelFilter } from './block-materials'
 import {
@@ -174,7 +184,11 @@ import {
   getQuestStateForSave,
   setQuestStateFromSave,
   notifyKill as notifyQuestKill,
+<<<<<<< HEAD
   notifyReach as notifyQuestReach,
+=======
+  notifyTalk as notifyQuestTalk,
+>>>>>>> dev
   turnInQuest,
   refreshCollectObjectives,
 } from './quests/quest-state'
@@ -184,7 +198,10 @@ import { initSceneAndRenderer as initSceneAndRendererSystem } from './game/init/
 import { initLightsAndSky as initLightsAndSkySystem } from './game/init/lights-sky'
 import {
   createTerrainDebugOverlay as createTerrainDebugOverlaySystem,
+  copyTerrainDebugReport,
   createTerrainDebugState,
+  toggleTerrainDebugColumnLock,
+  toggleTerrainDebugDetails,
   toggleTerrainDebug,
   updateTerrainDebugOverlay as updateTerrainDebugOverlaySystem,
   type TerrainDebugState,
@@ -202,6 +219,7 @@ import { createSnowEffect, type SnowEffect } from './snow-effect'
 import { createRainEffect, type RainEffect } from './rain-effect'
 import { updateWeather, setWeather } from './weather'
 import { registerCommand } from './debug-commands'
+import { initGameplayRng, randomFloat, randomInt } from './random'
 import {
   chunks,
   blockModifications,
@@ -209,19 +227,26 @@ import {
   chunkKey,
   chunkKeyNumeric,
   blockKeyNumeric,
-  localKey,
-  decodeLocalKey,
-  blockKeyString,
   invalidateColumnHeight,
   getBlockAt,
   getBlockModsForChunk,
+<<<<<<< HEAD
   getSkyLightAt,
+=======
+  setBlockModification,
+>>>>>>> dev
 } from './chunk-runtime'
 import { isWaterBlock, getWaterLevel, computeWaterSpread } from './game/fluid/water-flow'
+import {
+  isFallingBlockType,
+  computeFallingBlockMoves,
+} from './game/world-interactions/falling-blocks'
 import { isOccludingBlock as isBlockTypeOccluding } from './block-registry'
 import { isPendingSpawnReady } from './game/player/pending-spawn'
+import { applyBlockChangeToLoadedChunk as applyBlockChangeToLoadedChunkCore } from './game/world-interactions/apply-block-change'
 import { RaycastMeshCache } from './game/chunks/raycast-cache'
 import { initChunkWorkerClient, type ChunkWorkerClient } from './game/chunks/chunk-worker-client'
+import type { OverhangProfile } from './terrain-core'
 import { createPoiRegistryForSpawn, getActivePois, setActivePois } from './world-pois'
 import { applyChunkPayload as applyChunkPayloadToScene } from './game/chunks/chunk-apply'
 import { updateChunks as updateChunksFromModule } from './game/chunks/chunk-manager'
@@ -591,6 +616,7 @@ function saveGame(): void {
     inventory: getPersistentSlots(),
     activeQuests: questState.activeQuests,
     completedQuestIds: questState.completedQuestIds,
+    trackedQuestIds: questState.trackedQuestIds,
     discoveredChunkKeys: Array.from(discoveredChunkKeys),
     bedRespawn:
       bedRespawnX != null && bedRespawnY != null && bedRespawnZ != null
@@ -618,6 +644,7 @@ function loadGame(): boolean {
     initDefaultInventory()
     discoveredChunkKeys.clear()
     clearDiscoveredHeightmapCache()
+    rebuildDynamicSimulationQueuesFromBlockMods()
     return false
   }
   if (data.worldSeed !== WORLD_SEED) return false
@@ -641,15 +668,16 @@ function loadGame(): boolean {
   }
 
   for (const { x, y, z } of data.removedBlocks ?? []) {
-    blockModifications.set(blockKeyString(x, y, z), 'air')
+    setBlockModification(x, y, z, 'air')
     invalidateColumnHeight(x, z)
   }
   for (const b of data.placedBlocks ?? []) {
     if (VALID_BLOCK_TYPES.has(b.type)) {
-      blockModifications.set(blockKeyString(b.x, b.y, b.z), b.type as BlockType)
+      setBlockModification(b.x, b.y, b.z, b.type as BlockType)
       invalidateColumnHeight(b.x, b.z)
     }
   }
+  rebuildDynamicSimulationQueuesFromBlockMods()
 
   if (typeof torchContainer !== 'undefined') {
     while (placedTorches.length) placedTorches.pop()
@@ -757,8 +785,10 @@ function loadGame(): boolean {
     if (snowEffect) snowEffect.setForced?.(data.snowForced)
     else pendingSnowForced = data.snowForced
   }
-  if (data.inventory && data.inventory.length > 0) {
-    const valid = data.inventory.slice(0, TOTAL_PERSISTENT_SLOTS).map((s) =>
+  const savedSlots = data.inventory?.slice(0, TOTAL_PERSISTENT_SLOTS) ?? []
+  const filledCount = savedSlots.filter((s) => s && s.type && s.count > 0).length
+  if (savedSlots.length > 0 && filledCount > 1) {
+    const valid = savedSlots.map((s) =>
       s && s.type && VALID_BLOCK_TYPES.has(s.type)
         ? { type: s.type, count: Math.min(s.count, MAX_STACK_SIZE) }
         : { type: null as BlockType | null, count: 0 },
@@ -771,6 +801,7 @@ function loadGame(): boolean {
   setQuestStateFromSave({
     activeQuests: data.activeQuests,
     completedQuestIds: data.completedQuestIds,
+    trackedQuestIds: data.trackedQuestIds,
   })
   // If we deferred with pendingLoad, apply as soon as all chunks are present (e.g. already loaded).
   if (pendingLoad) applyPendingLoadIfReady()
@@ -781,6 +812,46 @@ function loadGame(): boolean {
 let chunkWorker: ChunkWorkerClient | null = null
 /** Chunk key numbers we've requested from the worker but not yet received. */
 const pendingChunkKeys = new Set<number>()
+/** Storage key for runtime overhang generation profile (vanilla | dramatic). */
+const OVERHANG_PROFILE_STORAGE_KEY = 'terrainOverhangProfile'
+
+/**
+ * Parses a persisted overhang profile into a supported value.
+ *
+ * @param value - Raw persisted value
+ * @returns Supported profile ('vanilla' fallback)
+ */
+function parseOverhangProfile(value: string | null): OverhangProfile {
+  return value === 'dramatic' ? 'dramatic' : 'vanilla'
+}
+
+/**
+ * Reads current overhang profile from local storage.
+ *
+ * @returns Stored profile or 'vanilla' when not set/unavailable
+ */
+function getStoredOverhangProfile(): OverhangProfile {
+  try {
+    if (typeof localStorage === 'undefined') return 'vanilla'
+    return parseOverhangProfile(localStorage.getItem(OVERHANG_PROFILE_STORAGE_KEY))
+  } catch {
+    return 'vanilla'
+  }
+}
+
+/**
+ * Persists overhang profile to local storage.
+ *
+ * @param profile - Target profile
+ */
+function setStoredOverhangProfile(profile: OverhangProfile): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(OVERHANG_PROFILE_STORAGE_KEY, profile)
+  } catch {
+    // Ignore storage errors in restrictive environments.
+  }
+}
 /** Wenn gesetzt: Spawn-Position erst setzen, wenn alle benötigten Chunks geladen sind (Worker-Lieferung abwarten). */
 let pendingSpawn: {
   spawnX: number
@@ -814,6 +885,9 @@ let breakTarget: {
   faceNormal: THREE.Vector3
 } | null = null
 let breakProgress = 0
+
+/** Block under the crosshair (world coords); updated every frame when pointer lock is active. Used for the block outline. */
+export let aimedBlock: { x: number; y: number; z: number } | null = null
 
 /** DOM element for the block-crack overlay; set from App.vue after mount so it is found regardless of timing. */
 let blockCrackElement: HTMLElement | null = null
@@ -852,11 +926,34 @@ function isPlaceDebug(): boolean {
   }
 }
 
+/** Throttle for "Can't place block here" system message (max once per this many ms). */
+const PLACE_REJECT_MESSAGE_THROTTLE_MS = 2000
+let lastPlaceRejectMessageTime = 0
+
 /** Block tick interval (e.g. crop growth) in seconds. */
 const BLOCK_TICK_INTERVAL = 5
 const WHEAT_GROWTH_PROBABILITY = 0.2
+/** Interval for one-step gravity updates of falling blocks (sand/gravel). */
+const FALLING_BLOCK_INTERVAL_SEC = 0.1
+/** Safety cap to avoid too many falling-block updates in one frame. */
+const FALLING_BLOCK_MAX_MOVES_PER_TICK = 64
 let lastBlockTickTime = 0
+let lastFallingBlockTime = 0
 let lastWaterSpreadTime = 0
+type WorldCell = { bx: number; by: number; bz: number }
+/** Candidate cells for local water simulation updates (keyed by "x,y,z"). */
+const activeWaterCells = new Map<string, WorldCell>()
+/** Candidate cells for local falling-block simulation updates (keyed by "x,y,z"). */
+const activeFallingCells = new Map<string, WorldCell>()
+/** Neighbor offsets for 6 directions (used for water simulation updates). */
+const NEIGHBOR_OFFSETS: Array<[number, number, number]> = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+]
 
 const _direction = new THREE.Vector3()
 const _projScreenMatrix = new THREE.Matrix4()
@@ -878,6 +975,89 @@ const _cameraOffset = new THREE.Vector3()
 // OPT-2: reusable AABB block buffer (avoids array/object allocs in resolveVoxelCollisions)
 // OPT-3: cache block meshes for raycasting; invalidated on chunk load/unload
 const raycastMeshCache = new RaycastMeshCache()
+
+/**
+ * Returns an integer world-cell key string.
+ */
+function worldCellKey(bx: number, by: number, bz: number): string {
+  return `${Math.floor(bx)},${Math.floor(by)},${Math.floor(bz)}`
+}
+
+/**
+ * Adds one integer world-cell to the given active-candidate map.
+ */
+function addActiveCell(cells: Map<string, WorldCell>, bx: number, by: number, bz: number): void {
+  const ix = Math.floor(bx)
+  const iy = Math.floor(by)
+  const iz = Math.floor(bz)
+  cells.set(worldCellKey(ix, iy, iz), { bx: ix, by: iy, bz: iz })
+}
+
+/**
+ * Queues this cell for water simulation when it currently contains water.
+ */
+function queueWaterCellIfWater(bx: number, by: number, bz: number): void {
+  const type = getBlockAt(bx, by, bz)
+  if (type === null || !isWaterBlock(type)) return
+  addActiveCell(activeWaterCells, bx, by, bz)
+}
+
+/**
+ * Queues this cell for falling-block simulation when it currently contains a falling block.
+ */
+function queueFallingCellIfFalling(bx: number, by: number, bz: number): void {
+  const type = getBlockAt(bx, by, bz)
+  if (type === null || !isFallingBlockType(type)) return
+  addActiveCell(activeFallingCells, bx, by, bz)
+}
+
+/**
+ * Marks nearby water cells around a changed block for incremental simulation.
+ */
+function queueWaterAroundBlockChange(bx: number, by: number, bz: number): void {
+  queueWaterCellIfWater(bx, by, bz)
+  for (const [dx, dy, dz] of NEIGHBOR_OFFSETS) {
+    queueWaterCellIfWater(bx + dx, by + dy, bz + dz)
+  }
+}
+
+/**
+ * Marks nearby falling-block cells around a changed block for incremental simulation.
+ */
+function queueFallingAroundBlockChange(bx: number, by: number, bz: number): void {
+  queueFallingCellIfFalling(bx, by, bz)
+  queueFallingCellIfFalling(bx, by + 1, bz)
+}
+
+/**
+ * Marks both water and falling simulation candidates around a changed block.
+ */
+function queueDynamicSimulationAroundBlockChange(bx: number, by: number, bz: number): void {
+  queueWaterAroundBlockChange(bx, by, bz)
+  queueFallingAroundBlockChange(bx, by, bz)
+}
+
+/**
+ * Rebuilds incremental simulation candidate queues from persisted block modifications.
+ */
+function rebuildDynamicSimulationQueuesFromBlockMods(): void {
+  activeWaterCells.clear()
+  activeFallingCells.clear()
+  for (const [keyStr, value] of blockModifications) {
+    const parts = keyStr.split(',')
+    if (parts.length !== 3) continue
+    const bx = Number(parts[0])
+    const by = Number(parts[1])
+    const bz = Number(parts[2])
+    if (!Number.isFinite(bx) || !Number.isFinite(by) || !Number.isFinite(bz)) continue
+    if (value !== 'air' && isWaterBlock(value)) {
+      addActiveCell(activeWaterCells, bx, by, bz)
+    }
+    if (value !== 'air' && isFallingBlockType(value)) {
+      addActiveCell(activeFallingCells, bx, by, bz)
+    }
+  }
+}
 
 // ================= CHUNK SYNC CONTEXT =================
 
@@ -934,37 +1114,55 @@ function applyBlockChangeToLoadedChunk(params: {
 
   const cx = Math.floor(bx / CHUNK_SIZE)
   const cz = Math.floor(bz / CHUNK_SIZE)
-  const keyNum = chunkKeyNumeric(cx, cz)
-  const data = chunks.get(keyNum)
+  const { data, keyNum, affectedBlockTypes } = applyBlockChangeToLoadedChunkCore({
+    chunks,
+    bx,
+    by,
+    bz,
+    next,
+    getBlockAt,
+  })
   if (data) {
     const lx = bx - data.cx * CHUNK_SIZE
     const lz = bz - data.cz * CHUNK_SIZE
-    const k = localKey(lx, by, lz)
-    if (next === 'air') data.voxelMap.delete(k)
-    else data.voxelMap.set(k, next)
-
-    const affected = new Set<BlockType>()
-    if (next !== 'air') affected.add(next)
-    const neighbors: Array<[number, number, number]> = [
-      [bx + 1, by, bz],
-      [bx - 1, by, bz],
-      [bx, by + 1, bz],
-      [bx, by - 1, bz],
-      [bx, by, bz + 1],
-      [bx, by, bz - 1],
-    ]
-    for (const [nx, ny, nz] of neighbors) {
-      const t = getBlockAt(nx, ny, nz)
-      if (t !== null && t !== 'air') affected.add(t as BlockType)
-    }
 
     const ctx = getChunkSyncCtx()
-    refreshChunkVisibleMeshes(ctx, data, affected.size > 0 ? affected : undefined)
+    refreshChunkVisibleMeshes(
+      ctx,
+      data,
+      affectedBlockTypes.size > 0 ? affectedBlockTypes : undefined,
+    )
+    // When a fence or its neighbor changes at a chunk boundary, refresh the adjacent chunk so fence connections update.
+    const fenceOrNeighborFence =
+      isFenceBlock(next as BlockType) ||
+      (getBlockAt(bx, by, bz - 1) !== null && isFenceBlock(getBlockAt(bx, by, bz - 1)!)) ||
+      (getBlockAt(bx, by, bz + 1) !== null && isFenceBlock(getBlockAt(bx, by, bz + 1)!)) ||
+      (getBlockAt(bx + 1, by, bz) !== null && isFenceBlock(getBlockAt(bx + 1, by, bz)!)) ||
+      (getBlockAt(bx - 1, by, bz) !== null && isFenceBlock(getBlockAt(bx - 1, by, bz)!))
+    if (fenceOrNeighborFence) {
+      const atBoundaryX = lx === 0 || lx === CHUNK_SIZE - 1
+      const atBoundaryZ = lz === 0 || lz === CHUNK_SIZE - 1
+      if (atBoundaryX || atBoundaryZ) {
+        const neighborChunks: Array<{ cx: number; cz: number }> = []
+        if (lx === 0) neighborChunks.push({ cx: cx - 1, cz })
+        if (lx === CHUNK_SIZE - 1) neighborChunks.push({ cx: cx + 1, cz })
+        if (lz === 0) neighborChunks.push({ cx, cz: cz - 1 })
+        if (lz === CHUNK_SIZE - 1) neighborChunks.push({ cx, cz: cz + 1 })
+        for (const { cx: ncx, cz: ncz } of neighborChunks) {
+          const neighborKey = chunkKeyNumeric(ncx, ncz)
+          const neighborData = chunks.get(neighborKey)
+          if (neighborData) {
+            refreshChunkVisibleMeshes(ctx, neighborData, undefined)
+          }
+        }
+      }
+    }
     syncFrustumDirty(ctx)
   } else {
     raycastMeshCache.markDirty()
     _frustumDirty = true
   }
+  queueDynamicSimulationAroundBlockChange(bx, by, bz)
 
   /**
    * Validates torches adjacent to this changed block. If their support face is no longer sturdy,
@@ -1000,7 +1198,7 @@ function applyBlockChangeToLoadedChunk(params: {
       // Pop off: remove torch mesh + torch block, drop item.
       const ctx = getChunkSyncCtx()
       removeTorchAt({ bx: tx, by: ty, bz: tz, torchContainer: ctx.torchContainer, placedTorches: ctx.placedTorches })
-      blockModifications.set(blockKeyString(tx, ty, tz), 'air')
+      setBlockModification(tx, ty, tz, 'air')
       applyBlockChangeToLoadedChunk({
         bx: tx,
         by: ty,
@@ -1012,8 +1210,8 @@ function applyBlockChangeToLoadedChunk(params: {
       spawnDropItem({
         scene,
         drops,
-        worldX: tx + 0.5 + (Math.random() - 0.5) * 0.3,
-        worldZ: tz + 0.5 + (Math.random() - 0.5) * 0.3,
+        worldX: tx + 0.5 + (randomFloat() - 0.5) * 0.3,
+        worldZ: tz + 0.5 + (randomFloat() - 0.5) * 0.3,
         startY: ty + 0.8,
         restY: ty + 0.2,
         blockType: 'torch',
@@ -1076,7 +1274,7 @@ function breakBlock(
   // Only fill with water when this column is under ocean/lake (surface below water level), not when digging on land.
   const surfaceUnderwater = getHeight(worldX, worldZ) < WATER_LEVEL
   if (shouldFillBrokenBlockWithWater(worldY) && surfaceUnderwater) {
-    blockModifications.set(blockKeyString(worldX, worldY, worldZ), 'water_source')
+    setBlockModification(worldX, worldY, worldZ, 'water_source')
     applyBlockChangeToLoadedChunk({
       bx: worldX,
       by: worldY,
@@ -1145,7 +1343,7 @@ function placeTorch(
   const support = getBlockAt(supportX, supportY, supportZ)
   if (!canSupportTorch(support, preferredNormal)) return false
 
-  blockModifications.set(blockKeyString(bx, by, bz), torchBlockType)
+  setBlockModification(bx, by, bz, torchBlockType)
   applyBlockChangeToLoadedChunk({ bx, by, bz, next: torchBlockType })
 
   // Also place the custom mesh/light immediately (chunk refresh will keep it in sync).
@@ -1248,12 +1446,6 @@ function resolveInitialSpawnXZ(): { x: number; z: number } {
     }
   }
 
-  // Ultimate fallback: use fixed spawn coordinates from config if still at origin.
-  if (spawnX === 0 && spawnZ === 0) {
-    spawnX = SPAWN_X
-    spawnZ = SPAWN_Z
-  }
-
   return { x: spawnX, z: spawnZ }
 }
 
@@ -1317,7 +1509,7 @@ function createPlayer(scene: THREE.Scene, resolvedSpawn: { x: number; z: number 
 
 // ================= POV HAND =================
 // Camera looks along -Z; arm is lower-right. Held weapon pivot is at hilt (geom.translate) so swing rotates at hand.
-// Weapons use depthTest: true and HELD_WEAPON_OFFSET_Z so the sword stays in front of the arm.
+// Weapons render with depthTest disabled (plus high renderOrder), so they stay visible in first person.
 
 /** POV arm dimensions (slim so it reads as an arm, not a block). */
 const POV_ARM_WIDTH = 0.06
@@ -1335,53 +1527,69 @@ const POV_HAND_OFFSET_Z = 0
 const HELD_BLOCK_SCALE = 0.2
 /** Size of held item in first-person (e.g. sword); 1:1 aspect to avoid stretching square item textures. */
 const HELD_ITEM_SIZE = 0.32
-/** Held weapon: Z offset so sword sits in front of arm (no clipping with depthTest). */
+/** Held weapon: Z offset so sword sits in front of arm (keeps the hand pose readable). */
 const HELD_WEAPON_OFFSET_Z = 0.08
-/** Held sword: pivot at bottom center (hilt). Y = face camera, X = slight tilt, Z = slight lean so blade reads vertical on screen. */
-const HELD_SWORD_TILT_Y_RAD = Math.PI
-const HELD_SWORD_TILT_Z_RAD = -0.35
+/** Held sword: keep front side toward camera (no mirrored backface) and lean to match Minecraft-like right-hand POV. */
+const HELD_SWORD_TILT_Y_RAD = 0
+const HELD_SWORD_TILT_Z_RAD = 0.35
 const HELD_SWORD_TILT_X_DEG = 8
+/** Weapon/tool render: layered cutout planes to fake item thickness like Minecraft held tools. */
+const HELD_ITEM_DEPTH_LAYERS = 4
+const HELD_ITEM_DEPTH_STEP = 0.006
 /** Cache of held-item meshes by block type (block or item id). */
-const heldItemMeshCache = new Map<string, THREE.Mesh>()
+const heldItemMeshCache = new Map<string, THREE.Object3D>()
 /** Container for the currently held item (child of POV arm). Set in createPOVHands. */
 let povHeldItemContainer: THREE.Group
 
 /**
  * Creates or returns a cached mesh for the given block/item type to show in the first-person hand.
  */
-function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Mesh {
+function getOrCreateHeldItemMesh(blockType: BlockType): THREE.Object3D {
   let mesh = heldItemMeshCache.get(blockType)
   if (mesh) return mesh
 
   const itemTex = getItemTextureName(blockType)
   if (itemTex) {
-    // Weapon/tool: single quad; origin at bottom center (hilt) so swing pivots at hand.
-    const geom = new THREE.PlaneGeometry(HELD_ITEM_SIZE, HELD_ITEM_SIZE)
-    geom.translate(0, HELD_ITEM_SIZE / 2, 0)
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      depthTest: true,
-      depthWrite: true,
-      transparent: true,
-      opacity: 1,
-      side: THREE.DoubleSide,
-    })
-    mesh = new THREE.Mesh(geom, mat)
-    mesh.renderOrder = 10000
+    // Weapon/tool: layered cutout planes with alpha test for a slight voxel-like thickness.
+    const itemGroup = new THREE.Group()
+    itemGroup.renderOrder = 10000
+    const layerMaterials: THREE.MeshBasicMaterial[] = []
+    for (let i = 0; i < HELD_ITEM_DEPTH_LAYERS; i++) {
+      const geom = new THREE.PlaneGeometry(HELD_ITEM_SIZE, HELD_ITEM_SIZE)
+      geom.translate(0, HELD_ITEM_SIZE / 2, 0)
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        // Keep held tools/weapons visible in first person even when entities/terrain are very close.
+        depthTest: false,
+        depthWrite: false,
+        transparent: true,
+        alphaTest: 0.5,
+        opacity: 1,
+        side: THREE.DoubleSide,
+      })
+      const layer = new THREE.Mesh(geom, mat)
+      layer.position.z = (i - (HELD_ITEM_DEPTH_LAYERS - 1) * 0.5) * HELD_ITEM_DEPTH_STEP
+      layer.renderOrder = 10000
+      itemGroup.add(layer)
+      layerMaterials.push(mat)
+    }
     loadItemTextureSafe(itemTex).then((tex) => {
       setPixelFilter(tex)
       tex.wrapS = THREE.ClampToEdgeWrapping
       tex.wrapT = THREE.ClampToEdgeWrapping
       tex.colorSpace = THREE.SRGBColorSpace
-      mat.map = tex
-      mat.needsUpdate = true
+      for (const mat of layerMaterials) {
+        mat.map = tex
+        mat.needsUpdate = true
+      }
     })
-    mesh.rotation.set(
+    itemGroup.rotation.set(
       THREE.MathUtils.degToRad(HELD_SWORD_TILT_X_DEG),
       HELD_SWORD_TILT_Y_RAD,
       HELD_SWORD_TILT_Z_RAD,
     )
-    mesh.position.set(0, 0, HELD_WEAPON_OFFSET_Z)
+    itemGroup.position.set(0, 0, HELD_WEAPON_OFFSET_Z)
+    mesh = itemGroup
   } else {
     // Block: small cube with block texture. Use transparent: true so it is sorted with transparents
     // and drawn after water/flowers (high renderOrder), avoiding world geometry in front of the held block.
@@ -1420,15 +1628,20 @@ function updatePOVHeldItem(): void {
   const mainHand = getEquipped('mainHand').type
   const blockType = mainHand ?? getSelectedBlockType()
   const count = mainHand ? 1 : getSelectedSlotCount()
+  const povArm = povHands.children[0] as THREE.Mesh | undefined
   if (!blockType || count <= 0) {
+    if (povArm) povArm.visible = true
     povHeldItemContainer.clear()
     return
   }
   const def = getBlockDefinition(blockType)
   if (!def) {
+    if (povArm) povArm.visible = true
     povHeldItemContainer.clear()
     return
   }
+  // Minecraft-like: when wielding a tool/weapon, prioritize the tool model and hide the long forearm mesh.
+  if (povArm) povArm.visible = !(def.weaponType || def.toolType)
   const mesh = getOrCreateHeldItemMesh(blockType)
   if (povHeldItemContainer.children[0] !== mesh) {
     povHeldItemContainer.clear()
@@ -1479,6 +1692,8 @@ let bloomPass: UnrealBloomPass | null = null
 let torchContainer: THREE.Group
 /** 3D crack overlay on the block face being mined; created in initSceneAndRenderer, shown when breakTarget is set. */
 let blockCrackOverlayMesh: THREE.Mesh | null = null
+/** Wireframe outline around the block under the crosshair; created in initSceneAndRenderer, shown when aimedBlock is set. */
+let blockOutlineMesh: THREE.LineSegments | null = null
 let sunLight: THREE.DirectionalLight
 let sunMesh: THREE.Mesh
 let moonMesh: THREE.Mesh
@@ -1564,6 +1779,7 @@ let povHandAnimX = 0
 let povHandAnimY = 0
 let povHandAnimZ = 0
 const POV_HAND_LERP = 0.22 // wie schnell Richtung Ziel (0 = neutral, 1 = sofort)
+const POV_ARM_LERP = 0.22 // how fast arm rotation follows target (smooth return from mining/slash)
 
 // Camera head bobbing (first-person): phase + smoothed offsets to avoid jitter.
 let cameraBobPhase = 0
@@ -1576,6 +1792,10 @@ let miningSwingPhase = 0
 const POV_ARM_BASE_ROTATION_X = THREE.MathUtils.degToRad(-25)
 const POV_ARM_BASE_ROTATION_Y = THREE.MathUtils.degToRad(-15)
 const POV_ARM_BASE_ROTATION_Z = THREE.MathUtils.degToRad(-10)
+/** Current POV arm rotation (lerped toward target for smooth return from mining/slash). */
+let povArmRotX = POV_ARM_BASE_ROTATION_X
+let povArmRotY = POV_ARM_BASE_ROTATION_Y
+let povArmRotZ = POV_ARM_BASE_ROTATION_Z
 
 /** Sword slash: idle -> slashing (direction chosen at random per slash) -> cooldown -> idle. */
 type AttackState = 'idle' | 'slashing' | 'cooldown'
@@ -1681,6 +1901,7 @@ export async function initGame(
     }) => void
   },
 ): Promise<void> {
+  initGameplayRng(WORLD_SEED)
   multiplayerEnabled = options?.multiplayer === true
   setOnHotbarChange(options?.onHotbarChange ?? null)
   onCraftingTableUse = options?.onCraftingTableUse ?? null
@@ -1707,7 +1928,7 @@ async function init(container?: HTMLElement): Promise<void> {
 }
 
 /**
- * Registers debug console commands: /snow (start|end|auto), /rain (stub), /time (day|night).
+ * Registers debug console commands: /snow, /rain, /time, /overhang, /perf.
  */
 function registerDebugCommands(): void {
   registerCommand('snow', (args) => {
@@ -1752,6 +1973,64 @@ function registerDebugCommands(): void {
     }
     return 'Usage: /time day | night'
   })
+
+  registerCommand('overhang', (args) => {
+    const sub = (args[0] ?? '').toLowerCase()
+    if (sub === '' || sub === 'show') {
+      return `Overhang profile: ${getStoredOverhangProfile()}`
+    }
+    if (sub !== 'vanilla' && sub !== 'dramatic') {
+      return 'Usage: /overhang vanilla | dramatic | show'
+    }
+    const profile = sub as OverhangProfile
+    setStoredOverhangProfile(profile)
+    reinitializeTerrainGeneration()
+    return `Overhang profile: ${profile} (regenerating loaded chunks)`
+  })
+
+  registerCommand('perf', (args) => {
+    const sub = (args[0] ?? 'status').toLowerCase()
+    if (sub === 'on') {
+      setPerfProfilingEnabled(true)
+      return 'Perf profiling: on (reports in console every 2s)'
+    }
+    if (sub === 'off') {
+      setPerfProfilingEnabled(false)
+      return 'Perf profiling: off'
+    }
+    if (sub === 'report') {
+      if (!isPerfProfilingEnabled()) return 'Perf profiling is off. Use /perf on first.'
+      reportPerfStatsNow()
+      return 'Perf report printed to console.'
+    }
+    if (sub === 'status') {
+      return `Perf profiling: ${isPerfProfilingEnabled() ? 'on' : 'off'}`
+    }
+    return 'Usage: /perf on | off | status | report'
+  })
+}
+
+/**
+ * Reinitializes terrain generation worker and reloads loaded chunks.
+ * Used by runtime terrain profile switches (e.g. overhang presets).
+ */
+function reinitializeTerrainGeneration(): void {
+  if (!scene) return
+  if (chunkWorker) {
+    chunkWorker.terminate()
+    chunkWorker = null
+  }
+  pendingChunkKeys.clear()
+
+  // Unload all currently loaded chunks so they are regenerated under new profile settings.
+  const loadedKeys = Array.from(chunks.keys())
+  for (const keyNum of loadedKeys) {
+    unloadChunk(scene, keyNum)
+  }
+
+  initChunkWorker()
+  lastPlayerChunkX = null
+  lastPlayerChunkZ = null
 }
 
 /**
@@ -1787,12 +2066,17 @@ function initSceneAndRenderer(container?: HTMLElement): void {
   blockCrackOverlayMesh.visible = false
   blockCrackOverlayMesh.renderOrder = 1
   scene.add(blockCrackOverlayMesh)
-  const loader = new THREE.TextureLoader()
-  loader.load('/crack_stages.svg', (tex) => {
-    tex.repeat.set(1, 0.1)
-    crackMat.map = tex
-    crackMat.needsUpdate = true
+
+  const outlineBox = new THREE.BoxGeometry(1, 1, 1)
+  const outlineEdges = new THREE.EdgesGeometry(outlineBox)
+  const outlineMat = new THREE.LineBasicMaterial({
+    color: BLOCK_OUTLINE_COLOR,
+    depthTest: true,
   })
+  blockOutlineMesh = new THREE.LineSegments(outlineEdges, outlineMat)
+  blockOutlineMesh.scale.setScalar(BLOCK_OUTLINE_SCALE)
+  blockOutlineMesh.visible = false
+  scene.add(blockOutlineMesh)
 }
 
 /**
@@ -1841,11 +2125,19 @@ function initPostProcessing(): void {
  * Initializes chunk worker client; wires onPayload to applyChunkPayloadToScene and entity spawn, onError to fallback to main-thread generation.
  */
 function initChunkWorker(): void {
+  if (chunkWorker) {
+    chunkWorker.terminate()
+    chunkWorker = null
+  }
+  pendingChunkKeys.clear()
+
   const client = initChunkWorkerClient({
     seed: WORLD_SEED,
+    overhangProfile: getStoredOverhangProfile(),
     pois: getActivePois(),
     maxWorkers: Infinity,
     onPayload: (payload) =>
+<<<<<<< HEAD
       applyChunkPayloadToScene(
         scene,
         payload,
@@ -1871,15 +2163,37 @@ function initChunkWorker(): void {
             if (discoveredChunkKeys.has(keyNum) && data.heightmapBuffer) {
               writeHeightmap(WORLD_SEED, keyNum, data.heightmapBuffer, data.biomeMapBuffer)
             }
+=======
+      withPerfTiming('chunkApply', () =>
+        applyChunkPayloadToScene(
+          scene,
+          payload,
+          {
+            chunks,
+            pendingChunkKeys,
+            grassColormapData,
+            foliageColormapData,
+            tallGrassMaterial,
+            getResolvedBiome,
+            torchContainer,
+            placedTorches,
+            onChunkAdded: (data) => {
+              spawnEntitiesForChunk(scene, chunkKey(data.cx, data.cz), data.cx, data.cz)
+              const keyNum = chunkKeyNumeric(data.cx, data.cz)
+              if (discoveredChunkKeys.has(keyNum) && data.heightmapBuffer) {
+                writeHeightmap(WORLD_SEED, keyNum, data.heightmapBuffer, data.biomeMapBuffer)
+              }
+            },
+            onChunkChanged: () => {
+              raycastMeshCache.markDirty()
+              _frustumDirty = true
+              applyPendingSpawnIfReady()
+              applyPendingLoadIfReady()
+            },
+>>>>>>> dev
           },
-          onChunkChanged: () => {
-            raycastMeshCache.markDirty()
-            _frustumDirty = true
-            applyPendingSpawnIfReady()
-            applyPendingLoadIfReady()
-          },
-        },
-        WORLD_SEED,
+          WORLD_SEED,
+        ),
       ),
     onError: (message, error) => {
       console.error(
@@ -1969,7 +2283,7 @@ function initPlayerAndWorldApi(resolvedSpawn: { x: number; z: number }): void {
           [x0, y0, z0 - 1],
         ]
         for (const [nx, ny, nz] of neighbors) {
-          if (ny < 0 || ny >= WORLD_HEIGHT) continue
+          if (ny < WORLD_MIN_Y || ny >= WORLD_MIN_Y + WORLD_HEIGHT) continue
           const key = blockKeyNumeric(nx, ny, nz)
           if (visited.has(key)) continue
           const bt = getBlockAt(nx, ny, nz)
@@ -2047,7 +2361,7 @@ function initControlsAndInput(): void {
         attackState = 'slashing'
         slashPhase = 0
         slashHitCheckedThisCycle = false
-        currentSlashVariant = SLASH_VARIANTS[Math.floor(Math.random() * SLASH_VARIANTS.length)]
+        currentSlashVariant = SLASH_VARIANTS[randomInt(0, SLASH_VARIANTS.length - 1)]
       }
     }
     if (e.button === 2) {
@@ -2127,6 +2441,14 @@ const waterHorizontalSpeedFactor = 0.51 // ~Minecraft surface speed vs walk
 /** Max vertical speed in water (clamp for smoother feel). */
 const waterVerticalSpeedCap = 2.8
 
+// Fly (Creative-like): world units per second, frame-rate independent
+/** Double-tap jump window for toggling fly. */
+const DOUBLE_TAP_JUMP_WINDOW_MS = 260
+const flySpeed = 7.2
+const flySpeedSprint = 10.8
+const flyUpSpeed = 6.5
+const flyDownSpeed = 6.5
+
 // ================= PHYSICS (all per-second for frame-rate independence) =================
 
 let velocityY = 0
@@ -2134,6 +2456,10 @@ let velocityX = 0
 let velocityZ = 0
 /** Set each frame from resolveVoxelCollisions result; used for jump (Space) and next-frame friction/air control. */
 let playerGrounded = false
+/** When true, movement uses Creative-like fly controls (no gravity; collision still applies). */
+let isFlying = false
+/** Last non-repeat jump keydown time; used for double-tap fly toggle. */
+let lastJumpPressTime = 0
 /** When DEBUG_COLLISION is true: skip this many frames before logging again (avoids console flood). */
 let debugCollisionLogCooldown = 0
 /** Gesetzt bei Space keydown; wird zu Beginn des nächsten Frames ausgewertet, damit der Sprung sofort in der Physik ankommt. */
@@ -2191,7 +2517,23 @@ document.addEventListener('keydown', (e) => {
 
   if (code === 'KeyP' && !e.repeat) {
     e.preventDefault()
-    toggleTerrainDebug(terrainDebug)
+    if (e.shiftKey) {
+      toggleTerrainDebugDetails(terrainDebug)
+    } else {
+      toggleTerrainDebug(terrainDebug)
+    }
+    return
+  }
+
+  if (code === 'KeyL' && e.shiftKey && !e.repeat) {
+    e.preventDefault()
+    toggleTerrainDebugColumnLock(terrainDebug, player)
+    return
+  }
+
+  if (code === 'KeyC' && e.shiftKey && !e.repeat) {
+    e.preventDefault()
+    void copyTerrainDebugReport(terrainDebug)
     return
   }
 
@@ -2260,7 +2602,24 @@ document.addEventListener('keydown', (e) => {
   if (code === getKeyBinding('jump')) {
     if (!e.repeat) {
       jumpRequested = true
-      if (playerGrounded && !isPlayerInWater()) velocityY = jumpForce
+      const inWater = isPlayerInWater()
+      const now = performance.now()
+      const withinDoubleTapWindow =
+        lastJumpPressTime > 0 && now - lastJumpPressTime < DOUBLE_TAP_JUMP_WINDOW_MS
+
+      // Creative-like fly toggle: only when in air (not grounded) and not in water.
+      if (!inWater && !playerGrounded && withinDoubleTapWindow) {
+        isFlying = !isFlying
+        if (isFlying) {
+          // Stop falling immediately and avoid an instant upward impulse.
+          velocityY = 0
+          jumpRequested = false
+        }
+      } else if (!isFlying && playerGrounded && !inWater) {
+        velocityY = jumpForce
+      }
+
+      lastJumpPressTime = now
     }
     e.preventDefault()
     return
@@ -2319,13 +2678,140 @@ let fpsEl: HTMLElement | null = null
 let lastFps: number | null = null
 const terrainDebug: TerrainDebugState = createTerrainDebugState()
 
+type PerfSection =
+  | 'chunkApply'
+  | 'chunkVisibility'
+  | 'movementCollision'
+  | 'raycast'
+  | 'blockInteraction'
+  | 'render'
+  | 'frameTotal'
+
+interface PerfBucket {
+  totalMs: number
+  maxMs: number
+  samples: number
+}
+
+/** Performance sections included in periodic debug reports. */
+const PERF_SECTIONS: PerfSection[] = [
+  'chunkApply',
+  'chunkVisibility',
+  'movementCollision',
+  'raycast',
+  'blockInteraction',
+  'render',
+  'frameTotal',
+]
+/** Interval between perf reports when profiling is enabled. */
+const PERF_REPORT_INTERVAL_MS = 2000
+const perfBuckets = new Map<PerfSection, PerfBucket>()
+let perfProfilingEnabled = false
+let perfLastReportAtMs = performance.now()
+
+/**
+ * Resets accumulated perf timing buckets.
+ */
+function resetPerfBuckets(): void {
+  perfBuckets.clear()
+  for (const section of PERF_SECTIONS) {
+    perfBuckets.set(section, { totalMs: 0, maxMs: 0, samples: 0 })
+  }
+}
+
+/**
+ * Enables or disables frame performance profiling.
+ */
+function setPerfProfilingEnabled(enabled: boolean): void {
+  perfProfilingEnabled = enabled
+  resetPerfBuckets()
+  perfLastReportAtMs = performance.now()
+}
+
+/**
+ * Returns whether frame performance profiling is currently active.
+ */
+function isPerfProfilingEnabled(): boolean {
+  return perfProfilingEnabled
+}
+
+/**
+ * Records one elapsed timing sample for the given perf section.
+ */
+function recordPerfSample(section: PerfSection, elapsedMs: number): void {
+  if (!perfProfilingEnabled) return
+  const bucket = perfBuckets.get(section)
+  if (!bucket) return
+  bucket.totalMs += elapsedMs
+  bucket.samples++
+  if (elapsedMs > bucket.maxMs) bucket.maxMs = elapsedMs
+}
+
+/**
+ * Measures and records elapsed time for a void callback when profiling is enabled.
+ */
+function withPerfTiming(section: PerfSection, fn: () => void): void {
+  if (!perfProfilingEnabled) {
+    fn()
+    return
+  }
+  const start = performance.now()
+  fn()
+  recordPerfSample(section, performance.now() - start)
+}
+
+/**
+ * Measures and records elapsed time for a callback that returns a value.
+ */
+function withPerfTimingResult<T>(section: PerfSection, fn: () => T): T {
+  if (!perfProfilingEnabled) return fn()
+  const start = performance.now()
+  const value = fn()
+  recordPerfSample(section, performance.now() - start)
+  return value
+}
+
+/**
+ * Logs accumulated perf stats to the console and clears the current window.
+ */
+function reportPerfStatsNow(): void {
+  if (!perfProfilingEnabled) return
+  const lines = PERF_SECTIONS.map((section) => {
+    const bucket = perfBuckets.get(section)!
+    const avgMs = bucket.samples > 0 ? bucket.totalMs / bucket.samples : 0
+    return `${section}: avg ${avgMs.toFixed(2)} ms | max ${bucket.maxMs.toFixed(2)} ms | n=${bucket.samples}`
+  })
+  console.log(`[perf] ${new Date().toISOString()}\n${lines.join('\n')}`)
+  resetPerfBuckets()
+  perfLastReportAtMs = performance.now()
+}
+
+/**
+ * Emits a periodic perf report when profiling is enabled.
+ */
+function reportPerfStatsIfDue(nowMs: number): void {
+  if (!perfProfilingEnabled) return
+  if (nowMs - perfLastReportAtMs < PERF_REPORT_INTERVAL_MS) return
+  reportPerfStatsNow()
+}
+
 /**
  * Applies pending spawn or load when worker chunks are ready, updates terrain debug overlay (with FPS), and refreshes FPS display every 500 ms.
  */
 function updateFPSAndSpawn(time: number): void {
   applyPendingSpawnIfReady()
   applyPendingLoadIfReady()
-  updateTerrainDebugOverlaySystem(terrainDebug, time, player, { fps: lastFps })
+  const inWater = isPlayerInWater()
+  const currentAimed = aimedBlock
+  const aimedType = currentAimed
+    ? getBlockAt(currentAimed.x, currentAimed.y, currentAimed.z)
+    : null
+  updateTerrainDebugOverlaySystem(terrainDebug, time, player, {
+    fps: lastFps,
+    inWater,
+    aimedBlock: currentAimed,
+    aimedBlockType: aimedType,
+  })
   fpsFrameCount++
   const fpsElapsed = time * 1000 - fpsLastTime
   if (fpsElapsed >= 500) {
@@ -2391,9 +2877,9 @@ function updateDayCycleAndAtmosphere(dt: number): void {
     // If underwater, atmosphere sets a short fog range; keep that.
     if (scene.fog.far > 50) {
       const rd = getRenderDistance()
-      const farStart = Math.max(2, rd - 2)
+      const farStart = Math.max(2, rd - 1)
       scene.fog.near = Math.max(10, farStart * CHUNK_SIZE * FOG_NEAR_CHUNK_FACTOR)
-      scene.fog.far = Math.max(scene.fog.near + 10, rd * CHUNK_SIZE * FOG_FAR_CHUNK_FACTOR)
+      scene.fog.far = Math.max(scene.fog.near + 12, rd * CHUNK_SIZE * FOG_FAR_CHUNK_FACTOR)
     }
   }
   syncTerrainFogFromSceneFog(scene)
@@ -2445,15 +2931,19 @@ function updateChunkVisibility(): void {
 
 /** Vertical offset from feet: player is "in water" when (position.y + offset) is below water surface. Avoids triggering on shallow contact. */
 const WATER_ENTRY_OFFSET = PLAYER_HEIGHT * 0.2
+/** Biomes where the natural sea-level water plane can apply. */
+const NATURAL_WATER_BIOMES = new Set(['ocean', 'river', 'frozen_river'])
+/** Refresh cadence for quest NPC icon state (seconds). */
+const QUEST_ICON_REFRESH_INTERVAL_SEC = 0.25
+/** Last game-time timestamp when quest NPC icons were refreshed. */
+let lastQuestIconRefreshTime = 0
 
 /**
- * True when the player is considered submerged in water. Requires both being below the global water surface and
- * actually occupying a water voxel (so caves below sea level are not treated as water).
+ * True when the player is considered submerged in water.
+ * Supports both voxel water (placed/flowing) and natural ocean columns while avoiding cave false positives.
  */
 function isPlayerInWater(): boolean {
   const waterSurfaceY = WATER_LEVEL + WATER_BLOCK_HEIGHT
-  if (player.position.y + WATER_ENTRY_OFFSET >= waterSurfaceY) return false
-
   const bx = Math.floor(player.position.x)
   const bz = Math.floor(player.position.z)
   const byFeet = Math.floor(player.position.y)
@@ -2463,7 +2953,13 @@ function isPlayerInWater(): boolean {
     const block = getBlockAt(bx, by, bz)
     if (block !== null && isWaterBlock(block)) return true
   }
-  return false
+
+  // Natural sea-level water plane: only in water biomes, below sea surface, and above local terrain.
+  if (!NATURAL_WATER_BIOMES.has(getResolvedBiome(bx, bz))) return false
+  if (player.position.y + WATER_ENTRY_OFFSET >= waterSurfaceY) return false
+  const topY = getHeight(bx, bz)
+  if (topY > WATER_LEVEL) return false
+  return player.position.y + WATER_ENTRY_OFFSET > topY
 }
 
 /**
@@ -2472,6 +2968,7 @@ function isPlayerInWater(): boolean {
 function updateMovementAndCollision(dt: number, time: number): void {
   const inWater = isPlayerInWater()
   isSprinting = moveState.forward && !sneakKeyHeld && (sprintKeyHeld || doubleTapSprint)
+  const isFlyingThisFrame = isFlying && !inWater
   let speed = sneakKeyHeld ? sneakSpeed : isSprinting ? sprintSpeed : moveSpeed
   let backSpeed = sneakKeyHeld ? sneakSpeed : moveSpeed
   let maxSpeed = sneakKeyHeld
@@ -2483,6 +2980,11 @@ function updateMovementAndCollision(dt: number, time: number): void {
     speed *= waterHorizontalSpeedFactor
     backSpeed *= waterHorizontalSpeedFactor
     maxSpeed *= waterHorizontalSpeedFactor
+  }
+  if (isFlyingThisFrame) {
+    speed = isSprinting ? flySpeedSprint : flySpeed
+    backSpeed = speed
+    maxSpeed = speed
   }
 
   // POV-FOV: beim Sprint etwas zoomen (größeres FOV = schnellerer Eindruck)
@@ -2555,7 +3057,7 @@ function updateMovementAndCollision(dt: number, time: number): void {
       }
     }
   } else {
-    if (jumpRequested && playerGrounded) {
+    if (!isFlyingThisFrame && jumpRequested && playerGrounded) {
       velocityY = jumpForce
       jumpRequested = false
     }
@@ -2563,26 +3065,34 @@ function updateMovementAndCollision(dt: number, time: number): void {
 
   const onGround = playerGrounded
 
-  if (onGround) {
+  if (isFlyingThisFrame) {
     velocityX = wishX
     velocityZ = wishZ
-    if (wishX === 0 && wishZ === 0) {
-      velocityX *= Math.pow(groundFriction, dt)
-      velocityZ *= Math.pow(groundFriction, dt)
-    }
+    if (jumpRequested) velocityY = flyUpSpeed
+    else if (sneakKeyHeld) velocityY = -flyDownSpeed
+    else velocityY = 0
   } else {
-    velocityX += wishX * airControl * dt
-    velocityZ += wishZ * airControl * dt
-    const len = Math.sqrt(velocityX * velocityX + velocityZ * velocityZ)
-    if (len > maxSpeed) {
-      const s = maxSpeed / len
-      velocityX *= s
-      velocityZ *= s
+    if (onGround) {
+      velocityX = wishX
+      velocityZ = wishZ
+      if (wishX === 0 && wishZ === 0) {
+        velocityX *= Math.pow(groundFriction, dt)
+        velocityZ *= Math.pow(groundFriction, dt)
+      }
+    } else {
+      velocityX += wishX * airControl * dt
+      velocityZ += wishZ * airControl * dt
+      const len = Math.sqrt(velocityX * velocityX + velocityZ * velocityZ)
+      if (len > maxSpeed) {
+        const s = maxSpeed / len
+        velocityX *= s
+        velocityZ *= s
+      }
     }
   }
 
   // Apply gravity only when not grounded and not in water (water has its own vertical behaviour)
-  if (!playerGrounded && !inWater) {
+  if (!isFlyingThisFrame && !playerGrounded && !inWater) {
     velocityY += gravity * dt
     if (velocityY < terminalVelocity) velocityY = terminalVelocity
   }
@@ -2592,6 +3102,7 @@ function updateMovementAndCollision(dt: number, time: number): void {
     ? { x: player.position.x, y: player.position.y, z: player.position.z }
     : null
   const collisionDebug: CollisionDebug | undefined = DEBUG_COLLISION ? { snaps: [] } : undefined
+  const wasGroundedAtStartOfFrame = playerGrounded
   const collisionResult = resolveVoxelCollisions(
     player.position,
     vel,
@@ -2600,7 +3111,8 @@ function updateMovementAndCollision(dt: number, time: number): void {
     PLAYER_HALF,
     PLAYER_HEIGHT,
     collisionDebug,
-    inWater,
+    inWater || playerGrounded,
+    wasGroundedAtStartOfFrame,
   )
   velocityX = vel.x
   velocityY = vel.y
@@ -2633,7 +3145,10 @@ function updateMovementAndCollision(dt: number, time: number): void {
   })
   updateAnimation(time)
   updateHurtFlash(time)
-  updateAllQuestNpcIcons(getAllEntities)
+  if (time - lastQuestIconRefreshTime >= QUEST_ICON_REFRESH_INTERVAL_SEC) {
+    updateAllQuestNpcIcons(getAllEntities)
+    lastQuestIconRefreshTime = time
+  }
 }
 
 /**
@@ -2872,7 +3387,7 @@ function updateCameraAndViewMode(time: number, dt: number): void {
             }
             const dropSize = 0.35
             let groundY = pos.y - 0.5
-            for (let by = Math.floor(pos.y - 1); by >= 0; by--) {
+            for (let by = Math.floor(pos.y - 1); by >= WORLD_MIN_Y; by--) {
               const t = getBlockAt(pos.x, by, pos.z)
               if (t !== null && t !== 'air' && isBlockTypeSolid(t as BlockType)) {
                 groundY = by + getBlockHeight(t as BlockType)
@@ -2883,8 +3398,8 @@ function updateCameraAndViewMode(time: number, dt: number): void {
             const loot = rollLoot(deadKind)
             for (const { item, count } of loot) {
               for (let i = 0; i < count; i++) {
-                const offsetX = (Math.random() - 0.5) * 0.4
-                const offsetZ = (Math.random() - 0.5) * 0.4
+                const offsetX = (randomFloat() - 0.5) * 0.4
+                const offsetZ = (randomFloat() - 0.5) * 0.4
                 spawnDropItem({
                   scene,
                   drops,
@@ -2922,35 +3437,65 @@ function updateCameraAndViewMode(time: number, dt: number): void {
       povHands.rotation.y = arc * SLASH_HAND_ROTATION_Y * v.y
       povHands.rotation.x = arc * SLASH_HAND_ROTATION_X * v.x
       povHands.rotation.z = arc * SLASH_HAND_ROTATION_X * v.z
-      povHands.position.set(0, 0, 0)
-      povArm.rotation.x = POV_ARM_BASE_ROTATION_X
-      povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
-      povArm.rotation.z = POV_ARM_BASE_ROTATION_Z
+      const targetPosX = 0
+      const targetPosY = 0
+      const targetPosZ = 0
+      const targetArmX = POV_ARM_BASE_ROTATION_X
+      const targetArmY = POV_ARM_BASE_ROTATION_Y
+      const targetArmZ = POV_ARM_BASE_ROTATION_Z
+      povHandAnimX += (targetPosX - povHandAnimX) * POV_HAND_LERP
+      povHandAnimY += (targetPosY - povHandAnimY) * POV_HAND_LERP
+      povHandAnimZ += (targetPosZ - povHandAnimZ) * POV_HAND_LERP
+      povArmRotX += (targetArmX - povArmRotX) * POV_ARM_LERP
+      povArmRotY += (targetArmY - povArmRotY) * POV_ARM_LERP
+      povArmRotZ += (targetArmZ - povArmRotZ) * POV_ARM_LERP
+      povHands.position.set(povHandAnimX, povHandAnimY, povHandAnimZ)
+      povArm.rotation.x = povArmRotX
+      povArm.rotation.y = povArmRotY
+      povArm.rotation.z = povArmRotZ
     } else if (isMining) {
       miningSwingPhase += dt
       const swing = Math.sin(miningSwingPhase * 14) * 0.52
-      povArm.rotation.x = POV_ARM_BASE_ROTATION_X + swing
-      povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
-      povArm.rotation.z = POV_ARM_BASE_ROTATION_Z
       const pullZ = 0.02 + Math.max(0, Math.sin(miningSwingPhase * 14)) * 0.04
-      povHands.position.set(0, 0, pullZ)
+      const targetPosX = 0
+      const targetPosY = 0
+      const targetPosZ = pullZ
+      const targetArmX = POV_ARM_BASE_ROTATION_X + swing
+      const targetArmY = POV_ARM_BASE_ROTATION_Y
+      const targetArmZ = POV_ARM_BASE_ROTATION_Z
+      povHandAnimX += (targetPosX - povHandAnimX) * POV_HAND_LERP
+      povHandAnimY += (targetPosY - povHandAnimY) * POV_HAND_LERP
+      povHandAnimZ += (targetPosZ - povHandAnimZ) * POV_HAND_LERP
+      povArmRotX += (targetArmX - povArmRotX) * POV_ARM_LERP
+      povArmRotY += (targetArmY - povArmRotY) * POV_ARM_LERP
+      povArmRotZ += (targetArmZ - povArmRotZ) * POV_ARM_LERP
+      povHands.position.set(povHandAnimX, povHandAnimY, povHandAnimZ)
+      povArm.rotation.x = povArmRotX
+      povArm.rotation.y = povArmRotY
+      povArm.rotation.z = povArmRotZ
       povHands.rotation.y = 0
       povHands.rotation.z = 0
     } else {
       miningSwingPhase = 0
-      povArm.rotation.x = POV_ARM_BASE_ROTATION_X
-      povArm.rotation.y = POV_ARM_BASE_ROTATION_Y
-      povArm.rotation.z = POV_ARM_BASE_ROTATION_Z
       const isMoving = moveState.forward || moveState.back || moveState.left || moveState.right
       const wiggleSpeed = 14
       const wiggleAmount = 0.028
-      const targetX = 0
-      const targetY = isMoving ? Math.sin(time * wiggleSpeed * 0.5) * -0.008 : 0
-      const targetZ = isMoving ? Math.sin(time * wiggleSpeed) * wiggleAmount : 0
-      povHandAnimX += (targetX - povHandAnimX) * POV_HAND_LERP
-      povHandAnimY += (targetY - povHandAnimY) * POV_HAND_LERP
-      povHandAnimZ += (targetZ - povHandAnimZ) * POV_HAND_LERP
+      const targetPosX = 0
+      const targetPosY = isMoving ? Math.sin(time * wiggleSpeed * 0.5) * -0.008 : 0
+      const targetPosZ = isMoving ? Math.sin(time * wiggleSpeed) * wiggleAmount : 0
+      const targetArmX = POV_ARM_BASE_ROTATION_X
+      const targetArmY = POV_ARM_BASE_ROTATION_Y
+      const targetArmZ = POV_ARM_BASE_ROTATION_Z
+      povHandAnimX += (targetPosX - povHandAnimX) * POV_HAND_LERP
+      povHandAnimY += (targetPosY - povHandAnimY) * POV_HAND_LERP
+      povHandAnimZ += (targetPosZ - povHandAnimZ) * POV_HAND_LERP
+      povArmRotX += (targetArmX - povArmRotX) * POV_ARM_LERP
+      povArmRotY += (targetArmY - povArmRotY) * POV_ARM_LERP
+      povArmRotZ += (targetArmZ - povArmRotZ) * POV_ARM_LERP
       povHands.position.set(povHandAnimX, povHandAnimY, povHandAnimZ)
+      povArm.rotation.x = povArmRotX
+      povArm.rotation.y = povArmRotY
+      povArm.rotation.z = povArmRotZ
       povHands.rotation.y = 0
       povHands.rotation.z = 0
     }
@@ -3086,7 +3631,7 @@ function runBlockTick(time: number): void {
     if (value === 'air') continue
     const match = /^wheat_([1-7])$/.exec(value)
     if (!match) continue
-    if (Math.random() >= WHEAT_GROWTH_PROBABILITY) continue
+    if (randomFloat() >= WHEAT_GROWTH_PROBABILITY) continue
     const stage = parseInt(match[1], 10)
     const parts = keyStr.split(',')
     const bx = Number(parts[0])
@@ -3100,12 +3645,45 @@ function runBlockTick(time: number): void {
       next: `wheat_${stage + 1}` as BlockType,
     })
   }
-  for (const { keyStr, bx, next } of changes) {
-    blockModifications.set(keyStr, next)
-    const parts = keyStr.split(',')
-    const by = Number(parts[1])
-    const bz2 = Number(parts[2])
-    applyBlockChangeToLoadedChunk({ bx, by, bz: bz2, next })
+  for (const { bx, by, bz, next } of changes) {
+    setBlockModification(bx, by, bz, next)
+    applyBlockChangeToLoadedChunk({ bx, by, bz, next })
+  }
+}
+
+/**
+ * Runs gravity updates for falling blocks (sand/red_sand/gravel): unsupported blocks move down by one cell.
+ */
+function runFallingBlocksTick(time: number): void {
+  if (time - lastFallingBlockTime < FALLING_BLOCK_INTERVAL_SEC) return
+  lastFallingBlockTime = time
+  if (activeFallingCells.size === 0) return
+
+  const candidates = Array.from(activeFallingCells.values())
+  activeFallingCells.clear()
+
+  const moves = computeFallingBlockMoves({
+    getBlockAt,
+    candidates,
+    maxMovesPerTick: FALLING_BLOCK_MAX_MOVES_PER_TICK,
+  })
+
+  for (const move of moves) {
+    setBlockModification(move.fromX, move.fromY, move.fromZ, 'air')
+    applyBlockChangeToLoadedChunk({
+      bx: move.fromX,
+      by: move.fromY,
+      bz: move.fromZ,
+      next: 'air',
+    })
+
+    setBlockModification(move.toX, move.toY, move.toZ, move.blockType)
+    applyBlockChangeToLoadedChunk({
+      bx: move.toX,
+      by: move.toY,
+      bz: move.toZ,
+      next: move.blockType,
+    })
   }
 }
 
@@ -3113,45 +3691,20 @@ function runBlockTick(time: number): void {
 const WATER_SPREAD_MAX_CHANGES_PER_TICK = 40
 
 /**
- * Runs water flow every WATER_SPREAD_INTERVAL_SEC: collects water block positions from loaded chunks and blockMods,
- * computes spread (fall then horizontal), applies changes via blockModifications and refreshChunkVisibleMeshes.
+ * Runs water flow every WATER_SPREAD_INTERVAL_SEC for active water cells near recent changes.
+ * Computes spread (fall then horizontal) and applies resulting block modifications.
  */
 function runWaterFlowTick(time: number): void {
   if (time - lastWaterSpreadTime < WATER_SPREAD_INTERVAL_SEC) return
   lastWaterSpreadTime = time
+  if (activeWaterCells.size === 0) return
 
-  const waterPositions: Array<{ bx: number; by: number; bz: number }> = []
-  const seen = new Set<string>()
-
-  for (const [, data] of chunks) {
-    const worldX = data.cx * CHUNK_SIZE
-    const worldZ = data.cz * CHUNK_SIZE
-    for (const [key, type] of data.voxelMap) {
-      if (!isWaterBlock(type)) continue
-      const { lx, ly, lz } = decodeLocalKey(key)
-      const bx = worldX + lx
-      const bz = worldZ + lz
-      const k = `${bx},${ly},${bz}`
-      if (seen.has(k)) continue
-      const effective = getBlockAt(bx, ly, bz)
-      if (effective === null || !isWaterBlock(effective)) continue
-      seen.add(k)
-      waterPositions.push({ bx, by: ly, bz })
-    }
-  }
-  for (const [keyStr, value] of blockModifications) {
-    if (!isWaterBlock(value)) continue
-    const parts = keyStr.split(',')
-    const bx = Number(parts[0])
-    const by = Number(parts[1])
-    const bz = Number(parts[2])
-    const cx = Math.floor(bx / CHUNK_SIZE)
-    const cz = Math.floor(bz / CHUNK_SIZE)
-    if (!chunks.has(chunkKeyNumeric(cx, cz))) continue
-    if (seen.has(keyStr)) continue
-    seen.add(keyStr)
-    waterPositions.push({ bx, by, bz })
-  }
+  const waterPositions = Array.from(activeWaterCells.values()).filter(({ bx, by, bz }) => {
+    const type = getBlockAt(bx, by, bz)
+    return type !== null && isWaterBlock(type)
+  })
+  activeWaterCells.clear()
+  if (waterPositions.length === 0) return
 
   // Process higher blocks first, then lower water level (source before flowing) for deterministic "fall first" behaviour.
   waterPositions.sort((a, b) => {
@@ -3169,21 +3722,10 @@ function runWaterFlowTick(time: number): void {
   })
 
   for (const { bx, by, bz, value } of changes) {
-    const keyStr = blockKeyString(bx, by, bz)
-    blockModifications.set(keyStr, value)
+    setBlockModification(bx, by, bz, value)
     applyBlockChangeToLoadedChunk({ bx, by, bz, next: value })
   }
 }
-
-/** Neighbor offsets for 6 directions (for immediate water spread when a block is broken). */
-const NEIGHBOR_OFFSETS: Array<[number, number, number]> = [
-  [1, 0, 0],
-  [-1, 0, 0],
-  [0, 1, 0],
-  [0, -1, 0],
-  [0, 0, 1],
-  [0, 0, -1],
-]
 
 /**
  * Runs one water spread pass from the neighbors of (bx, by, bz).
@@ -3197,6 +3739,9 @@ function runWaterSpreadFromNeighbors(bx: number, by: number, bz: number): void {
     const nz = bz + dz
     const t = getBlockAt(nx, ny, nz)
     if (t !== null && isWaterBlock(t)) waterPositions.push({ bx: nx, by: ny, bz: nz })
+  }
+  for (const cell of waterPositions) {
+    addActiveCell(activeWaterCells, cell.bx, cell.by, cell.bz)
   }
   if (waterPositions.length === 0) return
 
@@ -3216,8 +3761,7 @@ function runWaterSpreadFromNeighbors(bx: number, by: number, bz: number): void {
   })
 
   for (const { bx: cx, by: cy, bz: cz, value } of changes) {
-    const keyStr = blockKeyString(cx, cy, cz)
-    blockModifications.set(keyStr, value)
+    setBlockModification(cx, cy, cz, value)
     applyBlockChangeToLoadedChunk({ bx: cx, by: cy, bz: cz, next: value })
   }
 }
@@ -3261,9 +3805,96 @@ function pointInAnyEntityAABB(x: number, y: number, z: number): boolean {
 }
 
 /**
+ * Resolves a raycaster hit to block world coordinates and type. Handles instanced meshes, worker geometry, and snow-layer preference.
+ * @param hit - First hit from raycaster.intersectObjects(getRaycastMeshes()).
+ * @returns Block position and type, or null if not a solid block.
+ */
+function resolveRaycastHitToBlock(
+  hit: THREE.Intersection,
+): { x: number; y: number; z: number; blockType: BlockType; chunkKeyNum: number } | null {
+  if (!hit.face) return null
+  const faceNormal = new THREE.Vector3()
+    .copy(hit.face.normal)
+    .transformDirection(hit.object.matrixWorld)
+
+  /** When aiming at the top of a block that has snow on it, prefer the snow layer. */
+  function preferSnowLayerIfAimingAbove(
+    bx: number,
+    by: number,
+    bz: number,
+    hitPointY: number,
+  ): { x: number; y: number; z: number; blockType: BlockType; chunkKeyNum: number } | null {
+    if (hitPointY < by + 0.5) return null
+    if (by >= WORLD_MAX_Y) return null
+    const above = getBlockAt(bx, by + 1, bz)
+    if (above === null || above === 'air') return null
+    if (!/^snow_layer_[1-8]$/.test(above)) return null
+    return {
+      x: bx,
+      y: by + 1,
+      z: bz,
+      blockType: above as BlockType,
+      chunkKeyNum: chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE)),
+    }
+  }
+
+  if (hit.object instanceof THREE.InstancedMesh && hit.instanceId !== undefined) {
+    const ud = hit.object.userData as { chunkKeyNum: number; blockType: BlockType }
+    let chunkKeyNum = ud.chunkKeyNum
+    let blockType = ud.blockType
+    let pos = getBlockWorldPosition(chunkKeyNum, blockType, hit.instanceId)
+    const snowPrefer = pos
+      ? preferSnowLayerIfAimingAbove(pos.x, pos.y, pos.z, hit.point.y)
+      : null
+    if (snowPrefer) {
+      chunkKeyNum = snowPrefer.chunkKeyNum
+      blockType = snowPrefer.blockType
+      pos = { x: snowPrefer.x, y: snowPrefer.y, z: snowPrefer.z }
+    }
+    if (!pos) return null
+    return { x: pos.x, y: pos.y, z: pos.z, blockType, chunkKeyNum }
+  }
+
+  let bx = Math.floor(hit.point.x - faceNormal.x * 0.01)
+  let by = Math.floor(hit.point.y - faceNormal.y * 0.01)
+  let bz = Math.floor(hit.point.z - faceNormal.z * 0.01)
+  let at = getBlockAt(bx, by, bz)
+  const snowPrefer =
+    at !== null && at !== 'air' ? preferSnowLayerIfAimingAbove(bx, by, bz, hit.point.y) : null
+  if (snowPrefer) {
+    bx = snowPrefer.x
+    by = snowPrefer.y
+    bz = snowPrefer.z
+    at = snowPrefer.blockType
+  }
+  if (at === null || at === 'air') return null
+  const chunkKeyNum = chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE))
+  return { x: bx, y: by, z: bz, blockType: at, chunkKeyNum }
+}
+
+/**
  * Handles block break (hold-to-mine with progress, raycast to block), block/torch place (right-click or F), and block-crack overlay updates.
  */
 function updateBlockBreakAndPlace(dt: number, time: number): void {
+  // Aimed block (for outline): one raycast per frame when pointer lock is active.
+  let currentHit: THREE.Intersection | null = null
+  let currentResolved: ReturnType<typeof resolveRaycastHitToBlock> = null
+  if (document.pointerLockElement === renderer.domElement && camera) {
+    rayOrigin.copy(camera.position)
+    camera.getWorldDirection(rayDirection)
+    raycaster.set(rayOrigin, rayDirection)
+    raycaster.far = BREAK_DISTANCE
+    const blockMeshesAimed = getRaycastMeshes()
+    const hitsAimed = withPerfTimingResult('raycast', () => raycaster.intersectObjects(blockMeshesAimed))
+    currentHit = hitsAimed[0]?.face ? hitsAimed[0] : null
+    currentResolved = currentHit ? resolveRaycastHitToBlock(currentHit) : null
+    aimedBlock = currentResolved ? { x: currentResolved.x, y: currentResolved.y, z: currentResolved.z } : null
+  } else {
+    aimedBlock = null
+    currentHit = null
+    currentResolved = null
+  }
+
   // Place (right-click or F): torch or block; F works without pointer lock
   const placeRequested =
     (rightMouseJustPressed && document.pointerLockElement === renderer.domElement) ||
@@ -3271,10 +3902,14 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
   if (placeRequested && camera) {
     rayOrigin.copy(camera.position)
     camera.getWorldDirection(rayDirection)
-    const entityHit = raycastEntities(rayOrigin, rayDirection, PLACE_DISTANCE)
+    const entityHit = withPerfTimingResult('raycast', () =>
+      raycastEntities(rayOrigin, rayDirection, PLACE_DISTANCE),
+    )
     if (entityHit?.entity.questGiver && onQuestNpcInteract) {
       rightMouseJustPressed = false
       fKeyJustPressed = false
+      const talkTargetId = entityHit.entity.questGiver.talkTargetId ?? entityHit.entity.id
+      notifyQuestTalk(talkTargetId)
       onQuestNpcInteract(entityHit.entity.questGiver)
       return
     }
@@ -3283,7 +3918,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     raycaster.set(rayOrigin, rayDirection)
     raycaster.far = PLACE_DISTANCE
     const blockMeshesPlace = getRaycastMeshes()
-    const placeHits = raycaster.intersectObjects(blockMeshesPlace)
+    const placeHits = withPerfTimingResult('raycast', () => raycaster.intersectObjects(blockMeshesPlace))
     const placeHit = placeHits[0]
     if (!placeHit || !placeHit.face) {
       if (isPlaceDebug()) {
@@ -3323,10 +3958,10 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
           const below = getBlockAt(useBx, useBy - 1, useBz)
           const isDoor = (t: string | null) => t === 'door_closed' || t === 'door_open'
           const otherBy = isDoor(above) ? useBy + 1 : isDoor(below) ? useBy - 1 : null
-          blockModifications.set(blockKeyString(useBx, useBy, useBz), next)
+          setBlockModification(useBx, useBy, useBz, next)
           applyBlockChangeToLoadedChunk({ bx: useBx, by: useBy, bz: useBz, next })
           if (otherBy !== null) {
-            blockModifications.set(blockKeyString(useBx, otherBy, useBz), next)
+            setBlockModification(useBx, otherBy, useBz, next)
             applyBlockChangeToLoadedChunk({ bx: useBx, by: otherBy, bz: useBz, next })
           }
         } else if (useBlock === 'crafting_table') {
@@ -3384,7 +4019,6 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             const py = player.position.y
             const pz = player.position.z
             const at = getBlockAt(adjX, adjY, adjZ)
-            const keyStr = blockKeyString(adjX, adjY, adjZ)
             const blockOverlapsEntity = blockCellOverlapsAnyEntity(adjX, adjY, adjZ)
 
             /**
@@ -3401,7 +4035,8 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
               if (sel === 'water') return 'water_source' as BlockType
               if (isStairsBlock(sel)) {
                 const facing = quantizeFacingFromDirectionXZ(rayDirection.x, rayDirection.z)
-                return getPlacedStairsId(sel, facing) as BlockType
+                const half: StairsHalf = _direction.y < -0.5 ? 'top' : 'bottom'
+                return getPlacedStairsId(sel, facing, half) as BlockType
               }
               return sel
             })()
@@ -3471,8 +4106,8 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                   torchContainer: ctx.torchContainer,
                   placedTorches: ctx.placedTorches,
                 })
-                blockModifications.set(blockKeyString(adjX, adjY, adjZ), 'door_closed')
-                blockModifications.set(blockKeyString(adjX, adjY + 1, adjZ), 'door_closed')
+                setBlockModification(adjX, adjY, adjZ, 'door_closed')
+                setBlockModification(adjX, adjY + 1, adjZ, 'door_closed')
                 applyBlockChangeToLoadedChunk({
                   bx: adjX,
                   by: adjY,
@@ -3496,10 +4131,25 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
 
             if (blockOverlapsPlayer) {
               if (isPlaceDebug()) console.warn('Place (F): block would overlap player.')
+              const now = Date.now()
+              if (now - lastPlaceRejectMessageTime >= PLACE_REJECT_MESSAGE_THROTTLE_MS) {
+                lastPlaceRejectMessageTime = now
+                addSystemMessage("Can't place block here")
+              }
             } else if (blockOverlapsEntity) {
               if (isPlaceDebug()) console.warn('Place (F): block would overlap an entity.')
+              const now = Date.now()
+              if (now - lastPlaceRejectMessageTime >= PLACE_REJECT_MESSAGE_THROTTLE_MS) {
+                lastPlaceRejectMessageTime = now
+                addSystemMessage("Can't place block here")
+              }
             } else if (at !== null && at !== 'air' && !isReplaceableByPlacement(at)) {
               if (isPlaceDebug()) console.warn('Place (F): target cell not empty. Block at', adjX, adjY, adjZ, ':', at)
+              const now = Date.now()
+              if (now - lastPlaceRejectMessageTime >= PLACE_REJECT_MESSAGE_THROTTLE_MS) {
+                lastPlaceRejectMessageTime = now
+                addSystemMessage("Can't place block here")
+              }
             } else {
               const ctx = getChunkSyncCtx()
               removeTorchAt({
@@ -3509,7 +4159,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                 torchContainer: ctx.torchContainer,
                 placedTorches: ctx.placedTorches,
               })
-              blockModifications.set(keyStr, blockToPlace)
+              setBlockModification(adjX, adjY, adjZ, blockToPlace)
               applyBlockChangeToLoadedChunk({
                 bx: adjX,
                 by: adjY,
@@ -3525,169 +4175,57 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     }
   }
 
-  // Block-Abbau: Halten auf Block (Raycast von Kamera-Mitte, nur bei Pointer Lock). Skip when holding a weapon (left-click triggers slash instead).
+  // Block break: hold on block (uses same raycast as aimed block). Skip when holding a weapon (left-click triggers slash).
   if (document.pointerLockElement === renderer.domElement && isMouseDown && camera) {
     if (getEffectiveWeapon()) {
       breakTarget = null
       breakProgress = 0
       if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
+    } else if (!currentHit || !currentResolved) {
+      breakTarget = null
+      breakProgress = 0
+      if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
     } else {
-    rayOrigin.copy(camera.position)
-    camera.getWorldDirection(rayDirection)
-    raycaster.set(rayOrigin, rayDirection)
-    raycaster.far = BREAK_DISTANCE
-
-    const heldItem = getSelectedBlockType()
-    const blockMeshes = getRaycastMeshes()
-    const hits = raycaster.intersectObjects(blockMeshes)
-    const hit = hits[0]
-    if (hit && hit.face) {
-      _direction.copy(hit.face.normal).transformDirection(hit.object.matrixWorld)
-
-      /** When aiming at the top of a block that has snow on it, prefer breaking the snow layer. */
-      function preferSnowLayerIfAimingAbove(
-        bx: number,
-        by: number,
-        bz: number,
-        hitPointY: number,
-      ): { x: number; y: number; z: number; blockType: BlockType; chunkKeyNum: number } | null {
-        if (hitPointY < by + 0.5) return null
-        if (by + 1 >= WORLD_HEIGHT) return null
-        const above = getBlockAt(bx, by + 1, bz)
-        if (above === null || above === 'air') return null
-        if (!/^snow_layer_[1-8]$/.test(above)) return null
-        return {
-          x: bx,
-          y: by + 1,
-          z: bz,
-          blockType: above as BlockType,
-          chunkKeyNum: chunkKeyNumeric(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE)),
-        }
-      }
-
-      // Instanced path: resolve exact instance block position.
-      if (hit.object instanceof THREE.InstancedMesh && hit.instanceId !== undefined) {
-        const ud = hit.object.userData as {
-          chunkKeyNum: number
-          blockType: BlockType
-        }
-        let chunkKeyNum = ud.chunkKeyNum
-        let blockType = ud.blockType
-        let pos = getBlockWorldPosition(chunkKeyNum, blockType, hit.instanceId)
-        const snowPrefer = pos
-          ? preferSnowLayerIfAimingAbove(pos.x, pos.y, pos.z, hit.point.y)
-          : null
-        if (snowPrefer) {
-          chunkKeyNum = snowPrefer.chunkKeyNum
-          blockType = snowPrefer.blockType
-          pos = { x: snowPrefer.x, y: snowPrefer.y, z: snowPrefer.z }
-        }
-        if (!pos) {
+      _direction.copy(currentHit.face!.normal).transformDirection(currentHit.object.matrixWorld)
+      const { x, y, z, blockType, chunkKeyNum } = currentResolved
+      const heldItem = getSelectedBlockType()
+      if (isUnbreakableBlock(blockType)) {
+        breakTarget = null
+        breakProgress = 0
+      } else if (
+        breakTarget &&
+        breakTarget.chunkKeyNum === chunkKeyNum &&
+        breakTarget.blockType === blockType &&
+        breakTarget.x === x &&
+        breakTarget.y === y &&
+        breakTarget.z === z
+      ) {
+        const required = getBlockBreakTimeWithTool(blockType, heldItem)
+        breakProgress += dt
+        if (breakProgress >= required) {
+          breakBlock(chunkKeyNum, blockType, x, y, z, time)
           breakTarget = null
           breakProgress = 0
           if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
-        } else if (
-          breakTarget &&
-          breakTarget.chunkKeyNum === chunkKeyNum &&
-          breakTarget.blockType === blockType &&
-          breakTarget.x === pos.x &&
-          breakTarget.y === pos.y &&
-          breakTarget.z === pos.z
-        ) {
-          const required = getBlockBreakTimeWithTool(blockType, heldItem)
-          breakProgress += dt
-          if (breakProgress >= required) {
-            breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
-            breakTarget = null
-            breakProgress = 0
-            if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
-          }
-        } else {
-          if (!isUnbreakableBlock(blockType)) {
-            breakTarget = {
-              chunkKeyNum,
-              blockType,
-              x: pos.x,
-              y: pos.y,
-              z: pos.z,
-              faceNormal: _direction.clone(),
-            }
-            breakProgress = dt
-            const required = getBlockBreakTimeWithTool(blockType, heldItem)
-            if (required <= 0 || breakProgress >= required) {
-              breakBlock(chunkKeyNum, blockType, pos.x, pos.y, pos.z, time)
-              breakTarget = null
-              breakProgress = 0
-              if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
-            }
-          } else {
-            breakTarget = null
-            breakProgress = 0
-          }
         }
       } else {
-        // Mesh path (worker geometry): derive the hit block coordinate from point and face normal.
-        let bx = Math.floor(hit.point.x - _direction.x * 0.01)
-        let by = Math.floor(hit.point.y - _direction.y * 0.01)
-        let bz = Math.floor(hit.point.z - _direction.z * 0.01)
-        let at = getBlockAt(bx, by, bz)
-        const snowPrefer =
-          at !== null && at !== 'air' ? preferSnowLayerIfAimingAbove(bx, by, bz, hit.point.y) : null
-        if (snowPrefer) {
-          bx = snowPrefer.x
-          by = snowPrefer.y
-          bz = snowPrefer.z
-          at = snowPrefer.blockType
+        breakTarget = {
+          chunkKeyNum,
+          blockType,
+          x,
+          y,
+          z,
+          faceNormal: _direction.clone(),
         }
-        if (at === null || at === 'air') {
+        breakProgress = dt
+        const required = getBlockBreakTimeWithTool(blockType, heldItem)
+        if (required <= 0 || breakProgress >= required) {
+          breakBlock(chunkKeyNum, blockType, x, y, z, time)
           breakTarget = null
           breakProgress = 0
-        } else if (isUnbreakableBlock(at)) {
-          breakTarget = null
-          breakProgress = 0
-        } else {
-          const chunkKeyNum = chunkKeyNumeric(
-            Math.floor(bx / CHUNK_SIZE),
-            Math.floor(bz / CHUNK_SIZE),
-          )
-          if (
-            breakTarget &&
-            breakTarget.chunkKeyNum === chunkKeyNum &&
-            breakTarget.blockType === at &&
-            breakTarget.x === bx &&
-            breakTarget.y === by &&
-            breakTarget.z === bz
-          ) {
-            const required = getBlockBreakTimeWithTool(at, heldItem)
-            breakProgress += dt
-            if (breakProgress >= required) {
-              breakBlock(chunkKeyNum, at, bx, by, bz, time)
-              breakTarget = null
-              breakProgress = 0
-            }
-          } else {
-            breakTarget = {
-              chunkKeyNum,
-              blockType: at,
-              x: bx,
-              y: by,
-              z: bz,
-              faceNormal: _direction.clone(),
-            }
-            breakProgress = dt
-            const required = getBlockBreakTimeWithTool(at, heldItem)
-            if (required <= 0 || breakProgress >= required) {
-              breakBlock(chunkKeyNum, at, bx, by, bz, time)
-              breakTarget = null
-              breakProgress = 0
-            }
-          }
+          if (blockCrackElement) blockCrackElement.style.visibility = 'hidden'
         }
       }
-    } else {
-      breakTarget = null
-      breakProgress = 0
-    }
     }
   } else if (!isMouseDown) {
     breakTarget = null
@@ -3735,12 +4273,26 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
       }
     }
   }
+
+  if (blockOutlineMesh) {
+    blockOutlineMesh.visible = aimedBlock !== null
+    if (aimedBlock) {
+      blockOutlineMesh.position.set(
+        aimedBlock.x + 0.5,
+        aimedBlock.y + 0.5,
+        aimedBlock.z + 0.5,
+      )
+    }
+  }
 }
 
 /**
  * Updates shadow camera to player, recomputes chunk frustum visibility when camera or chunks changed, applies bloom params from time of day, then renders (with or without post-processing).
  */
 function updateShadowAndRender(dt: number): void {
+  if (getFogNoiseEnabled()) {
+    updateTerrainFogNoise(camera)
+  }
   updateShadowCameraForPlayer(sunLight, player.position, getSunDirection(), SUN_DISTANCE)
 
   if (!camera.matrixWorld.equals(_lastCameraMatrixWorld)) {
@@ -3791,10 +4343,12 @@ function updateQuestReachAreas(): void {
  */
 function animate(): void {
   requestAnimationFrame(animate)
+  const frameStartMs = perfProfilingEnabled ? performance.now() : 0
   const dt = Math.min(clock.getDelta(), 0.1)
   const time = performance.now() * 0.001
   updateFPSAndSpawn(time)
   updateDayCycleAndAtmosphere(dt)
+<<<<<<< HEAD
   updateChunkVisibility()
   if (!playerDead) {
     updateMovementAndCollision(dt, time)
@@ -3802,12 +4356,22 @@ function animate(): void {
     applyMobDamageToPlayer(time)
   }
   updateQuestReachAreas()
+=======
+  withPerfTiming('chunkVisibility', () => updateChunkVisibility())
+  withPerfTiming('movementCollision', () => updateMovementAndCollision(dt, time))
+>>>>>>> dev
   updateCameraAndViewMode(time, dt)
   updateDropsAndPickup(time, dt)
   runBlockTick(time)
+  runFallingBlocksTick(time)
   runWaterFlowTick(time)
-  updateBlockBreakAndPlace(dt, time)
-  updateShadowAndRender(dt)
+  withPerfTiming('blockInteraction', () => updateBlockBreakAndPlace(dt, time))
+  withPerfTiming('render', () => updateShadowAndRender(dt))
+  if (perfProfilingEnabled) {
+    const frameEndMs = performance.now()
+    recordPerfSample('frameTotal', frameEndMs - frameStartMs)
+    reportPerfStatsIfDue(frameEndMs)
+  }
 }
 
 // ================= RESIZE =================

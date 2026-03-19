@@ -104,7 +104,11 @@ export interface PlacedNpc {
   questOfferIds?: string[]
   /** When set, this NPC only offers quests when all of these quest ids are completed. */
   prerequisiteQuestIds?: string[]
+<<<<<<< HEAD
   /** Id for talk objectives; when player interacts with this NPC, notifyTalk(talkTargetId) is called. */
+=======
+  /** Id for "talk" objectives; when player interacts with this NPC, quest talk objectives with this targetId advance. */
+>>>>>>> dev
   talkTargetId?: string
 }
 
@@ -375,7 +379,11 @@ export interface FixedSpawn {
   questOfferIds?: string[]
   /** When set, this quest giver only offers quests when all of these quest ids are completed. */
   prerequisiteQuestIds?: string[]
+<<<<<<< HEAD
   /** Id for talk objectives; when player interacts with this NPC, notifyTalk(talkTargetId) is called. */
+=======
+  /** Id for "talk" objectives; when player interacts with this NPC, quest talk objectives with this targetId advance. */
+>>>>>>> dev
   talkTargetId?: string
 }
 
@@ -449,7 +457,11 @@ export function getFixedSpawnsInChunk(
               questOfferIds != null && poi.prerequisiteQuestIds != null && poi.prerequisiteQuestIds.length > 0
                 ? poi.prerequisiteQuestIds
                 : undefined
+<<<<<<< HEAD
             const talkTargetId = i === 0 ? poi.talkTargetId : undefined
+=======
+            const talkTargetId = questOfferIds != null && poi.talkTargetId != null ? poi.talkTargetId : undefined
+>>>>>>> dev
             out.push({
               kind: 'villager',
               x,
@@ -470,7 +482,11 @@ export function getFixedSpawnsInChunk(
             poi.prerequisiteQuestIds != null && poi.prerequisiteQuestIds.length > 0
               ? poi.prerequisiteQuestIds
               : undefined
+<<<<<<< HEAD
           const talkTargetId = poi.talkTargetId
+=======
+          const talkTargetId = questOfferIds != null && poi.talkTargetId != null ? poi.talkTargetId : undefined
+>>>>>>> dev
           out.push({
             kind: 'villager',
             x,

@@ -33,6 +33,8 @@ export interface BlockDefinition {
   textures: BlockTextures
   /** Optional hint: block is a stairs family item or a placed stairs variant (used for placement/collision/rendering). */
   stairs?: boolean
+  /** Optional hint: block is a fence (connects to neighbors, custom collision/rendering). */
+  fence?: boolean
   /** Collision and raycast: block occupies space. Default true. */
   solid?: boolean
   /** Rendering: alpha cutout / translucent. Default false. */
@@ -43,6 +45,12 @@ export interface BlockDefinition {
   placeable?: boolean
   /** Face culling: block hides adjacent block faces (opaque). Default: same as solid. Set false for leaves, ice, glass. */
   occludes?: boolean
+  /** Fire spread chance (Minecraft-like). 0 = never catches from adjacent fire. */
+  flammability?: number
+  /** How strongly this block burns once ignited (Minecraft-like). 0 = effectively non-burnable. */
+  burnability?: number
+  /** Piston push reaction: normal push, destroy-on-push, or immovable. */
+  pistonBehavior?: 'normal' | 'destroy' | 'block'
   /** When set, block is a fluid (source + flowing levels). Used for flow logic and height. */
   fluid?: BlockFluidKind
   /** Seconds of holding to break; 0 = instant (one "hit"). Omitted => DEFAULT_BREAK_TIME_SECONDS. */
@@ -73,7 +81,10 @@ export interface BlockDefinition {
 
 /** Default: solid true, transparent false, unbreakable false, placeable/occludes derived from solid. */
 const D = (
-  def: Omit<BlockDefinition, 'solid' | 'transparent' | 'unbreakable' | 'placeable' | 'occludes'> &
+  def: Omit<
+    BlockDefinition,
+    'solid' | 'transparent' | 'unbreakable' | 'placeable' | 'occludes' | 'pistonBehavior'
+  > &
     Partial<
       Pick<
         BlockDefinition,
@@ -82,6 +93,9 @@ const D = (
         | 'unbreakable'
         | 'placeable'
         | 'occludes'
+        | 'flammability'
+        | 'burnability'
+        | 'pistonBehavior'
         | 'breakTimeSeconds'
         | 'fluid'
         | 'crossGeometry'
@@ -89,10 +103,13 @@ const D = (
         | 'skipSpecularMap'
         | 'fluidHeight'
         | 'harvestCategory'
+        | 'fence'
       >
     >,
 ): BlockDefinition => {
   const solid = def.solid !== false
+  const pistonBehavior =
+    def.pistonBehavior ?? (def.fluid ? 'block' : solid ? 'normal' : 'destroy')
   return {
     solid: true,
     transparent: false,
@@ -100,6 +117,7 @@ const D = (
     ...def,
     placeable: def.placeable ?? solid,
     occludes: def.occludes ?? solid,
+    pistonBehavior,
   }
 }
 
@@ -277,9 +295,20 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     breakTimeSeconds: 0.5,
   }),
   D({
+    id: 'bee_nest',
+    displayName: 'Bee Nest',
+    textures: {
+      type: 'six',
+      textures: ['log_oak', 'log_oak', 'planks_oak', 'planks_oak', 'log_oak', 'log_oak'],
+    },
+    placeable: false,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 0.8,
+  }),
+  D({
     id: 'torch',
     displayName: 'Torch',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: true,
     occludes: false,
@@ -287,7 +316,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'wall_torch_east',
     displayName: 'Wall Torch (East)',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: false,
     occludes: false,
@@ -295,7 +324,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'wall_torch_west',
     displayName: 'Wall Torch (West)',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: false,
     occludes: false,
@@ -303,7 +332,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'wall_torch_south',
     displayName: 'Wall Torch (South)',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: false,
     occludes: false,
@@ -311,7 +340,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'wall_torch_north',
     displayName: 'Wall Torch (North)',
-    textures: { type: 'single', texture: 'log_oak' }, // no voxel; custom mesh in game.ts
+    textures: { type: 'single', texture: 'torch_on' }, // no voxel; custom mesh in game.ts
     solid: false,
     placeable: false,
     occludes: false,
@@ -321,6 +350,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     displayName: 'Bedrock',
     textures: { type: 'single', texture: 'bedrock' },
     unbreakable: true,
+    pistonBehavior: 'block',
     skipNormalMap: true,
   }),
 ]
@@ -363,6 +393,34 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Red Sand',
     textures: { type: 'single', texture: 'red_sand' },
     breakTimeSeconds: 0.5,
+  }),
+  D({
+    id: 'orange_terracotta',
+    displayName: 'Orange Terracotta',
+    textures: { type: 'single', texture: 'hardened_clay_stained_orange' },
+    breakTimeSeconds: 0.9,
+    harvestCategory: 'dirt',
+  }),
+  D({
+    id: 'yellow_terracotta',
+    displayName: 'Yellow Terracotta',
+    textures: { type: 'single', texture: 'hardened_clay_stained_yellow' },
+    breakTimeSeconds: 0.9,
+    harvestCategory: 'dirt',
+  }),
+  D({
+    id: 'red_terracotta',
+    displayName: 'Red Terracotta',
+    textures: { type: 'single', texture: 'hardened_clay_stained_red' },
+    breakTimeSeconds: 0.9,
+    harvestCategory: 'dirt',
+  }),
+  D({
+    id: 'white_terracotta',
+    displayName: 'White Terracotta',
+    textures: { type: 'single', texture: 'hardened_clay_stained_white' },
+    breakTimeSeconds: 0.9,
+    harvestCategory: 'dirt',
   }),
   D({
     id: 'mycelium',
@@ -464,7 +522,9 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Dead Bush',
     textures: { type: 'single', texture: 'deadbush' },
     solid: false,
+    transparent: true,
     breakTimeSeconds: 0,
+    crossGeometry: true,
   }),
   D({
     id: 'cactus',
@@ -494,7 +554,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'dandelion',
     displayName: 'Dandelion',
-    textures: { type: 'single', texture: 'flower_dandelion' },
+    textures: { type: 'single', texture: 'dandelion' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -503,7 +563,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'poppy',
     displayName: 'Poppy',
-    textures: { type: 'single', texture: 'flower_rose' },
+    textures: { type: 'single', texture: 'poppy' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -512,7 +572,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'tulip_red',
     displayName: 'Red Tulip',
-    textures: { type: 'single', texture: 'flower_tulip_red' },
+    textures: { type: 'single', texture: 'red_tulip' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -521,7 +581,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'tulip_orange',
     displayName: 'Orange Tulip',
-    textures: { type: 'single', texture: 'flower_tulip_orange' },
+    textures: { type: 'single', texture: 'orange_tulip' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -530,7 +590,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'tulip_white',
     displayName: 'White Tulip',
-    textures: { type: 'single', texture: 'flower_tulip_white' },
+    textures: { type: 'single', texture: 'white_tulip' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -539,7 +599,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'tulip_pink',
     displayName: 'Pink Tulip',
-    textures: { type: 'single', texture: 'flower_tulip_pink' },
+    textures: { type: 'single', texture: 'pink_tulip' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -815,6 +875,55 @@ const CURATED_BLOCKS: BlockDefinition[] = [
     displayName: 'Dark Oak Planks',
     textures: { type: 'single', texture: 'planks_big_oak' },
   }),
+  // Fences (Minecraft-style: connect to neighbors, 1.5 block collision)
+  D({
+    id: 'oak_fence',
+    displayName: 'Oak Fence',
+    textures: { type: 'single', texture: 'planks_oak' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'spruce_fence',
+    displayName: 'Spruce Fence',
+    textures: { type: 'single', texture: 'planks_spruce' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'birch_fence',
+    displayName: 'Birch Fence',
+    textures: { type: 'single', texture: 'planks_birch' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'jungle_fence',
+    displayName: 'Jungle Fence',
+    textures: { type: 'single', texture: 'planks_jungle' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'acacia_fence',
+    displayName: 'Acacia Fence',
+    textures: { type: 'single', texture: 'planks_acacia' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
+  D({
+    id: 'dark_oak_fence',
+    displayName: 'Dark Oak Fence',
+    textures: { type: 'single', texture: 'planks_big_oak' },
+    fence: true,
+    harvestCategory: 'wood',
+    breakTimeSeconds: 1.5,
+  }),
   // Logs (side + top)
   D({
     id: 'spruce_log',
@@ -1060,64 +1169,95 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   // --- Stairs (items + placed variants) ---
   ...(
     [
-      { baseId: 'oak_planks', stairsItemId: 'oak_stairs', display: 'Oak Stairs', harvestCategory: 'wood' as const },
+      {
+        baseId: 'oak_planks',
+        stairsItemId: 'oak_stairs',
+        display: 'Oak Stairs',
+        harvestCategory: 'wood' as const,
+        textureName: 'planks_oak',
+      },
       {
         baseId: 'spruce_planks',
         stairsItemId: 'spruce_stairs',
         display: 'Spruce Stairs',
         harvestCategory: 'wood' as const,
+        textureName: 'planks_spruce',
       },
-      { baseId: 'birch_planks', stairsItemId: 'birch_stairs', display: 'Birch Stairs', harvestCategory: 'wood' as const },
+      {
+        baseId: 'birch_planks',
+        stairsItemId: 'birch_stairs',
+        display: 'Birch Stairs',
+        harvestCategory: 'wood' as const,
+        textureName: 'planks_birch',
+      },
       {
         baseId: 'jungle_planks',
         stairsItemId: 'jungle_stairs',
         display: 'Jungle Stairs',
         harvestCategory: 'wood' as const,
+        textureName: 'planks_jungle',
       },
       {
         baseId: 'acacia_planks',
         stairsItemId: 'acacia_stairs',
         display: 'Acacia Stairs',
         harvestCategory: 'wood' as const,
+        textureName: 'planks_acacia',
       },
       {
         baseId: 'dark_oak_planks',
         stairsItemId: 'dark_oak_stairs',
         display: 'Dark Oak Stairs',
         harvestCategory: 'wood' as const,
+        textureName: 'planks_big_oak',
       },
       {
         baseId: 'cobblestone',
         stairsItemId: 'cobblestone_stairs',
         display: 'Cobblestone Stairs',
         harvestCategory: 'stone' as const,
+        textureName: 'cobblestone',
       },
       {
         baseId: 'stone_bricks',
         stairsItemId: 'stone_bricks_stairs',
         display: 'Stone Brick Stairs',
         harvestCategory: 'stone' as const,
+        textureName: 'stonebrick',
       },
-      { baseId: 'bricks', stairsItemId: 'brick_stairs', display: 'Brick Stairs', harvestCategory: 'stone' as const },
+      {
+        baseId: 'bricks',
+        stairsItemId: 'brick_stairs',
+        display: 'Brick Stairs',
+        harvestCategory: 'stone' as const,
+        textureName: 'brick',
+      },
       {
         baseId: 'sandstone',
         stairsItemId: 'sandstone_stairs',
         display: 'Sandstone Stairs',
         harvestCategory: 'dirt' as const,
+        textureName: 'sandstone_normal',
       },
     ] as const
-  ).flatMap(({ baseId, stairsItemId, display, harvestCategory }) => {
+  ).flatMap(({ stairsItemId, display, harvestCategory, textureName }) => {
     const placed = [
       `${stairsItemId}_north`,
       `${stairsItemId}_east`,
       `${stairsItemId}_south`,
       `${stairsItemId}_west`,
     ] as const
+    const placedTop = [
+      `${stairsItemId}_north_top`,
+      `${stairsItemId}_east_top`,
+      `${stairsItemId}_south_top`,
+      `${stairsItemId}_west_top`,
+    ] as const
     return [
       D({
         id: stairsItemId,
         displayName: display,
-        textures: { type: 'single', texture: baseId === 'bricks' ? 'brick' : baseId === 'stone_bricks' ? 'stonebrick' : baseId },
+        textures: { type: 'single', texture: textureName },
         stairs: true,
         harvestCategory,
       }),
@@ -1125,7 +1265,16 @@ const CURATED_BLOCKS: BlockDefinition[] = [
         D({
           id,
           displayName: display,
-          textures: { type: 'single', texture: baseId === 'bricks' ? 'brick' : baseId === 'stone_bricks' ? 'stonebrick' : baseId },
+          textures: { type: 'single', texture: textureName },
+          stairs: true,
+          harvestCategory,
+        }),
+      ),
+      ...placedTop.map((id) =>
+        D({
+          id,
+          displayName: display,
+          textures: { type: 'single', texture: textureName },
           stairs: true,
           harvestCategory,
         }),
@@ -1255,12 +1404,52 @@ for (const def of [...LEGACY_BLOCKS, ...CURATED_BLOCKS, ...NON_PLACEABLE_ITEMS])
   REGISTRY.set(def.id, def)
 }
 
+type FireProps = { flammability: number; burnability: number }
+
+const WOOD_FIRE: FireProps = { flammability: 5, burnability: 20 }
+const LEAVES_FIRE: FireProps = { flammability: 30, burnability: 60 }
+const SOFT_FIRE: FireProps = { flammability: 30, burnability: 60 }
+const PLANT_FIRE: FireProps = { flammability: 60, burnability: 100 }
+
+function isWoodFamilyBlockId(id: string): boolean {
+  return (
+    id === 'wood' ||
+    id.endsWith('_log') ||
+    id.endsWith('_planks') ||
+    id.endsWith('_fence') ||
+    id === 'crafting_table' ||
+    id === 'bookshelf' ||
+    id === 'door_closed' ||
+    id === 'door_open' ||
+    /^((oak|spruce|birch|jungle|acacia|dark_oak)_stairs)(_(north|east|south|west)(_top)?)?$/.test(id)
+  )
+}
+
+function inferFireProps(def: BlockDefinition): FireProps | null {
+  const { id } = def
+  if (id === 'leaves' || id.endsWith('_leaves')) return LEAVES_FIRE
+  if (id.endsWith('_wool') || id === 'hay_block') return SOFT_FIRE
+  if (def.crossGeometry === true) return PLANT_FIRE
+  if (isWoodFamilyBlockId(id)) return WOOD_FIRE
+  return null
+}
+
+for (const def of REGISTRY.values()) {
+  const inferred = inferFireProps(def)
+  if (!inferred) continue
+  if (def.flammability === undefined) def.flammability = inferred.flammability
+  if (def.burnability === undefined) def.burnability = inferred.burnability
+}
+
 /** Returns the block definition for a given id, or undefined if not registered. */
 export function getBlockDefinition(id: string): BlockDefinition | undefined {
   return REGISTRY.get(id)
 }
 
 export type StairFacing = 'north' | 'east' | 'south' | 'west'
+
+/** Vanilla-style stairs half: bottom = normal (step up), top = upside-down (e.g. placed on ceiling). */
+export type StairsHalf = 'bottom' | 'top'
 
 /**
  * Returns true when the id is a stairs family item (e.g. oak_stairs) or a placed stairs variant (e.g. oak_stairs_north).
@@ -1270,10 +1459,88 @@ export function isStairsBlock(id: string): boolean {
 }
 
 /**
- * Returns true when the id is a placed stairs variant (e.g. oak_stairs_north).
+ * Returns true when the id is a placed stairs variant (e.g. oak_stairs_north or oak_stairs_north_top).
  */
 export function isPlacedStairsVariant(id: string): boolean {
-  return /_stairs_(north|east|south|west)$/.test(id)
+  return /_stairs_(north|east|south|west)(_top)?$/.test(id)
+}
+
+/**
+ * Parses facing and half from a placed stairs block id. Returns null for non-stairs ids.
+ */
+export function getStairsFacingAndHalfFromId(id: string): { facing: StairFacing; half: StairsHalf } | null {
+  const m = /_stairs_(north|east|south|west)(_top)?$/.exec(id)
+  if (!m) return null
+  return {
+    facing: m[1] as StairFacing,
+    half: m[2] === '_top' ? 'top' : 'bottom',
+  }
+}
+
+/** Returns true when the block type is a fence (connects to neighbors, custom collision/rendering). */
+export function isFenceBlock(id: string): boolean {
+  return REGISTRY.get(id)?.fence === true
+}
+
+/** Fence connection mask: North=1, South=2, East=4, West=8. Used for collision and rendering. */
+const FENCE_MASK_NORTH = 1
+const FENCE_MASK_SOUTH = 2
+const FENCE_MASK_EAST = 4
+const FENCE_MASK_WEST = 8
+
+/**
+ * Returns the fence connection mask at (bx, by, bz) from neighbor blocks.
+ * A neighbor connects if it is a fence or solid block. Mask bits: North=1, South=2, East=4, West=8.
+ * @param getBlock Returns block type at world position, or 'air' / null for empty or unloaded.
+ */
+export function getFenceConnectionMask(
+  bx: number,
+  by: number,
+  bz: number,
+  getBlock: (bx: number, by: number, bz: number) => string | 'air' | null,
+): number {
+  const connects = (nx: number, ny: number, nz: number) => {
+    const t = getBlock(nx, ny, nz)
+    return t != null && t !== 'air' && (isFenceBlock(t) || isSolidBlock(t))
+  }
+  let mask = 0
+  if (connects(bx, by, bz - 1)) mask |= FENCE_MASK_NORTH
+  if (connects(bx, by, bz + 1)) mask |= FENCE_MASK_SOUTH
+  if (connects(bx + 1, by, bz)) mask |= FENCE_MASK_EAST
+  if (connects(bx - 1, by, bz)) mask |= FENCE_MASK_WEST
+  return mask
+}
+
+/** Center post box for fences (1.5 blocks tall, narrow in XZ). */
+const FENCE_POST_BOX: CollisionBoxLocal = {
+  minX: 0.375,
+  minY: 0,
+  minZ: 0.375,
+  maxX: 0.625,
+  maxY: 1.5,
+  maxZ: 0.625,
+}
+
+/**
+ * Returns collision boxes in local block space [0..1] for a fence with the given connection mask.
+ * Always includes the center post; adds one box per connected direction to close gaps between adjacent fences.
+ * @param mask Connection mask: North=1, South=2, East=4, West=8.
+ */
+export function getFenceCollisionBoxesLocal(mask: number): CollisionBoxLocal[] {
+  const boxes: CollisionBoxLocal[] = [FENCE_POST_BOX]
+  if (mask & FENCE_MASK_NORTH) {
+    boxes.push({ minX: 0.375, minY: 0, minZ: 0, maxX: 0.625, maxY: 1.5, maxZ: 0.5 })
+  }
+  if (mask & FENCE_MASK_SOUTH) {
+    boxes.push({ minX: 0.375, minY: 0, minZ: 0.5, maxX: 0.625, maxY: 1.5, maxZ: 1 })
+  }
+  if (mask & FENCE_MASK_EAST) {
+    boxes.push({ minX: 0.5, minY: 0, minZ: 0.375, maxX: 1, maxY: 1.5, maxZ: 0.625 })
+  }
+  if (mask & FENCE_MASK_WEST) {
+    boxes.push({ minX: 0, minY: 0, minZ: 0.375, maxX: 0.5, maxY: 1.5, maxZ: 0.625 })
+  }
+  return boxes
 }
 
 /**
@@ -1281,17 +1548,18 @@ export function isPlacedStairsVariant(id: string): boolean {
  */
 export function getStairsItemId(id: string): string {
   if (!isStairsBlock(id)) return id
-  return id.replace(/_(north|east|south|west)$/, '')
+  return id.replace(/_(north|east|south|west)(_top)?$/, '')
 }
 
 /**
- * Builds the placed stairs variant id for the given stairs item id and facing.
- * If stairItemId is not a stairs id, it returns stairItemId unchanged.
+ * Builds the placed stairs variant id for the given stairs item id, facing, and optional half.
+ * If stairItemId is not a stairs id, returns stairItemId unchanged.
+ * @param half When 'top', places upside-down stairs (e.g. on ceiling). Default 'bottom'.
  */
-export function getPlacedStairsId(stairItemId: string, facing: StairFacing): string {
+export function getPlacedStairsId(stairItemId: string, facing: StairFacing, half: StairsHalf = 'bottom'): string {
   if (!isStairsBlock(stairItemId)) return stairItemId
   const base = getStairsItemId(stairItemId)
-  return `${base}_${facing}`
+  return half === 'top' ? `${base}_${facing}_top` : `${base}_${facing}`
 }
 
 /** Returns all registered block type ids (for save validation, hotbar icons, etc.). */
@@ -1373,6 +1641,27 @@ export function isFluidBlock(id: string): boolean {
   return def ? def.fluid === 'water' : false
 }
 
+/** Piston push reaction for the block type. */
+export type PistonBehavior = NonNullable<BlockDefinition['pistonBehavior']>
+
+/** Fire spread chance (0 = never catches from adjacent fire). */
+export function getBlockFlammability(id: string): number {
+  const def = REGISTRY.get(id)
+  return def?.flammability ?? 0
+}
+
+/** Burnability chance once ignited (0 = effectively non-burnable). */
+export function getBlockBurnability(id: string): number {
+  const def = REGISTRY.get(id)
+  return def?.burnability ?? 0
+}
+
+/** Piston reaction: normal push, destroy-on-push, or immovable. */
+export function getBlockPistonBehavior(id: string): PistonBehavior {
+  const def = REGISTRY.get(id)
+  return def?.pistonBehavior ?? 'normal'
+}
+
 /** Block height in world units (1 = full block). Snow layers 1–8 use 1/8 … 8/8. Water source/flowing use definition or schema. */
 export function getBlockHeight(blockType: string): number {
   const def = REGISTRY.get(blockType)
@@ -1420,17 +1709,12 @@ export function getBlockCollisionBoxesLocal(blockType: string): CollisionBoxLoca
     return [{ ...FULL_BLOCK_BOX, maxY: h }]
   }
 
-  if (isPlacedStairsVariant(blockType)) {
-    const facing: StairFacing = blockType.endsWith('_north')
-      ? 'north'
-      : blockType.endsWith('_east')
-        ? 'east'
-        : blockType.endsWith('_south')
-          ? 'south'
-          : 'west'
-    // Bottom slab + top step (Minecraft-like).
-    const bottom: CollisionBoxLocal = { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 }
-    const top: CollisionBoxLocal =
+  const stairsState = getStairsFacingAndHalfFromId(blockType)
+  if (stairsState) {
+    const { facing, half } = stairsState
+    const slabBottom: CollisionBoxLocal = { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 }
+    const slabTop: CollisionBoxLocal = { minX: 0, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 }
+    const stepBottom: CollisionBoxLocal =
       facing === 'north'
         ? { minX: 0, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 0.5 }
         : facing === 'south'
@@ -1438,7 +1722,23 @@ export function getBlockCollisionBoxesLocal(blockType: string): CollisionBoxLoca
           : facing === 'east'
             ? { minX: 0.5, minY: 0.5, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 }
             : { minX: 0, minY: 0.5, minZ: 0, maxX: 0.5, maxY: 1, maxZ: 1 }
-    return [bottom, top]
+    const stepTop: CollisionBoxLocal =
+      facing === 'north'
+        ? { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 0.5 }
+        : facing === 'south'
+          ? { minX: 0, minY: 0, minZ: 0.5, maxX: 1, maxY: 0.5, maxZ: 1 }
+          : facing === 'east'
+            ? { minX: 0.5, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 }
+            : { minX: 0, minY: 0, minZ: 0, maxX: 0.5, maxY: 0.5, maxZ: 1 }
+    if (half === 'top') {
+      return [stepTop, slabTop]
+    }
+    return [slabBottom, stepBottom]
+  }
+
+  // Fences: connection-independent call uses mask 0 (center post only); runtime uses getFenceCollisionBoxesLocal(mask) in getBlockCollisionBoxesAt.
+  if (def.fence === true) {
+    return getFenceCollisionBoxesLocal(0)
   }
 
   // Default: full block, but respect height-based blocks (e.g. flowing water already handled above).

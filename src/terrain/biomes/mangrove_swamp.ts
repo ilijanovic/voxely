@@ -23,7 +23,7 @@ export const mangroveSwampDefinition: BiomeDefinition = {
   climate: { tempMin: 0.6, tempMax: 0.85, humidityMin: 0.75, humidityMax: 1.0 },
   multiNoise: {
     center: {
-      continentalness: 0.5,
+      continentalness: 0.1,
       erosion: -0.2,
       temperature: 0.5,
       humidity: 0.85,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import type { ChunkData, BlockType } from '../../types'
-import { CHUNK_SIZE } from '../../constants'
+import { CHUNK_SIZE, WORLD_MIN_Y } from '../../constants'
 import { chunkKeyNumeric, localKey } from '../../chunk-runtime'
 import { applyBlockChangeToLoadedChunk } from './apply-block-change'
 
@@ -23,9 +23,9 @@ describe('applyBlockChangeToLoadedChunk', () => {
     chunks.set(keyNum, data)
 
     const bx = 2
-    const by = 5
+    const by = WORLD_MIN_Y + 5
     const bz = 3
-    const k = localKey(bx, by, bz)
+    const k = localKey(bx, by - WORLD_MIN_Y, bz)
     expect(data.voxelMap.has(k)).toBe(false)
 
     const result = applyBlockChangeToLoadedChunk({
@@ -48,9 +48,9 @@ describe('applyBlockChangeToLoadedChunk', () => {
     chunks.set(chunkKeyNumeric(0, 0), data)
 
     const bx = 1
-    const by = 1
+    const by = WORLD_MIN_Y + 1
     const bz = 1
-    const k = localKey(bx, by, bz)
+    const k = localKey(bx, by - WORLD_MIN_Y, bz)
     data.voxelMap.set(k, 'stone')
 
     applyBlockChangeToLoadedChunk({
@@ -72,7 +72,7 @@ describe('applyBlockChangeToLoadedChunk', () => {
     chunks.set(keyNum, data)
 
     const bx = -CHUNK_SIZE + 1
-    const by = 2
+    const by = WORLD_MIN_Y + 2
     const bz = -CHUNK_SIZE + 2
 
     const out = applyBlockChangeToLoadedChunk({

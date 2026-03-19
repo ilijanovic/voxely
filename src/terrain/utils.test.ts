@@ -2,7 +2,7 @@
  * Tests for terrain utils. Keep these passing when changing smoothstep, clamp, or RNG.
  */
 import { describe, it, expect } from 'vitest'
-import { makeSeededRandom, smoothstep, clamp } from './utils'
+import { makeSeededRandom, smoothstep, clamp, wrapNoiseCoord } from './utils'
 
 describe('smoothstep', () => {
   it('returns 0 for x <= a', () => {
@@ -65,5 +65,18 @@ describe('makeSeededRandom', () => {
     const valuesA = Array.from({ length: 10 }, () => a())
     const valuesB = Array.from({ length: 10 }, () => b())
     expect(valuesA).not.toEqual(valuesB)
+  })
+})
+
+describe('wrapNoiseCoord', () => {
+  it('returns input unchanged when within wrap bounds', () => {
+    expect(wrapNoiseCoord(42, 1024)).toBe(42)
+    expect(wrapNoiseCoord(-512, 1024)).toBe(-512)
+  })
+
+  it('wraps positive and negative values deterministically', () => {
+    expect(wrapNoiseCoord(2050, 1024)).toBe(2)
+    expect(wrapNoiseCoord(-1, 1024)).toBe(-1)
+    expect(wrapNoiseCoord(-2050, 1024)).toBe(1022)
   })
 })

@@ -6,7 +6,7 @@ import type { BlockType } from '../../types'
 /**
  * 6D multi-noise point used for biome selection (Minecraft-style multi-noise).
  * Ranges are intentionally not normalized here; the sampler is responsible for producing
- * consistent ranges per dimension (e.g. erosion/temperature in [-1..1], continentalness in [0..1]).
+ * consistent ranges per dimension (vanilla-aligned: continentalness [-1.2..1], weirdness [-2..2], erosion/temperature/humidity [-1..1]).
  */
 export interface MultiNoise6Point {
   continentalness: number

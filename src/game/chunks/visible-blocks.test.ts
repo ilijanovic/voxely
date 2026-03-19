@@ -10,6 +10,7 @@ describe('filterVisibleBlocks', () => {
   it('culls fully surrounded blocks but keeps edge blocks', () => {
     const chunkSize = 3
     const worldHeight = 3
+    const worldMinY = 0
     const localKey = makeLocalKey(chunkSize)
 
     const voxelMap = new Map<number, BlockType>()
@@ -32,6 +33,7 @@ describe('filterVisibleBlocks', () => {
     const visible = filterVisibleBlocks({
       worldX: 0,
       worldZ: 0,
+      worldMinY,
       chunkSize,
       worldHeight,
       voxelMap,
@@ -41,5 +43,37 @@ describe('filterVisibleBlocks', () => {
     })
 
     expect(visible).toEqual([{ x: 0, y: 1, z: 1 }])
+  })
+
+  it('handles world-space Y positions when world min Y is below zero', () => {
+    const chunkSize = 3
+    const worldHeight = 3
+    const worldMinY = -64
+    const localKey = makeLocalKey(chunkSize)
+    const voxelMap = new Map<number, BlockType>()
+    const solid: BlockType = 'stone'
+
+    // World Y -63 maps to local ly = 1.
+    voxelMap.set(localKey(1, 1, 1), solid)
+    voxelMap.set(localKey(2, 1, 1), solid)
+    voxelMap.set(localKey(0, 1, 1), solid)
+    voxelMap.set(localKey(1, 1, 2), solid)
+    voxelMap.set(localKey(1, 1, 0), solid)
+    voxelMap.set(localKey(1, 2, 1), solid)
+    voxelMap.set(localKey(1, 0, 1), solid)
+
+    const visible = filterVisibleBlocks({
+      worldX: 0,
+      worldZ: 0,
+      worldMinY,
+      chunkSize,
+      worldHeight,
+      voxelMap,
+      positions: [{ x: 1, y: -63, z: 1 }],
+      localKey,
+      isOccludingBlock: () => true,
+    })
+
+    expect(visible).toEqual([])
   })
 })

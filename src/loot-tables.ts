@@ -2,6 +2,7 @@
  * Mob loot tables: drop chance and count per item. Used on entity death.
  */
 import type { BlockType } from './types'
+import { randomFloat, randomInt } from './random'
 import type { AnimalKind } from './entities/types'
 
 export interface DropEntry {
@@ -23,6 +24,17 @@ export const DROP_TABLES: Record<AnimalKind, DropEntry[]> = {
   pig: [
     { item: 'raw_porkchop', chance: 1, minCount: 1, maxCount: 3 },
   ],
+  cow: [
+    { item: 'raw_porkchop', chance: 1, minCount: 1, maxCount: 3 },
+  ],
+  chicken: [
+    { item: 'raw_porkchop', chance: 0.5, minCount: 0, maxCount: 1 },
+  ],
+  horse: [],
+  donkey: [],
+  rabbit: [
+    { item: 'raw_porkchop', chance: 0.6, minCount: 0, maxCount: 1 },
+  ],
   wolf: [
     { item: 'raw_porkchop', chance: 0.6, minCount: 0, maxCount: 1 },
   ],
@@ -34,17 +46,15 @@ export const DROP_TABLES: Record<AnimalKind, DropEntry[]> = {
 
 /**
  * Rolls loot for a killed mob and returns list of { item, count } to spawn.
- * Uses Math.random(); call from game loop on entity death.
+ * Uses the shared gameplay RNG; call from game loop on entity death.
  */
 export function rollLoot(kind: AnimalKind): Array<{ item: BlockType; count: number }> {
   const table = DROP_TABLES[kind]
   if (!table || table.length === 0) return []
   const result: Array<{ item: BlockType; count: number }> = []
   for (const entry of table) {
-    if (Math.random() > entry.chance) continue
-    const count =
-      entry.minCount +
-      Math.floor(Math.random() * (entry.maxCount - entry.minCount + 1))
+    if (randomFloat() > entry.chance) continue
+    const count = randomInt(entry.minCount, entry.maxCount)
     if (count > 0) result.push({ item: entry.item, count })
   }
   return result

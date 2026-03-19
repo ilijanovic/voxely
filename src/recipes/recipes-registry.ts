@@ -29,6 +29,12 @@ const BRICK_STAIRS = 'brick_stairs'
 const SANDSTONE = 'sandstone'
 const SANDSTONE_STAIRS = 'sandstone_stairs'
 const DOOR_CLOSED = 'door_closed'
+const OAK_FENCE = 'oak_fence'
+const SPRUCE_FENCE = 'spruce_fence'
+const BIRCH_FENCE = 'birch_fence'
+const JUNGLE_FENCE = 'jungle_fence'
+const ACACIA_FENCE = 'acacia_fence'
+const DARK_OAK_FENCE = 'dark_oak_fence'
 
 /** All 2×2 recipes. Order matters: more specific (larger) patterns first so they match before subsets (e.g. crafting_table before stick). */
 const RECIPES_2X2: Recipe2x2[] = [
@@ -207,12 +213,17 @@ const RECIPES_3X3: ShapedRecipe3x3[] = [
     ],
     result: { type: DOOR_CLOSED, count: 3 },
   },
+<<<<<<< HEAD
   // --- Tools (before stick so multi-plank grids match tools first) ---
   /** Wooden pickaxe: 3 planks top + 2 sticks (sliding). */
+=======
+  // --- Fences (Minecraft-style): 6 planks + 2 sticks → 3 fences ---
+>>>>>>> dev
   {
     kind: 'shaped_3x3',
     pattern: [
       OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
+<<<<<<< HEAD
       null, STICK, null,
       null, STICK, null,
     ],
@@ -268,6 +279,57 @@ const RECIPES_3X3: ShapedRecipe3x3[] = [
       null, null, null,
     ],
     result: { type: STICK, count: 4 },
+=======
+      OAK_PLANKS, OAK_PLANKS, OAK_PLANKS,
+      STICK, STICK, null,
+    ],
+    result: { type: OAK_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'spruce_planks', 'spruce_planks', 'spruce_planks',
+      'spruce_planks', 'spruce_planks', 'spruce_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: SPRUCE_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'birch_planks', 'birch_planks', 'birch_planks',
+      'birch_planks', 'birch_planks', 'birch_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: BIRCH_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'jungle_planks', 'jungle_planks', 'jungle_planks',
+      'jungle_planks', 'jungle_planks', 'jungle_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: JUNGLE_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'acacia_planks', 'acacia_planks', 'acacia_planks',
+      'acacia_planks', 'acacia_planks', 'acacia_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: ACACIA_FENCE, count: 3 },
+  },
+  {
+    kind: 'shaped_3x3',
+    pattern: [
+      'dark_oak_planks', 'dark_oak_planks', 'dark_oak_planks',
+      'dark_oak_planks', 'dark_oak_planks', 'dark_oak_planks',
+      STICK, STICK, null,
+    ],
+    result: { type: DARK_OAK_FENCE, count: 3 },
+>>>>>>> dev
   },
 ]
 
@@ -638,11 +700,28 @@ export function matchRecipe3x3(grid: (BlockType | null)[]): Match3x3 | null {
   for (const indices of QUADRANT_2X2_INDICES) {
     const subGrid2x2 = indices.map((i) => g[i])
     const match2x2 = matchRecipe2x2(subGrid2x2)
+<<<<<<< HEAD
     if (match2x2) {
       const count = consumedCount2x2(match2x2)
       if (count > bestCount) {
         best = { recipe2x2: match2x2.recipe, result: match2x2.result, indices }
         bestCount = count
+=======
+    if (!match2x2) continue
+    const inQuadrant = (i: number) => i === indices[0] || i === indices[1] || i === indices[2] || i === indices[3]
+    let onlyQuadrantFilled = true
+    for (let i = 0; i < 9; i++) {
+      if (!inQuadrant(i) && g[i] != null) {
+        onlyQuadrantFilled = false
+        break
+      }
+    }
+    if (onlyQuadrantFilled)
+      return {
+        recipe2x2: match2x2.recipe,
+        result: match2x2.result,
+        indices,
+>>>>>>> dev
       }
     }
   }

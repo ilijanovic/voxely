@@ -1,6 +1,6 @@
-import type { Entity } from './types'
+import type { AnimalBehaviour, AnimalKind, Entity } from './types'
 import { getAllEntities } from './registry'
-import { getDef } from './spawn'
+import { getDef } from './entity-defs'
 
 const IDLE_MIN = 2
 const IDLE_MAX = 5
@@ -8,6 +8,8 @@ const WANDER_DURATION_MIN = 1
 const WANDER_DURATION_MAX = 4
 const FLEE_DIST_SQ = 8 * 8
 const CHASE_DIST_SQ = 12 * 12
+const DAMAGE_PANIC_DIST_SQ = 8 * 8
+const SHEEP_WOLF_THREAT_DIST_SQ = 10 * 10
 /** Seconds a flee-behaviour animal keeps fleeing after being damaged (Minecraft-like). */
 export const FLEE_DURATION_AFTER_HIT = 4
 
@@ -24,6 +26,72 @@ function entityRng(entity: Entity, seed: number): number {
   return x - Math.floor(x)
 }
 
+interface ThreatVector {
+  dx: number
+  dz: number
+  distSq: number
+}
+
+/**
+ * Returns true when this mob kind should panic-run after being hit.
+ * Sheep are passive toward players in vanilla, but still panic when damaged.
+ */
+function isDamagePanicKind(kind: AnimalKind, behaviour: AnimalBehaviour): boolean {
+  return (
+    behaviour === 'flee' ||
+    kind === 'sheep' ||
+    kind === 'pig' ||
+    kind === 'cow' ||
+    kind === 'chicken' ||
+    kind === 'donkey' ||
+    kind === 'rabbit'
+  )
+}
+
+/**
+ * Finds the nearest living wolf around a sheep.
+ *
+ * @param sheep - Sheep entity to evaluate
+ * @param entities - Current entity list
+ * @returns Vector from sheep to wolf, or null when no nearby wolf exists
+ */
+function findNearestWolfThreat(sheep: Entity, entities: Entity[]): ThreatVector | null {
+  let closest: ThreatVector | null = null
+  for (const other of entities) {
+    if (other.id === sheep.id || other.state === 'dead' || other.kind !== 'wolf') continue
+    const dx = other.position.x - sheep.position.x
+    const dz = other.position.z - sheep.position.z
+    const distSq = dx * dx + dz * dz
+    if (distSq >= SHEEP_WOLF_THREAT_DIST_SQ) continue
+    if (closest == null || distSq < closest.distSq) {
+      closest = { dx, dz, distSq }
+    }
+  }
+  return closest
+}
+
+/**
+ * Applies flee velocity away from a threat vector.
+ *
+ * @param entity - Entity that should flee
+ * @param runSpeed - Movement speed while fleeing
+ * @param dx - Threat X minus entity X
+ * @param dz - Threat Z minus entity Z
+ */
+function applyFleeVelocity(entity: Entity, runSpeed: number, dx: number, dz: number): void {
+  const distSq = dx * dx + dz * dz
+  const len = Math.sqrt(distSq) || 1
+  entity.state = 'flee'
+  entity.stateTime = 0
+  entity.velocity.x = (-dx / len) * runSpeed
+  entity.velocity.z = (-dz / len) * runSpeed
+  entity.rotationY = Math.atan2(-dx, -dz)
+}
+
+/**
+ * Updates one frame of simple mob AI (idle, wander, flee, chase).
+ * Sheep are passive toward nearby players, panic when damaged, and flee nearby wolves.
+ */
 export function updateAI(
   playerPosition: { x: number; y: number; z: number },
   dt: number,
@@ -45,12 +113,14 @@ export function updateAI(
     const dx = playerPosition.x - e.position.x
     const dz = playerPosition.z - e.position.z
     const distSq = dx * dx + dz * dz
+    const wolfThreat = e.kind === 'sheep' ? findNearestWolfThreat(e, entities) : null
 
-    if (
-      e.disposition === 'aggro' &&
-      def.behaviour === 'chase' &&
-      distSq < CHASE_DIST_SQ
-    ) {
+    if (wolfThreat != null) {
+      applyFleeVelocity(e, def.runSpeed, wolfThreat.dx, wolfThreat.dz)
+      continue
+    }
+
+    if (e.disposition === 'aggro' && def.behaviour === 'chase' && distSq < CHASE_DIST_SQ) {
       e.state = 'chase'
       e.stateTime = 0
       const len = Math.sqrt(distSq) || 1
@@ -65,24 +135,15 @@ export function updateAI(
     const fleeingFromDamage =
       e.fleeUntilTime != null &&
       time < e.fleeUntilTime &&
-      distSq < FLEE_DIST_SQ &&
-      (def.behaviour === 'flee' || e.kind === 'pig')
+      distSq < DAMAGE_PANIC_DIST_SQ &&
+      isDamagePanicKind(e.kind, def.behaviour)
     if (fleeingFromDamage) {
-      e.state = 'flee'
-      e.stateTime = 0
-      const len = Math.sqrt(distSq) || 1
-      e.velocity.x = (-dx / len) * def.runSpeed
-      e.velocity.z = (-dz / len) * def.runSpeed
-      e.rotationY = Math.atan2(-dx, -dz)
+      applyFleeVelocity(e, def.runSpeed, dx, dz)
       continue
     }
+
     if (def.behaviour === 'flee' && distSq < FLEE_DIST_SQ) {
-      e.state = 'flee'
-      e.stateTime = 0
-      const len = Math.sqrt(distSq) || 1
-      e.velocity.x = (-dx / len) * def.runSpeed
-      e.velocity.z = (-dz / len) * def.runSpeed
-      e.rotationY = Math.atan2(-dx, -dz)
+      applyFleeVelocity(e, def.runSpeed, dx, dz)
       continue
     }
 

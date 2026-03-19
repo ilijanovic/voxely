@@ -3,7 +3,7 @@ import { breakBlock } from './mining'
 import { buildVoxelMapFromBuffer } from '../chunks/chunk-apply'
 import { localKey } from '../../chunk-runtime'
 import { typeToId } from '../../terrain/block-ids'
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../../constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y } from '../../constants'
 import type { BlockType, ChunkData, BlockPos } from '../../types'
 
 function makeChunkData(cx: number, cz: number): ChunkData {
@@ -18,6 +18,9 @@ function makeChunkData(cx: number, cz: number): ChunkData {
 
 function makeParams(overrides: Partial<Parameters<typeof breakBlock>[0]> = {}) {
   const blockModifications = new Map<string, BlockType | 'air'>()
+  const setBlockModification = (x: number, y: number, z: number, value: BlockType | 'air') => {
+    blockModifications.set(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`, value)
+  }
   const invalidateColumnHeight = vi.fn()
   const refreshChunkVisibleMeshes = vi.fn()
   const spawnDrop = vi.fn()
@@ -35,10 +38,10 @@ function makeParams(overrides: Partial<Parameters<typeof breakBlock>[0]> = {}) {
       { x: 5, y: 10, z: 5 },
     ],
     isUnbreakableBlock: (_bt: BlockType) => false,
+    setBlockModification,
     blockModifications,
-    blockKeyString: (x: number, y: number, z: number) => `${x},${y},${z}`,
     invalidateColumnHeight,
-    localKey: (lx: number, ly: number, lz: number) => lx + ly * 16 + lz * 16 * 128,
+    localKey,
     chunkSize,
     isSolidBlock: (bt: BlockType) => bt === 'stone' || bt === 'dirt',
     getBlockHeight: () => 1,
@@ -80,8 +83,8 @@ describe('breakBlock', () => {
 
   it('sets blockModification to air and invalidates column height', () => {
     const data = makeChunkData(0, 0)
-    const localKeyFn = (lx: number, ly: number, lz: number) => lx + ly * 16 + lz * 16 * 128
-    data.voxelMap.set(localKeyFn(5, 10, 5), 'stone')
+    const worldY = 10
+    data.voxelMap.set(localKey(5, worldY - WORLD_MIN_Y, 5), 'stone')
     const params = makeParams()
     params.chunks.set(0, data)
     breakBlock(params)
@@ -91,7 +94,8 @@ describe('breakBlock', () => {
 
   it('removes block from voxelMap', () => {
     const data = makeChunkData(0, 0)
-    const lk = 5 + 10 * 16 + 5 * 16 * 128
+    const worldY = 10
+    const lk = localKey(5, worldY - WORLD_MIN_Y, 5)
     data.voxelMap.set(lk, 'stone')
     const params = makeParams()
     params.chunks.set(0, data)
@@ -135,7 +139,7 @@ describe('breakBlock', () => {
 
   it('does not call refreshChunkVisibleMeshes when skipRefresh is true', () => {
     const data = makeChunkData(0, 0)
-    data.voxelMap.set(5 + 10 * 16 + 5 * 16 * 128, 'stone')
+    data.voxelMap.set(localKey(5, 10 - WORLD_MIN_Y, 5), 'stone')
     const params = makeParams({ skipRefresh: true })
     params.chunks.set(0, data)
     breakBlock(params)
@@ -165,11 +169,12 @@ describe('breakBlock', () => {
   it('removes block from worker-built voxelMap (buildVoxelMapFromBuffer)', () => {
     const BUFFER_LENGTH = CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE
     const buffer = new Uint8Array(BUFFER_LENGTH)
-    const lx = 5,
-      ly = 10,
-      lz = 5
-    const worldX = 0,
-      worldZ = 0
+    const lx = 5
+    const lz = 5
+    const worldY = 10
+    const ly = worldY - WORLD_MIN_Y
+    const worldX = 0
+    const worldZ = 0
     buffer[localKey(lx, ly, lz)] = typeToId('stone')
 
     const voxelMap = buildVoxelMapFromBuffer(buffer)
@@ -177,7 +182,7 @@ describe('breakBlock', () => {
 
     const data = makeChunkData(0, 0)
     data.voxelMap = voxelMap
-    data.blockPositionsByType.set('stone' as BlockType, [{ x: worldX + lx, y: ly, z: worldZ + lz }])
+    data.blockPositionsByType.set('stone' as BlockType, [{ x: worldX + lx, y: worldY, z: worldZ + lz }])
 
     const params = makeParams({
       getLayerPositions: (d: ChunkData, bt: BlockType) => d.blockPositionsByType.get(bt) ?? null,
@@ -185,13 +190,13 @@ describe('breakBlock', () => {
     })
     params.chunks.set(0, data)
     params.worldX = worldX + lx
-    params.worldY = ly
+    params.worldY = worldY
     params.worldZ = worldZ + lz
 
     breakBlock(params)
 
     expect(voxelMap.has(localKey(lx, ly, lz))).toBe(false)
-    expect(params.blockModifications.get(`${worldX + lx},${ly},${worldZ + lz}`)).toBe('air')
+    expect(params.blockModifications.get(`${worldX + lx},${worldY},${worldZ + lz}`)).toBe('air')
     expect(params.spawnDrop).toHaveBeenCalledTimes(1)
   })
 })

@@ -25,17 +25,21 @@ export const stonyPeaksDefinition: BiomeDefinition = {
   terrainParams: stonyPeaksTerrain,
   multiNoise: {
     center: {
-      continentalness: 0.78,
-      erosion: -0.55,
-      temperature: 0.15,
-      humidity: -0.55,
-      weirdness: 0.15,
-      y: 0.84,
+      continentalness: 0.52,
+      erosion: -0.26,
+      // Warmer than frozen/jagged peak centers so lukewarm mountain peaks prefer stony_peaks.
+      temperature: 0.08,
+      humidity: 0.24,
+      weirdness: 0.22,
+      y: 0.58,
     },
     weights: {
-      y: 2.5,
-      humidity: 2,
-      continentalness: 1.5,
+      y: 1.8,
+      humidity: 1.5,
+      continentalness: 1.3,
+      temperature: 1.5,
+      weirdness: 1.8,
+      erosion: 1.2,
     },
   },
 }

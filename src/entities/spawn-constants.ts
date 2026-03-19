@@ -13,8 +13,13 @@ export const DEFAULT_CREATURE_SPAWN_PROBABILITY = 0.1
  */
 export const CREATURE_SPAWN_PROBABILITY: Partial<Record<Biome, number>> = {
   ocean: 0,
+  river: 0,
+  frozen_river: 0,
+  beach: 0,
+  stony_shore: 0,
   badlands: 0.03,
   snow: 0.07,
+  snowy_beach: 0,
   snowy_slopes: 0.07,
   frozen_peaks: 0.07,
   jagged_peaks: 0.07,

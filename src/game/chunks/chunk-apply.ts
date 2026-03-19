@@ -1,32 +1,46 @@
 import * as THREE from 'three'
 import type { Biome, BlockPos, BlockType, ChunkData } from '../../types'
 import type { ChunkDataPayload } from '../../terrain-core'
-import { idToType, CARVED_ID } from '../../terrain-core'
+import { ALL_BIOMES, idToType, CARVED_ID } from '../../terrain-core'
 import {
   CHUNK_SIZE,
   WATER_BLOCK_HEIGHT,
   WATER_LEVEL,
   WATER_PLANE_Y_OFFSET,
   WORLD_HEIGHT,
+  WORLD_MIN_Y,
 } from '../../constants'
-import { localKey, chunkKeyNumeric } from '../../chunk-runtime'
+import { columnCacheKey, columnHeightCache, localKey, chunkKeyNumeric } from '../../chunk-runtime'
 import {
   sharedBlockGeometry,
   sharedTallGrassGeometry,
   getStairsGeometry,
+  getFenceGeometry,
   type StairFacing,
+  type StairsHalf,
   FOLIAGE_BLOCK_TYPES,
   getMaterialForBlockType,
   setFoliageInstanceColors,
   setGrassInstanceColors,
   isSharedBlockOrSnowLayerGeometry,
 } from '../../block-materials'
-import { isOccludingBlock as isBlockTypeOccluding, getBlockHeight } from '../../block-registry'
+import {
+  isOccludingBlock as isBlockTypeOccluding,
+  getBlockHeight,
+  isFenceBlock,
+  getFenceConnectionMask,
+  isPlacedStairsVariant,
+  getStairsFacingAndHalfFromId,
+} from '../../block-registry'
 import { filterVisibleBlocks } from './visible-blocks'
 import { sharedWaterPlaneGeometry } from '../../block-materials'
 import { getBlockAt } from '../../chunk-runtime'
 import { placeTorch, removeTorchesInChunk, isWallTorchBlockType } from '../world-interactions/torches'
+<<<<<<< HEAD
 import { setInstanceLightLevels } from '../../terrain-light'
+=======
+import { CROSS_GEOMETRY_BLOCK_TYPES } from './cross-geometry-block-types'
+>>>>>>> dev
 
 export type ChunkApplyDeps = {
   chunks: Map<number, ChunkData>
@@ -98,12 +112,13 @@ function addStairsInstancedLayer(
   group: THREE.Group,
   positions: BlockPos[],
   facing: StairFacing,
+  half: StairsHalf,
   material: THREE.Material | THREE.Material[],
   userData?: { chunkKeyNum: number; blockType: BlockType },
 ): THREE.InstancedMesh | null {
   const count = positions.length
   if (count === 0) return null
-  const mesh = new THREE.InstancedMesh(getStairsGeometry(facing), material as THREE.Material, count)
+  const mesh = new THREE.InstancedMesh(getStairsGeometry(facing, half), material as THREE.Material, count)
   mesh.count = count
   for (let i = 0; i < count; i++) {
     const p = positions[i]
@@ -153,7 +168,7 @@ export function buildPositionsByTypeFromVisibleKeys(
       const lx = k % CHUNK_SIZE
       const ly = Math.floor(k / CHUNK_SIZE) % WORLD_HEIGHT
       const lz = Math.floor(k / (CHUNK_SIZE * WORLD_HEIGHT))
-      positions[i] = { x: worldX + lx, y: ly, z: worldZ + lz }
+      positions[i] = { x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz }
     }
     out.set(blockType, positions)
   }
@@ -198,42 +213,60 @@ const TALL_GRASS_SPAWN_CHANCE = 0.05
 const TALL_GRASS_SPAWN_CHANCE_WOODLAND = 0.12
 const TALL_GRASS_Y_OFFSET = -0.02
 
-/** Block types that use cross geometry (flowers, fern, mushrooms) – rendered with sharedTallGrassGeometry. */
-const CROSS_GEOMETRY_BLOCK_TYPES: BlockType[] = [
-  'dandelion',
-  'poppy',
-  'tulip_red',
-  'tulip_orange',
-  'tulip_white',
-  'tulip_pink',
-  'oxeye_daisy',
-  'cornflower',
-  'azure_bluet',
-  'allium',
-  'lily_of_the_valley',
-  'blue_orchid',
-  'fern',
-  'large_fern',
-  'brown_mushroom',
-  'red_mushroom',
-  'lily_pad',
-  'seagrass',
-  'sea_pickle',
-  'vine',
-  'bamboo',
-  'sweet_berry_bush',
-  'pink_petals',
-]
-
 function isPlacedStairsBlockType(blockType: BlockType): boolean {
-  return /_stairs_(north|east|south|west)$/.test(blockType)
+  return isPlacedStairsVariant(blockType)
 }
 
-function getStairsFacingFromBlockType(blockType: BlockType): StairFacing {
-  if (blockType.endsWith('_north')) return 'north'
-  if (blockType.endsWith('_east')) return 'east'
-  if (blockType.endsWith('_south')) return 'south'
-  return 'west'
+/**
+ * Returns a block lookup that prefers the current chunk's voxelMap for positions inside the chunk,
+ * and falls back to getBlockAt for neighbors in other chunks (so fence connection is correct on first apply).
+ */
+function makeGetBlockForChunk(
+  worldX: number,
+  worldZ: number,
+  voxelMap: Map<number, BlockType>,
+  getBlockAt: (bx: number, by: number, bz: number) => BlockType | null,
+): (bx: number, by: number, bz: number) => BlockType {
+  return (bx: number, by: number, bz: number) => {
+    const lx = bx - worldX
+    const lz = bz - worldZ
+    if (lx >= 0 && lx < CHUNK_SIZE && lz >= 0 && lz < CHUNK_SIZE) {
+      const ly = by - WORLD_MIN_Y
+      const key = localKey(lx, ly, lz)
+      return voxelMap.get(key) ?? 'air'
+    }
+    return getBlockAt(bx, by, bz) ?? 'air'
+  }
+}
+
+function addFenceInstancedLayer(
+  group: THREE.Group,
+  positions: BlockPos[],
+  mask: number,
+  material: THREE.Material | THREE.Material[],
+  userData?: { chunkKeyNum: number; blockType: BlockType },
+): THREE.InstancedMesh | null {
+  const count = positions.length
+  if (count === 0) return null
+  const mesh = new THREE.InstancedMesh(
+    getFenceGeometry(mask),
+    material as THREE.Material,
+    count,
+  )
+  mesh.count = count
+  for (let i = 0; i < count; i++) {
+    const p = positions[i]
+    _position.set(p.x, p.y, p.z)
+    _matrix.makeTranslation(_position.x, _position.y, _position.z)
+    mesh.setMatrixAt(i, _matrix)
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  ensureWhiteInstanceColorsForVertexColorMaterial(mesh, material, count)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  if (userData) mesh.userData = userData
+  group.add(mesh)
+  return mesh
 }
 
 function pseudoRandomFromBlockPos(seed: number, x: number, y: number, z: number): number {
@@ -265,7 +298,7 @@ export function getTallGrassPositions(
     for (const p of positions) {
       const lx = p.x - worldX
       const lz = p.z - worldZ
-      const keyAbove = localKey(lx, p.y + 1, lz)
+      const keyAbove = localKey(lx, p.y + 1 - WORLD_MIN_Y, lz)
       if (voxelMap.has(keyAbove)) continue
       const chance =
         getBiome && (getBiome(p.x, p.z) === 'forest' || getBiome(p.x, p.z) === 'jungle')
@@ -341,6 +374,7 @@ export function buildChunkWaterGeometry(
   worldX: number,
   worldZ: number,
   heightmap: number[][] | Float32Array,
+  biomeMapBuffer?: Uint8Array,
 ): THREE.BufferGeometry | null {
   const waterY = WATER_LEVEL + WATER_BLOCK_HEIGHT + WATER_PLANE_Y_OFFSET
   const gridSize = CHUNK_SIZE + 1
@@ -361,7 +395,13 @@ export function buildChunkWaterGeometry(
   for (let lz = 0; lz < CHUNK_SIZE; lz++) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       const topY = Array.isArray(heightmap) ? heightmap[lx][lz] : heightmap[lx + lz * CHUNK_SIZE]
-      if (topY >= WATER_LEVEL) continue
+      const biome =
+        biomeMapBuffer && biomeMapBuffer.length > lx + lz * CHUNK_SIZE
+          ? ALL_BIOMES[biomeMapBuffer[lx + lz * CHUNK_SIZE]]
+          : null
+      const isRiverAtSeaLevel =
+        topY === WATER_LEVEL && (biome === 'river' || biome === 'frozen_river')
+      if (topY >= WATER_LEVEL && !isRiverAtSeaLevel) continue
       const i00 = lx + lz * gridSize
       const i10 = lx + 1 + lz * gridSize
       const i01 = lx + (lz + 1) * gridSize
@@ -424,6 +464,8 @@ export function applyChunkPayload(
     for (const layer of payload.geometryLayers) {
       const blockType = idToType(layer.blockTypeId) as BlockType
       if (blockType === 'air') continue
+      // Torches use a custom mesh + light; skip voxel geometry for torch blocks.
+      if (blockType === 'torch' || isWallTorchBlockType(blockType)) continue
       // Keep instancing path for blocks that rely on per-instance colormap tint.
       if (
         blockType === 'grass' ||
@@ -436,6 +478,8 @@ export function applyChunkPayload(
       if (CROSS_GEOMETRY_BLOCK_TYPES.includes(blockType) || blockType === 'tall_grass') continue
       // Stairs are rendered via instancing with custom geometry below.
       if (isPlacedStairsBlockType(blockType)) continue
+      // Fences are rendered via instancing with connection-dependent geometry below.
+      if (isFenceBlock(blockType)) continue
       addGeometryLayerMesh(group, layer, getMaterialForBlockType(blockType), {
         chunkKeyNum: keyNum,
         blockType,
@@ -462,7 +506,7 @@ export function applyChunkPayload(
               const lx = i % CHUNK_SIZE
               const ly = Math.floor(i / CHUNK_SIZE) % WORLD_HEIGHT
               const lz = Math.floor(i / (CHUNK_SIZE * WORLD_HEIGHT))
-              const pos: BlockPos = { x: worldX + lx, y: ly, z: worldZ + lz }
+              const pos: BlockPos = { x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz }
               const arr = positionsByType.get(blockType) ?? []
               arr.push(pos)
               positionsByType.set(blockType, arr)
@@ -470,12 +514,17 @@ export function applyChunkPayload(
             return positionsByType
           })()
 
+    const getBlock = makeGetBlockForChunk(worldX, worldZ, voxelMap, (bx, by, bz) =>
+      getBlockAt(bx, by, bz),
+    )
+
     for (const [blockType, positions] of positionsSource) {
       let visible = positions
       if (!payload.visibleBlockKeysByType) {
         visible = filterVisibleBlocks({
           worldX,
           worldZ,
+          worldMinY: WORLD_MIN_Y,
           chunkSize: CHUNK_SIZE,
           worldHeight: WORLD_HEIGHT,
           voxelMap,
@@ -502,14 +551,16 @@ export function applyChunkPayload(
         continue
       }
       if (payload.geometryLayers && payload.geometryLayers.length > 0) {
-        // Only run instancing for tinted blocks and cross-geometry blocks (flowers, fern, tall_grass).
-        const isTintedOrCross =
+        // Only run instancing for tinted blocks, cross-geometry blocks, fences, and stairs.
+        const isTintedOrCrossOrSpecial =
           blockType === 'grass' ||
           blockType === 'grass_savanna' ||
           FOLIAGE_BLOCK_TYPES.includes(blockType) ||
           CROSS_GEOMETRY_BLOCK_TYPES.includes(blockType) ||
-          blockType === 'tall_grass'
-        if (!isTintedOrCross) continue
+          blockType === 'tall_grass' ||
+          isFenceBlock(blockType) ||
+          isPlacedStairsBlockType(blockType)
+        if (!isTintedOrCrossOrSpecial) continue
       }
       // tall_grass is rendered via getTallGrassPositions + addTallGrassLayer below.
       if (blockType === 'tall_grass') continue
@@ -527,7 +578,27 @@ export function applyChunkPayload(
         }
         continue
       }
+      if (isFenceBlock(blockType)) {
+        const byMask = new Map<number, BlockPos[]>()
+        for (const p of visible) {
+          const mask = getFenceConnectionMask(p.x, p.y, p.z, getBlock)
+          const arr = byMask.get(mask) ?? []
+          arr.push(p)
+          byMask.set(mask, arr)
+        }
+        for (const [mask, fencePositions] of byMask) {
+          addFenceInstancedLayer(
+            group,
+            fencePositions,
+            mask,
+            getMaterialForBlockType(blockType),
+            { chunkKeyNum: keyNum, blockType },
+          )
+        }
+        continue
+      }
       if (isPlacedStairsBlockType(blockType)) {
+<<<<<<< HEAD
         const mesh = addStairsInstancedLayer(
           group,
           visible,
@@ -536,6 +607,19 @@ export function applyChunkPayload(
           { chunkKeyNum: keyNum, blockType },
         )
         if (mesh) setInstanceLightLevels(mesh, visible, deps.getLightAt)
+=======
+        const state = getStairsFacingAndHalfFromId(blockType)
+        if (state) {
+          addStairsInstancedLayer(
+            group,
+            visible,
+            state.facing,
+            state.half,
+            getMaterialForBlockType(blockType),
+            { chunkKeyNum: keyNum, blockType },
+          )
+        }
+>>>>>>> dev
         continue
       }
       const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
@@ -616,7 +700,9 @@ export function applyChunkPayload(
   }
 
   const waterSource = payload.heightmapBuffer ?? payload.heightmap
-  const waterGeo = waterSource ? buildChunkWaterGeometry(worldX, worldZ, waterSource) : null
+  const waterGeo = waterSource
+    ? buildChunkWaterGeometry(worldX, worldZ, waterSource, payload.biomeMapBuffer)
+    : null
   if (waterGeo) {
     const waterMesh = new THREE.Mesh(waterGeo, getMaterialForBlockType('water'))
     waterMesh.castShadow = false
@@ -651,6 +737,14 @@ export function applyChunkPayload(
     skyLightBuffer: payload.skyLightBuffer,
   }
   deps.chunks.set(keyNum, data)
+  if (heightmapBuffer) {
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const surfaceY = Math.floor(heightmapBuffer[lx + lz * CHUNK_SIZE])
+        columnHeightCache.set(columnCacheKey(worldX + lx, worldZ + lz), surfaceY)
+      }
+    }
+  }
   scene.add(group)
   if (!wasReplacing) deps.onChunkAdded?.(data)
   deps.pendingChunkKeys.delete(keyNum)

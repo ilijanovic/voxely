@@ -12,10 +12,12 @@ const PIG_EYE = 0x1a1a1a
 
 /** Sheep wool (off-white). */
 const SHEEP_WOOL = 0xf5f5f5
-/** Sheep face (pale cream). */
-const SHEEP_HEAD = 0xf5e6d3
-/** Sheep legs/hooves (light brown). */
-const SHEEP_LEG = 0x8b7355
+/** Sheep face (dark gray-brown, Minecraft-like). */
+const SHEEP_FACE = 0x3a3230
+/** Sheep muzzle (light cream). */
+const SHEEP_MUZZLE = 0xdccab6
+/** Sheep hooves (dark brown). */
+const SHEEP_HOOF = 0x5f4d41
 /** Sheep eyes (dark). */
 const SHEEP_EYE = 0x1a1a1a
 
@@ -30,10 +32,24 @@ const boxPigSnout = new THREE.BoxGeometry(0.22 * BLOCK, 0.18 * BLOCK, 0.4 * BLOC
 const boxPigEye = new THREE.BoxGeometry(0.06 * BLOCK, 0.05 * BLOCK, 0.02 * BLOCK)
 /** Wolf snout: slimmer and shorter than pig snout for a canine muzzle. */
 const boxWolfSnout = new THREE.BoxGeometry(0.14 * BLOCK, 0.12 * BLOCK, 0.28 * BLOCK)
+/** Sheep body core and wool shell (Minecraft-like layered silhouette). */
+const boxSheepBodyCore = new THREE.BoxGeometry(0.74 * BLOCK, 0.5 * BLOCK, 0.46 * BLOCK)
+const boxSheepBodyWool = new THREE.BoxGeometry(0.84 * BLOCK, 0.62 * BLOCK, 0.56 * BLOCK)
+/** Sheep head core and wool shell. */
+const boxSheepHeadCore = new THREE.BoxGeometry(0.34 * BLOCK, 0.28 * BLOCK, 0.4 * BLOCK)
+const boxSheepHeadWool = new THREE.BoxGeometry(0.42 * BLOCK, 0.34 * BLOCK, 0.48 * BLOCK)
+/** Sheep muzzle and details. */
+const boxSheepMuzzle = new THREE.BoxGeometry(0.24 * BLOCK, 0.18 * BLOCK, 0.16 * BLOCK)
+const boxSheepEye = new THREE.BoxGeometry(0.04 * BLOCK, 0.04 * BLOCK, 0.02 * BLOCK)
+const boxSheepEar = new THREE.BoxGeometry(0.08 * BLOCK, 0.1 * BLOCK, 0.04 * BLOCK)
+/** Sheep leg core and wool cuff. */
+const boxSheepLegCore = new THREE.BoxGeometry(0.16 * BLOCK, 0.5 * BLOCK, 0.16 * BLOCK)
+const boxSheepLegWool = new THREE.BoxGeometry(0.2 * BLOCK, 0.18 * BLOCK, 0.2 * BLOCK)
 
 // ─── Shared materials (lazy-init, reused across all instances) ───────────────
 const _refSheepBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refSheepHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refSheepMuzzle = { current: null as THREE.MeshStandardMaterial | null }
 const _refSheepLeg = { current: null as THREE.MeshStandardMaterial | null }
 const _refSheepEye = { current: null as THREE.MeshStandardMaterial | null }
 const _refPigBody = { current: null as THREE.MeshStandardMaterial | null }
@@ -76,79 +92,131 @@ function getMat(
   return ref.current
 }
 
-/** Sheep: woolly body, cream face, eyes, droopy ears, light leg color. Legs use legIndex for walk cycle. */
+interface SheepMeshUserData {
+  sheepHeadPivot?: THREE.Group
+  sheepHeadBaseY?: number
+  sheepHeadBaseZ?: number
+}
+
+interface SheepLegMaterials {
+  hoof: THREE.MeshStandardMaterial
+  wool: THREE.MeshStandardMaterial
+}
+
+/**
+ * Creates one sheep leg pivot (hoof + wool cuff) and marks it with legIndex for walk animation.
+ */
+function createSheepLeg(
+  x: number,
+  z: number,
+  legIndex: number,
+  materials: SheepLegMaterials,
+): THREE.Group {
+  const legPivot = new THREE.Group()
+  legPivot.position.set(x, 0.25, z)
+  legPivot.userData.legIndex = legIndex
+
+  const hoof = new THREE.Mesh(boxSheepLegCore, materials.hoof)
+  hoof.castShadow = true
+  hoof.receiveShadow = true
+
+  const cuff = new THREE.Mesh(boxSheepLegWool, materials.wool)
+  cuff.position.y = 0.14
+  cuff.castShadow = true
+  cuff.receiveShadow = true
+
+  legPivot.add(hoof)
+  legPivot.add(cuff)
+  return legPivot
+}
+
+/** Sheep: layered wool shell, dark face, and pivoted head for Minecraft-like grazing motion. */
 function createSheepMesh(): THREE.Group {
   const group = new THREE.Group()
-  const matBody = getMat(_refSheepBody, SHEEP_WOOL)
-  const matHead = getMat(_refSheepHead, SHEEP_HEAD)
-  const matLeg = getMat(_refSheepLeg, SHEEP_LEG)
-  const matEar = getMat(_refSheepHead, SHEEP_HEAD)
+  const matWool = getMat(_refSheepBody, SHEEP_WOOL)
+  const matFace = getMat(_refSheepHead, SHEEP_FACE)
+  const matMuzzle = getMat(_refSheepMuzzle, SHEEP_MUZZLE)
+  const matHoof = getMat(_refSheepLeg, SHEEP_HOOF)
   const matEye = getMat(_refSheepEye, SHEEP_EYE)
 
-  const body = new THREE.Mesh(boxBody, matBody)
-  body.position.y = 0.26
-  body.scale.set(1.08, 0.95, 1.05)
-  body.castShadow = true
-  body.receiveShadow = true
+  const bodyCore = new THREE.Mesh(boxSheepBodyCore, matFace)
+  bodyCore.position.y = 0.78
+  bodyCore.castShadow = true
+  bodyCore.receiveShadow = true
 
-  const head = new THREE.Mesh(boxHead, matHead)
-  head.position.set(0, 0.46, 0.3)
-  head.castShadow = true
-  head.receiveShadow = true
+  const bodyWool = new THREE.Mesh(boxSheepBodyWool, matWool)
+  bodyWool.position.y = 0.8
+  bodyWool.castShadow = true
+  bodyWool.receiveShadow = true
 
-  const eyeL = new THREE.Mesh(boxPigEye, matEye)
-  eyeL.position.set(-0.1, 0.48, 0.47)
+  const headPivot = new THREE.Group()
+  headPivot.position.set(0, 0.78, 0.48)
+
+  const headCore = new THREE.Mesh(boxSheepHeadCore, matFace)
+  headCore.position.z = 0.04
+  headCore.castShadow = true
+  headCore.receiveShadow = true
+
+  const headWool = new THREE.Mesh(boxSheepHeadWool, matWool)
+  headWool.position.z = 0.02
+  headWool.castShadow = true
+  headWool.receiveShadow = true
+
+  const muzzle = new THREE.Mesh(boxSheepMuzzle, matMuzzle)
+  muzzle.position.set(0, -0.04, 0.24)
+  muzzle.castShadow = true
+  muzzle.receiveShadow = true
+
+  const eyeL = new THREE.Mesh(boxSheepEye, matEye)
+  eyeL.position.set(-0.11, 0.05, 0.15)
   eyeL.castShadow = true
   eyeL.receiveShadow = true
-  const eyeR = new THREE.Mesh(boxPigEye, matEye)
-  eyeR.position.set(0.1, 0.48, 0.47)
+
+  const eyeR = new THREE.Mesh(boxSheepEye, matEye)
+  eyeR.position.set(0.11, 0.05, 0.15)
   eyeR.castShadow = true
   eyeR.receiveShadow = true
 
-  const earL = new THREE.Mesh(boxEar, matEar)
-  earL.position.set(-0.2, 0.58, 0.26)
-  earL.rotation.z = Math.PI / 6
-  earL.rotation.x = -0.15
+  const earL = new THREE.Mesh(boxSheepEar, matFace)
+  earL.position.set(-0.18, 0.1, 0.08)
+  earL.rotation.z = 0.2
   earL.castShadow = true
   earL.receiveShadow = true
-  const earR = new THREE.Mesh(boxEar, matEar)
-  earR.position.set(0.2, 0.58, 0.26)
-  earR.rotation.z = -Math.PI / 6
-  earR.rotation.x = -0.15
+
+  const earR = new THREE.Mesh(boxSheepEar, matFace)
+  earR.position.set(0.18, 0.1, 0.08)
+  earR.rotation.z = -0.2
   earR.castShadow = true
   earR.receiveShadow = true
 
-  const leg1 = new THREE.Mesh(boxLeg, matLeg)
-  leg1.position.set(-0.2, 0.125, 0.15)
-  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
-  leg1.castShadow = true
-  leg1.receiveShadow = true
-  const leg2 = new THREE.Mesh(boxLeg, matLeg)
-  leg2.position.set(0.2, 0.125, 0.15)
-  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
-  leg2.castShadow = true
-  leg2.receiveShadow = true
-  const leg3 = new THREE.Mesh(boxLeg, matLeg)
-  leg3.position.set(-0.2, 0.125, -0.15)
-  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
-  leg3.castShadow = true
-  leg3.receiveShadow = true
-  const leg4 = new THREE.Mesh(boxLeg, matLeg)
-  leg4.position.set(0.2, 0.125, -0.15)
-  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
-  leg4.castShadow = true
-  leg4.receiveShadow = true
+  headPivot.add(headWool)
+  headPivot.add(headCore)
+  headPivot.add(muzzle)
+  headPivot.add(eyeL)
+  headPivot.add(eyeR)
+  headPivot.add(earL)
+  headPivot.add(earR)
 
-  group.add(body)
-  group.add(head)
-  group.add(eyeL)
-  group.add(eyeR)
-  group.add(earL)
-  group.add(earR)
+  const legMaterials = { hoof: matHoof, wool: matWool }
+  const leg1 = createSheepLeg(-0.23, 0.2, 0, legMaterials)
+  const leg2 = createSheepLeg(0.23, 0.2, 1, legMaterials)
+  const leg3 = createSheepLeg(-0.23, -0.2, 2, legMaterials)
+  const leg4 = createSheepLeg(0.23, -0.2, 3, legMaterials)
+
+  group.add(bodyWool)
+  group.add(bodyCore)
+  group.add(headPivot)
   group.add(leg1)
   group.add(leg2)
   group.add(leg3)
   group.add(leg4)
+
+  const userData = group.userData as SheepMeshUserData
+  userData.sheepHeadPivot = headPivot
+  userData.sheepHeadBaseY = headPivot.position.y
+  userData.sheepHeadBaseZ = headPivot.position.z
+
+  group.scale.set(1.07, 1.18, 1.07)
   return group
 }
 
@@ -364,8 +432,7 @@ function createVillagerMesh(variant?: number): THREE.Group {
   mouth.castShadow = true
   mouth.receiveShadow = true
 
-  const hasHat =
-    variant !== undefined && variant < VILLAGER_HAT_CHANCE
+  const hasHat = variant !== undefined && variant < VILLAGER_HAT_CHANCE
 
   const torso = new THREE.Mesh(boxVillagerTorso, matBody)
   torso.position.y = 0.825
@@ -408,6 +475,23 @@ function createVillagerMesh(variant?: number): THREE.Group {
 const _refZombieBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refZombieHead = { current: null as THREE.MeshStandardMaterial | null }
 const _refZombieLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refCowBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refCowHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refCowLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refChickenBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refChickenHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refChickenLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refHorseBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refHorseHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refHorseLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refDonkeyBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refDonkeyHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refDonkeyLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refDonkeyEar = { current: null as THREE.MeshStandardMaterial | null }
+const _refRabbitBody = { current: null as THREE.MeshStandardMaterial | null }
+const _refRabbitHead = { current: null as THREE.MeshStandardMaterial | null }
+const _refRabbitLeg = { current: null as THREE.MeshStandardMaterial | null }
+const _refRabbitEar = { current: null as THREE.MeshStandardMaterial | null }
 
 /** Zombie: simple humanoid (green skin, upright). Used for hostile mob spawn at night. */
 const ZOMBIE_GREEN = 0x3d5c34
@@ -444,6 +528,7 @@ function createZombieMesh(): THREE.Group {
   return group
 }
 
+<<<<<<< HEAD
 const _refSkeletonBody = { current: null as THREE.MeshStandardMaterial | null }
 const _refSkeletonHead = { current: null as THREE.MeshStandardMaterial | null }
 const _refSkeletonLeg = { current: null as THREE.MeshStandardMaterial | null }
@@ -527,6 +612,293 @@ function createCreeperMesh(): THREE.Group {
   group.add(legFR)
   group.add(legBL)
   group.add(legBR)
+=======
+/** Cow: blocky cattle (white/dark patches), four legs. Minecraft-style spawn in plains/forest/savanna/jungle/meadow. */
+function createCowMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refCowBody, 0xe8e4d8)
+  const matHead = getMat(_refCowHead, 0x4a4a4a)
+  const matLeg = getMat(_refCowLeg, 0x3a3a3a)
+  const body = new THREE.Mesh(boxBody, matBody)
+  body.position.y = 0.32
+  body.scale.set(1.15, 1.05, 1.2)
+  body.castShadow = true
+  body.receiveShadow = true
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 0.5, 0.35)
+  head.scale.setScalar(1.05)
+  head.castShadow = true
+  head.receiveShadow = true
+  const leg1 = new THREE.Mesh(boxLeg, matLeg)
+  leg1.position.set(-0.22, 0.14, 0.18)
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+  const leg2 = new THREE.Mesh(boxLeg, matLeg)
+  leg2.position.set(0.22, 0.14, 0.18)
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+  const leg3 = new THREE.Mesh(boxLeg, matLeg)
+  leg3.position.set(-0.22, 0.14, -0.18)
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+  const leg4 = new THREE.Mesh(boxLeg, matLeg)
+  leg4.position.set(0.22, 0.14, -0.18)
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+  group.add(body)
+  group.add(head)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(1.2, 1.15, 1.2)
+  return group
+}
+
+/** Chicken: small body, head, beak. Four small legs for walk cycle. */
+function createChickenMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refChickenBody, 0xf5f5f5)
+  const matHead = getMat(_refChickenHead, 0xffcc66)
+  const matLeg = getMat(_refChickenLeg, 0xcc6633)
+  const boxSmall = new THREE.BoxGeometry(0.25 * BLOCK, 0.2 * BLOCK, 0.25 * BLOCK)
+  const body = new THREE.Mesh(boxSmall, matBody)
+  body.position.y = 0.18
+  body.scale.set(1.2, 1, 1.2)
+  body.castShadow = true
+  body.receiveShadow = true
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 0.38, 0.18)
+  head.scale.set(0.5, 0.5, 0.5)
+  head.castShadow = true
+  head.receiveShadow = true
+  const leg1 = new THREE.Mesh(boxLeg, matLeg)
+  leg1.position.set(-0.08, 0.06, 0.06)
+  leg1.scale.set(0.6, 0.8, 0.6)
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+  const leg2 = new THREE.Mesh(boxLeg, matLeg)
+  leg2.position.set(0.08, 0.06, 0.06)
+  leg2.scale.set(0.6, 0.8, 0.6)
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+  const leg3 = new THREE.Mesh(boxLeg, matLeg)
+  leg3.position.set(-0.08, 0.06, -0.06)
+  leg3.scale.set(0.6, 0.8, 0.6)
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+  const leg4 = new THREE.Mesh(boxLeg, matLeg)
+  leg4.position.set(0.08, 0.06, -0.06)
+  leg4.scale.set(0.6, 0.8, 0.6)
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+  group.add(body)
+  group.add(head)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(0.85, 0.9, 0.85)
+  return group
+}
+
+/** Horse: taller body, elongated head, four legs. Minecraft-style spawn in plains/savanna. */
+function createHorseMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refHorseBody, 0x8b6914)
+  const matHead = getMat(_refHorseHead, 0x6b4a0a)
+  const matLeg = getMat(_refHorseLeg, 0x2a2a2a)
+  const body = new THREE.Mesh(boxBody, matBody)
+  body.position.y = 0.5
+  body.scale.set(1.1, 1.2, 1.3)
+  body.castShadow = true
+  body.receiveShadow = true
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 0.72, 0.38)
+  head.scale.set(0.9, 1.1, 1.2)
+  head.castShadow = true
+  head.receiveShadow = true
+  const leg1 = new THREE.Mesh(boxLeg, matLeg)
+  leg1.position.set(-0.2, 0.2, 0.2)
+  leg1.scale.y = 1.4
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+  const leg2 = new THREE.Mesh(boxLeg, matLeg)
+  leg2.position.set(0.2, 0.2, 0.2)
+  leg2.scale.y = 1.4
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+  const leg3 = new THREE.Mesh(boxLeg, matLeg)
+  leg3.position.set(-0.2, 0.2, -0.2)
+  leg3.scale.y = 1.4
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+  const leg4 = new THREE.Mesh(boxLeg, matLeg)
+  leg4.position.set(0.2, 0.2, -0.2)
+  leg4.scale.y = 1.4
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+  group.add(body)
+  group.add(head)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(1.15, 1.25, 1.15)
+  return group
+}
+
+/** Donkey: horse-like but smaller, with longer ears and gray coat. */
+function createDonkeyMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refDonkeyBody, 0x8b8680)
+  const matHead = getMat(_refDonkeyHead, 0x6f6b66)
+  const matLeg = getMat(_refDonkeyLeg, 0x2f2f2f)
+  const matEar = getMat(_refDonkeyEar, 0x8b8680)
+
+  const body = new THREE.Mesh(boxBody, matBody)
+  body.position.y = 0.48
+  body.scale.set(1.05, 1.15, 1.25)
+  body.castShadow = true
+  body.receiveShadow = true
+
+  const head = new THREE.Mesh(boxHead, matHead)
+  head.position.set(0, 0.69, 0.37)
+  head.scale.set(0.88, 1.05, 1.15)
+  head.castShadow = true
+  head.receiveShadow = true
+
+  const earL = new THREE.Mesh(boxEar, matEar)
+  earL.position.set(-0.12, 0.88, 0.34)
+  earL.scale.set(0.7, 2.6, 0.9)
+  earL.castShadow = true
+  earL.receiveShadow = true
+
+  const earR = new THREE.Mesh(boxEar, matEar)
+  earR.position.set(0.12, 0.88, 0.34)
+  earR.scale.set(0.7, 2.6, 0.9)
+  earR.castShadow = true
+  earR.receiveShadow = true
+
+  const leg1 = new THREE.Mesh(boxLeg, matLeg)
+  leg1.position.set(-0.19, 0.19, 0.19)
+  leg1.scale.y = 1.35
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+
+  const leg2 = new THREE.Mesh(boxLeg, matLeg)
+  leg2.position.set(0.19, 0.19, 0.19)
+  leg2.scale.y = 1.35
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+
+  const leg3 = new THREE.Mesh(boxLeg, matLeg)
+  leg3.position.set(-0.19, 0.19, -0.19)
+  leg3.scale.y = 1.35
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+
+  const leg4 = new THREE.Mesh(boxLeg, matLeg)
+  leg4.position.set(0.19, 0.19, -0.19)
+  leg4.scale.y = 1.35
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+
+  group.add(body)
+  group.add(head)
+  group.add(earL)
+  group.add(earR)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(1.1, 1.2, 1.1)
+  return group
+}
+
+/** Rabbit: compact body with short legs and tall ears. */
+function createRabbitMesh(): THREE.Group {
+  const group = new THREE.Group()
+  const matBody = getMat(_refRabbitBody, 0xd9d4cb)
+  const matHead = getMat(_refRabbitHead, 0xb8b2a8)
+  const matLeg = getMat(_refRabbitLeg, 0x9e998f)
+  const matEar = getMat(_refRabbitEar, 0xd9d4cb)
+
+  const boxRabbitBody = new THREE.BoxGeometry(0.28 * BLOCK, 0.2 * BLOCK, 0.34 * BLOCK)
+  const boxRabbitHead = new THREE.BoxGeometry(0.18 * BLOCK, 0.18 * BLOCK, 0.2 * BLOCK)
+  const boxRabbitEar = new THREE.BoxGeometry(0.05 * BLOCK, 0.18 * BLOCK, 0.04 * BLOCK)
+  const boxRabbitLeg = new THREE.BoxGeometry(0.08 * BLOCK, 0.1 * BLOCK, 0.08 * BLOCK)
+
+  const body = new THREE.Mesh(boxRabbitBody, matBody)
+  body.position.y = 0.12
+  body.castShadow = true
+  body.receiveShadow = true
+
+  const head = new THREE.Mesh(boxRabbitHead, matHead)
+  head.position.set(0, 0.2, 0.14)
+  head.castShadow = true
+  head.receiveShadow = true
+
+  const earL = new THREE.Mesh(boxRabbitEar, matEar)
+  earL.position.set(-0.05, 0.31, 0.14)
+  earL.castShadow = true
+  earL.receiveShadow = true
+
+  const earR = new THREE.Mesh(boxRabbitEar, matEar)
+  earR.position.set(0.05, 0.31, 0.14)
+  earR.castShadow = true
+  earR.receiveShadow = true
+
+  const leg1 = new THREE.Mesh(boxRabbitLeg, matLeg)
+  leg1.position.set(-0.09, 0.06, 0.1)
+  ;(leg1 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 0
+  leg1.castShadow = true
+  leg1.receiveShadow = true
+
+  const leg2 = new THREE.Mesh(boxRabbitLeg, matLeg)
+  leg2.position.set(0.09, 0.06, 0.1)
+  ;(leg2 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 1
+  leg2.castShadow = true
+  leg2.receiveShadow = true
+
+  const leg3 = new THREE.Mesh(boxRabbitLeg, matLeg)
+  leg3.position.set(-0.09, 0.06, -0.1)
+  ;(leg3 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 2
+  leg3.castShadow = true
+  leg3.receiveShadow = true
+
+  const leg4 = new THREE.Mesh(boxRabbitLeg, matLeg)
+  leg4.position.set(0.09, 0.06, -0.1)
+  ;(leg4 as THREE.Mesh & { userData: { legIndex?: number } }).userData.legIndex = 3
+  leg4.castShadow = true
+  leg4.receiveShadow = true
+
+  group.add(body)
+  group.add(head)
+  group.add(earL)
+  group.add(earR)
+  group.add(leg1)
+  group.add(leg2)
+  group.add(leg3)
+  group.add(leg4)
+  group.scale.set(0.9, 0.9, 0.9)
+>>>>>>> dev
   return group
 }
 
@@ -534,6 +906,11 @@ function createCreeperMesh(): THREE.Group {
 export const ANIMAL_MESH_FACTORY: Record<AnimalKind, () => THREE.Group> = {
   sheep: createSheepMesh,
   pig: createPigMesh,
+  cow: createCowMesh,
+  chicken: createChickenMesh,
+  horse: createHorseMesh,
+  donkey: createDonkeyMesh,
+  rabbit: createRabbitMesh,
   wolf: createWolfMesh,
   villager: createVillagerMesh,
   zombie: createZombieMesh,

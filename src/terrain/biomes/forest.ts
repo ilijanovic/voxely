@@ -2,9 +2,9 @@ import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const forestTerrain: TerrainParams = {
   baseOffset: 3,
-  detailAmp: 4.5,
-  detailFreq: 0.026,
-  flatness: 0.7,
+  detailAmp: 3.8,
+  detailFreq: 0.022,
+  flatness: 0.8,
   mountainAllowed: true,
 }
 
@@ -31,7 +31,7 @@ export const forestDefinition: BiomeDefinition = {
   /** Used only for peak-variant and optional blend; base selection is climate-based. Aligned with climate center in signed space. */
   multiNoise: {
     center: {
-      continentalness: 0.72,
+      continentalness: 0.384,
       erosion: -0.05,
       temperature: -0.2,
       humidity: 0.4,

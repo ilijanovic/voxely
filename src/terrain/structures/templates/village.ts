@@ -118,6 +118,9 @@ function firstSegmentAlongZGoesOut(
 /** Extra margin (blocks) around the house so gravel does not touch walls or sit under them. */
 const WALKWAY_HOUSE_MARGIN = 1
 
+/** Fraction of walkway blocks that are grass_path (rest gravel); 1 in 4 = 25%. */
+const WALKWAY_GRASS_PATH_ONE_IN = 4
+
 /**
  * Returns the (x, z) of the single block immediately in front of the door (outside the house).
  * Used so the path can connect to the door without placing gravel along the side walls.
@@ -187,9 +190,10 @@ function rasterAxisAlignedSegment(
 }
 
 /**
- * Returns gravel block entries for L-shaped walkways (axis-aligned, no diagonals) connecting
+ * Returns block entries for L-shaped village walkways (axis-aligned, no diagonals) connecting
  * doors to a center. Path goes around each house (first segment outward from the door).
- * Path is 2 blocks wide. Only returns blocks inside the given chunk bounds.
+ * Path is 2 blocks wide; blocks are gravel with a deterministic mix of grass_path (~25%).
+ * Only returns blocks inside the given chunk bounds.
  */
 export function getVillageWalkwayBlocks(
   doors: VillageDoorPosition[],
@@ -238,7 +242,9 @@ export function getVillageWalkwayBlocks(
           if (seen.has(key)) continue
           seen.add(key)
           if (bx < worldX || bx > maxX || bz < worldZ || bz > maxZ) continue
-          out.push({ bx, by: oy, bz, block: 'gravel' })
+          const pathBlock =
+            hashOrigin(bx, bz) % WALKWAY_GRASS_PATH_ONE_IN === 0 ? 'grass_path' : 'gravel'
+          out.push({ bx, by: oy, bz, block: pathBlock })
         }
       }
     }

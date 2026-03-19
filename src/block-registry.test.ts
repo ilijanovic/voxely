@@ -14,6 +14,17 @@ import {
   isPlaceableBlock,
   isOccludingBlock,
   isFluidBlock,
+  getPlacedStairsId,
+  getStairsItemId,
+  getStairsFacingAndHalfFromId,
+  isPlacedStairsVariant,
+  getBlockCollisionBoxesLocal,
+  getFenceCollisionBoxesLocal,
+  getFenceConnectionMask,
+  getBlockTextureNames,
+  getBlockFlammability,
+  getBlockBurnability,
+  getBlockPistonBehavior,
 } from './block-registry'
 import { VALID_BLOCK_TYPES } from './save'
 
@@ -157,6 +168,14 @@ describe('Block registry invariants', () => {
     expect(isPlaceableBlock('wood_sword')).toBe(false)
   })
 
+  it('dead_bush keeps plant rendering/collision contract (non-solid transparent cross)', () => {
+    const deadBush = getBlockDefinition('dead_bush')
+    expect(deadBush).toBeDefined()
+    expect(deadBush?.solid).toBe(false)
+    expect(deadBush?.transparent).toBe(true)
+    expect(deadBush?.crossGeometry).toBe(true)
+  })
+
   it('leaves and ice are non-occluding; stone is occluding', () => {
     expect(isOccludingBlock('leaves')).toBe(false)
     expect(isOccludingBlock('ice')).toBe(false)
@@ -168,5 +187,156 @@ describe('Block registry invariants', () => {
     expect(isFluidBlock('water_source')).toBe(true)
     expect(isFluidBlock('water_flowing_1')).toBe(true)
     expect(isFluidBlock('stone')).toBe(false)
+  })
+
+  it('exposes fire metadata for common families (wood/leaves/plants)', () => {
+    expect(getBlockFlammability('stone')).toBe(0)
+    expect(getBlockBurnability('stone')).toBe(0)
+    expect(getBlockFlammability('oak_planks')).toBe(5)
+    expect(getBlockBurnability('oak_planks')).toBe(20)
+    expect(getBlockFlammability('oak_leaves')).toBe(30)
+    expect(getBlockBurnability('oak_leaves')).toBe(60)
+    expect(getBlockFlammability('dandelion')).toBe(60)
+    expect(getBlockBurnability('dandelion')).toBe(100)
+  })
+
+  it('exposes piston behavior metadata', () => {
+    expect(getBlockPistonBehavior('stone')).toBe('normal')
+    expect(getBlockPistonBehavior('dandelion')).toBe('destroy')
+    expect(getBlockPistonBehavior('water_source')).toBe('block')
+    expect(getBlockPistonBehavior('bedrock')).toBe('block')
+  })
+})
+
+describe('Stairs placement and collision', () => {
+  it('getPlacedStairsId returns _facing for half bottom (default)', () => {
+    expect(getPlacedStairsId('oak_stairs', 'north')).toBe('oak_stairs_north')
+    expect(getPlacedStairsId('oak_stairs', 'south')).toBe('oak_stairs_south')
+    expect(getPlacedStairsId('cobblestone_stairs', 'east')).toBe('cobblestone_stairs_east')
+  })
+
+  it('getPlacedStairsId returns _facing_top for half top', () => {
+    expect(getPlacedStairsId('oak_stairs', 'north', 'top')).toBe('oak_stairs_north_top')
+    expect(getPlacedStairsId('oak_stairs', 'south', 'top')).toBe('oak_stairs_south_top')
+    expect(getPlacedStairsId('cobblestone_stairs', 'west', 'top')).toBe('cobblestone_stairs_west_top')
+  })
+
+  it('getStairsItemId strips facing and optional _top', () => {
+    expect(getStairsItemId('oak_stairs_north')).toBe('oak_stairs')
+    expect(getStairsItemId('oak_stairs_north_top')).toBe('oak_stairs')
+    expect(getStairsItemId('oak_stairs')).toBe('oak_stairs')
+  })
+
+  it('isPlacedStairsVariant recognizes bottom and top variants', () => {
+    expect(isPlacedStairsVariant('oak_stairs_north')).toBe(true)
+    expect(isPlacedStairsVariant('oak_stairs_north_top')).toBe(true)
+    expect(isPlacedStairsVariant('oak_stairs')).toBe(false)
+    expect(isPlacedStairsVariant('stone')).toBe(false)
+  })
+
+  it('getStairsFacingAndHalfFromId parses bottom and top variants', () => {
+    expect(getStairsFacingAndHalfFromId('oak_stairs_north')).toEqual({ facing: 'north', half: 'bottom' })
+    expect(getStairsFacingAndHalfFromId('oak_stairs_south_top')).toEqual({ facing: 'south', half: 'top' })
+    expect(getStairsFacingAndHalfFromId('oak_stairs')).toBe(null)
+  })
+
+  it('getBlockCollisionBoxesLocal returns two boxes for bottom-half stairs (slab + step)', () => {
+    const boxes = getBlockCollisionBoxesLocal('oak_stairs_north')
+    expect(boxes).toHaveLength(2)
+    expect(boxes[0].minY).toBe(0)
+    expect(boxes[0].maxY).toBe(0.5)
+    expect(boxes[0].minX).toBe(0)
+    expect(boxes[0].maxX).toBe(1)
+    expect(boxes[0].minZ).toBe(0)
+    expect(boxes[0].maxZ).toBe(1)
+    expect(boxes[1].minY).toBe(0.5)
+    expect(boxes[1].maxY).toBe(1)
+    expect(boxes[1].maxZ).toBe(0.5)
+  })
+
+  it('getBlockCollisionBoxesLocal returns two boxes for top-half stairs (upside-down)', () => {
+    const boxes = getBlockCollisionBoxesLocal('oak_stairs_north_top')
+    expect(boxes).toHaveLength(2)
+    expect(boxes[0].minY).toBe(0)
+    expect(boxes[0].maxY).toBe(0.5)
+    expect(boxes[0].maxZ).toBe(0.5)
+    expect(boxes[1].minY).toBe(0.5)
+    expect(boxes[1].maxY).toBe(1)
+    expect(boxes[1].minX).toBe(0)
+    expect(boxes[1].maxX).toBe(1)
+    expect(boxes[1].minZ).toBe(0)
+    expect(boxes[1].maxZ).toBe(1)
+  })
+
+  it('getBlockTextureNames returns base block texture for placed stairs variants', () => {
+    expect(getBlockTextureNames('oak_stairs_north')).toEqual(['planks_oak'])
+    expect(getBlockTextureNames('oak_stairs_north_top')).toEqual(['planks_oak'])
+    expect(getBlockTextureNames('oak_stairs')).toEqual(['planks_oak'])
+    expect(getBlockTextureNames('cobblestone_stairs_east')).toEqual(['cobblestone'])
+    expect(getBlockTextureNames('sandstone_stairs_south')).toEqual(['sandstone_normal'])
+  })
+})
+
+describe('getFenceCollisionBoxesLocal', () => {
+  it('returns only center post box for mask 0 (no connections)', () => {
+    const boxes = getFenceCollisionBoxesLocal(0)
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0]).toEqual({
+      minX: 0.375,
+      minY: 0,
+      minZ: 0.375,
+      maxX: 0.625,
+      maxY: 1.5,
+      maxZ: 0.625,
+    })
+  })
+
+  it('returns post plus one box per connected direction', () => {
+    const maskNorth = 1
+    const boxesNorth = getFenceCollisionBoxesLocal(maskNorth)
+    expect(boxesNorth).toHaveLength(2)
+    expect(boxesNorth[0].minZ).toBe(0.375)
+    expect(boxesNorth[1].minZ).toBe(0)
+    expect(boxesNorth[1].maxZ).toBe(0.5)
+
+    const maskAll = 1 | 2 | 4 | 8
+    const boxesAll = getFenceCollisionBoxesLocal(maskAll)
+    expect(boxesAll).toHaveLength(5)
+  })
+
+  it('fence block type returns same as getFenceCollisionBoxesLocal(0)', () => {
+    const fromType = getBlockCollisionBoxesLocal('oak_fence')
+    const fromMask = getFenceCollisionBoxesLocal(0)
+    expect(fromType).toEqual(fromMask)
+  })
+})
+
+describe('getFenceConnectionMask', () => {
+  it('returns 0 when all neighbors are air or unloaded', () => {
+    const getBlock = () => 'air'
+    expect(getFenceConnectionMask(0, 0, 0, getBlock)).toBe(0)
+    const getNull = () => null
+    expect(getFenceConnectionMask(0, 0, 0, getNull)).toBe(0)
+  })
+
+  it('sets North bit when neighbor at (bx, by, bz - 1) is fence', () => {
+    const getBlock = (bx: number, _by: number, bz: number) =>
+      bx === 0 && bz === -1 ? 'oak_fence' : 'air'
+    expect(getFenceConnectionMask(0, 0, 0, getBlock)).toBe(1)
+  })
+
+  it('sets East bit when neighbor at (bx + 1, by, bz) is solid', () => {
+    const getBlock = (bx: number, _by: number, bz: number) =>
+      bx === 1 && bz === 0 ? 'stone' : 'air'
+    expect(getFenceConnectionMask(0, 0, 0, getBlock)).toBe(4)
+  })
+
+  it('returns combined mask for multiple connections', () => {
+    const getBlock = (bx: number, _by: number, bz: number) => {
+      if (bz === -1) return 'oak_fence'
+      if (bx === 1) return 'dirt'
+      return 'air'
+    }
+    expect(getFenceConnectionMask(0, 0, 0, getBlock)).toBe(1 | 4)
   })
 })

@@ -1,5 +1,5 @@
 import type { BlockType, ChunkData } from '../../types'
-import { CHUNK_SIZE } from '../../constants'
+import { CHUNK_SIZE, WORLD_MIN_Y } from '../../constants'
 import { chunkKeyNumeric, localKey } from '../../chunk-runtime'
 
 export function applyBlockChangeToLoadedChunk(params: {
@@ -22,7 +22,7 @@ export function applyBlockChangeToLoadedChunk(params: {
   if (data) {
     const lx = bx - data.cx * CHUNK_SIZE
     const lz = bz - data.cz * CHUNK_SIZE
-    const k = localKey(lx, by, lz)
+    const k = localKey(lx, by - WORLD_MIN_Y, lz)
     if (next === 'air') data.voxelMap.delete(k)
     else data.voxelMap.set(k, next)
   }

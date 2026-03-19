@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, WORLD_HEIGHT } from '../constants'
+import { CHUNK_SIZE, WORLD_HEIGHT, WORLD_MIN_Y } from '../constants'
 import { CARVED_ID, getBlockHeightById, WATER_SOURCE_ID } from './block-ids'
 
 function isWaterBlockId(id: number): boolean {
@@ -380,7 +380,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 0, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
+            { face: 0, x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
             id,
           )
           continue
@@ -390,7 +390,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     }
     for (const r of greedyRectsFromMask(maskYZ, CHUNK_SIZE, WORLD_HEIGHT)) {
       pushRect(
-        { face: 0, x: worldX + lx, y: r.v, z: worldZ + r.u, w: r.w, h: r.h, blockHeight: 1 },
+        { face: 0, x: worldX + lx, y: WORLD_MIN_Y + r.v, z: worldZ + r.u, w: r.w, h: r.h, blockHeight: 1 },
         r.id,
       )
     }
@@ -408,7 +408,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 1, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
+            { face: 1, x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
             id,
           )
           continue
@@ -418,7 +418,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     }
     for (const r of greedyRectsFromMask(maskYZ, CHUNK_SIZE, WORLD_HEIGHT)) {
       pushRect(
-        { face: 1, x: worldX + lx, y: r.v, z: worldZ + r.u, w: r.w, h: r.h, blockHeight: 1 },
+        { face: 1, x: worldX + lx, y: WORLD_MIN_Y + r.v, z: worldZ + r.u, w: r.w, h: r.h, blockHeight: 1 },
         r.id,
       )
     }
@@ -439,7 +439,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 2, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: 1, blockHeight: bh },
+            { face: 2, x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz, w: 1, h: 1, blockHeight: bh },
             id,
           )
           continue
@@ -449,7 +449,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     }
     for (const r of greedyRectsFromMask(maskXZ, CHUNK_SIZE, CHUNK_SIZE)) {
       pushRect(
-        { face: 2, x: worldX + r.u, y: ly, z: worldZ + r.v, w: r.w, h: r.h, blockHeight: 1 },
+        { face: 2, x: worldX + r.u, y: WORLD_MIN_Y + ly, z: worldZ + r.v, w: r.w, h: r.h, blockHeight: 1 },
         r.id,
       )
     }
@@ -467,7 +467,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 3, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: 1, blockHeight: bh },
+            { face: 3, x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz, w: 1, h: 1, blockHeight: bh },
             id,
           )
           continue
@@ -477,7 +477,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     }
     for (const r of greedyRectsFromMask(maskXZ, CHUNK_SIZE, CHUNK_SIZE)) {
       pushRect(
-        { face: 3, x: worldX + r.u, y: ly, z: worldZ + r.v, w: r.w, h: r.h, blockHeight: 1 },
+        { face: 3, x: worldX + r.u, y: WORLD_MIN_Y + ly, z: worldZ + r.v, w: r.w, h: r.h, blockHeight: 1 },
         r.id,
       )
     }
@@ -498,7 +498,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 4, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
+            { face: 4, x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
             id,
           )
           continue
@@ -508,7 +508,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     }
     for (const r of greedyRectsFromMask(maskXY, CHUNK_SIZE, WORLD_HEIGHT)) {
       pushRect(
-        { face: 4, x: worldX + r.u, y: r.v, z: worldZ + lz, w: r.w, h: r.h, blockHeight: 1 },
+        { face: 4, x: worldX + r.u, y: WORLD_MIN_Y + r.v, z: worldZ + lz, w: r.w, h: r.h, blockHeight: 1 },
         r.id,
       )
     }
@@ -526,7 +526,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
         const bh = getBlockHeightById(id)
         if (bh !== 1) {
           pushRect(
-            { face: 5, x: worldX + lx, y: ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
+            { face: 5, x: worldX + lx, y: WORLD_MIN_Y + ly, z: worldZ + lz, w: 1, h: bh, blockHeight: bh },
             id,
           )
           continue
@@ -536,7 +536,7 @@ export function buildWorkerGeometryFromVoxelBuffer(options: {
     }
     for (const r of greedyRectsFromMask(maskXY, CHUNK_SIZE, WORLD_HEIGHT)) {
       pushRect(
-        { face: 5, x: worldX + r.u, y: r.v, z: worldZ + lz, w: r.w, h: r.h, blockHeight: 1 },
+        { face: 5, x: worldX + r.u, y: WORLD_MIN_Y + r.v, z: worldZ + lz, w: r.w, h: r.h, blockHeight: 1 },
         r.id,
       )
     }

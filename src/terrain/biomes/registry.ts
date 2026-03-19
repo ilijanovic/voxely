@@ -12,6 +12,11 @@ import type {
 import { DEFAULT_BIOME_RARITY_WEIGHT } from './types'
 import { desertDefinition } from './desert'
 import { oceanDefinition } from './ocean'
+import { riverDefinition } from './river'
+import { frozenRiverDefinition } from './frozen_river'
+import { beachDefinition } from './beach'
+import { stonyShoreDefinition } from './stony_shore'
+import { snowyBeachDefinition } from './snowy_beach'
 import { plainsDefinition } from './plains'
 import { savannaDefinition } from './savanna'
 import { forestDefinition } from './forest'
@@ -36,6 +41,11 @@ import { oldGrowthTaigaDefinition } from './old_growth_taiga'
 export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
   plains: plainsDefinition,
   ocean: oceanDefinition,
+  river: riverDefinition,
+  frozen_river: frozenRiverDefinition,
+  beach: beachDefinition,
+  stony_shore: stonyShoreDefinition,
+  snowy_beach: snowyBeachDefinition,
   desert: desertDefinition,
   savanna: savannaDefinition,
   forest: forestDefinition,
@@ -62,7 +72,7 @@ export const BIOME_REGISTRY: Record<Biome, BiomeDefinition> = {
  * Base land biomes that have climate bounds.
  * Ocean is selected by continentalness in terrain sampling/generation, not by climate.
  */
-const BASE_LAND_BIOMES: Biome[] = [
+export const BASE_LAND_BIOMES: Biome[] = [
   'desert',
   'plains',
   'savanna',
@@ -80,19 +90,33 @@ const BASE_LAND_BIOMES: Biome[] = [
  * Rarity weight per base land biome for climate-based selection (Minecraft-style).
  * Higher = more common (larger effective Voronoi region). Used as divisor for distSq.
  * Missing entries use DEFAULT_BIOME_RARITY_WEIGHT (1).
+ *
+ * Tuned to roughly match vanilla: plains/forest dominate temperate land, desert/savanna/snow/mountain
+ * are medium common, jungle/badlands/mushroom_fields/mangrove_swamp/old_growth_taiga are rare.
  */
 const BIOME_RARITY_WEIGHT: Partial<Record<Biome, number>> = {
-  plains: 2,
-  forest: 2,
-  desert: 1,
-  savanna: 1,
-  mountain: 1,
-  snow: 0.8,
-  jungle: 0.4,
-  mangrove_swamp: 0.5,
-  old_growth_taiga: 0.5,
-  badlands: 0.3,
-  mushroom_fields: 0.2,
+  // Very common base biomes
+  plains: 3,
+  forest: 2.5,
+  // Common warm / cold land
+  desert: 1.3,
+  savanna: 1.2,
+  mountain: 2.1,
+  snow: 1.3,
+  // Rare warm/wet or special biomes
+  jungle: 0.3,
+  mangrove_swamp: 0.35,
+  old_growth_taiga: 0.4,
+  badlands: 0.2,
+  mushroom_fields: 0.1,
+}
+
+/**
+ * Returns the rarity weight for a biome used in selection heuristics.
+ * Higher means more common (larger effective region) by dividing the distance metric.
+ */
+function getBiomeRarityWeight(biome: Biome, def: BiomeDefinition): number {
+  return def.rarityWeight ?? BIOME_RARITY_WEIGHT[biome] ?? DEFAULT_BIOME_RARITY_WEIGHT
 }
 
 const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [
@@ -103,6 +127,9 @@ const MULTI_NOISE_KEYS: Array<keyof MultiNoise6Point> = [
   'weirdness',
   'y',
 ]
+
+/** Lower bound for stable distance normalization when computing blend gap. */
+const BLEND_DENOM_EPSILON = 1e-6
 
 /**
  * Computes squared distance between a query point and a selector in 6D multi-noise space.
@@ -128,6 +155,35 @@ function distSq(temp: number, humidity: number, c: ClimateBounds): number {
 }
 
 /**
+ * Clamps a number to [0, 1].
+ */
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v))
+}
+
+/**
+ * Hermite smoothstep over [0,1].
+ */
+function smoothstep01(v: number): number {
+  const x = clamp01(v)
+  return x * x * (3 - 2 * x)
+}
+
+/**
+ * Converts nearest and second-nearest distances into a stable secondary blend weight.
+ * Uses normalized gap + smoothstep so boundaries get a softer mix while deep interior
+ * stays strongly primary.
+ */
+function getSecondaryBlendWeight(bestD: number, secondD: number): number {
+  const safeBestD = Math.max(bestD, 0)
+  const safeSecondD = Math.max(secondD, safeBestD)
+  const gapNorm =
+    (safeSecondD - safeBestD) / Math.max(safeBestD + safeSecondD, BLEND_DENOM_EPSILON)
+  const boundaryProximity = 1 - gapNorm
+  return 0.5 * smoothstep01(boundaryProximity)
+}
+
+/**
  * Select a land biome from 2D climate with rarity weighting (Minecraft-style).
  * Uses nearest climate center; effective distance is divided by rarity weight so
  * common biomes (plains, forest) have larger regions, rare (jungle, badlands) smaller.
@@ -140,7 +196,7 @@ export function getLandBiomeByClimate(temp: number, humidity: number): Biome {
     const def = BIOME_REGISTRY[b]
     if (!def.climate) continue
     const rawD = distSq(temp, humidity, def.climate)
-    const weight = def.rarityWeight ?? BIOME_RARITY_WEIGHT[b] ?? DEFAULT_BIOME_RARITY_WEIGHT
+    const weight = getBiomeRarityWeight(b, def)
     const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       bestD = d
@@ -164,6 +220,8 @@ export interface LandBiomeBlendMultiNoise {
   t: number
 }
 
+const PEAK_BIOMES: readonly Biome[] = ['frozen_peaks', 'jagged_peaks', 'stony_peaks']
+
 /**
  * Return the two closest land biomes in climate space (with rarity weighting) plus a blend weight.
  * Softens biome transitions (avoid hard edges). Uses same effective distance as getLandBiomeByClimate.
@@ -178,7 +236,7 @@ export function getLandBiomeBlendByClimate(temp: number, humidity: number): Land
     const def = BIOME_REGISTRY[b]
     if (!def.climate) continue
     const rawD = distSq(temp, humidity, def.climate)
-    const weight = def.rarityWeight ?? BIOME_RARITY_WEIGHT[b] ?? DEFAULT_BIOME_RARITY_WEIGHT
+    const weight = getBiomeRarityWeight(b, def)
     const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       second = best
@@ -191,9 +249,7 @@ export function getLandBiomeBlendByClimate(temp: number, humidity: number): Land
     }
   }
 
-  // Convert distances to a stable, bounded secondary weight.
-  const denom = bestD + secondD
-  const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0
+  const t = getSecondaryBlendWeight(bestD, secondD)
   return { primary: best, secondary: second, t }
 }
 
@@ -215,7 +271,9 @@ export function getLandBiomeByMultiNoise(point: MultiNoise6Point): Biome {
   for (const b of BASE_LAND_BIOMES) {
     const def = BIOME_REGISTRY[b]
     if (!def.multiNoise) continue
-    const d = distSqMultiNoise(point, def.multiNoise)
+    const rawD = distSqMultiNoise(point, def.multiNoise)
+    const weight = getBiomeRarityWeight(b, def)
+    const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       bestD = d
       best = b
@@ -237,7 +295,9 @@ export function getLandBiomeBlendByMultiNoise(point: MultiNoise6Point): LandBiom
   for (const b of BASE_LAND_BIOMES) {
     const def = BIOME_REGISTRY[b]
     if (!def.multiNoise) continue
-    const d = distSqMultiNoise(point, def.multiNoise)
+    const rawD = distSqMultiNoise(point, def.multiNoise)
+    const weight = getBiomeRarityWeight(b, def)
+    const d = rawD / Math.max(weight, 0.1)
     if (d < bestD) {
       second = best
       secondD = bestD
@@ -249,8 +309,7 @@ export function getLandBiomeBlendByMultiNoise(point: MultiNoise6Point): LandBiom
     }
   }
 
-  const denom = bestD + secondD
-  const t = denom > 0 ? Math.max(0, Math.min(1, bestD / denom)) : 0
+  const t = getSecondaryBlendWeight(bestD, secondD)
   return { primary: best, secondary: second, t }
 }
 
@@ -265,6 +324,28 @@ export function getBiomeByMultiNoise(point: MultiNoise6Point): Biome {
   let best: Biome = 'plains'
   let bestD = Infinity
   for (const [b, def] of Object.entries(BIOME_REGISTRY) as Array<[Biome, BiomeDefinition]>) {
+    if (!def.multiNoise) continue
+    const rawD = distSqMultiNoise(point, def.multiNoise)
+    const weight = getBiomeRarityWeight(b, def)
+    const d = rawD / Math.max(weight, 0.1)
+    if (d < bestD) {
+      bestD = d
+      best = b
+    }
+  }
+  return best
+}
+
+/**
+ * Select one of the peak biomes by nearest multi-noise center in 6D.
+ * This keeps high mountain resolution stable and avoids fallback bias toward
+ * a single peak type when non-peak biomes are closer in the global selector.
+ */
+export function getPeakBiomeByMultiNoise(point: MultiNoise6Point): Biome {
+  let best: Biome = 'frozen_peaks'
+  let bestD = Infinity
+  for (const b of PEAK_BIOMES) {
+    const def = BIOME_REGISTRY[b]
     if (!def.multiNoise) continue
     const d = distSqMultiNoise(point, def.multiNoise)
     if (d < bestD) {

@@ -212,6 +212,21 @@ describe('matchRecipe3x3', () => {
     expect(matchRecipe3x3(torchBottomRight)!.result.count).toBe(4)
   })
 
+  it('returns null when 3×3 has extra items outside the matching 2×2 (e.g. 3 planks not forming a recipe)', () => {
+    // Planks at top-right (2), center (4), bottom-center (7). Bottom-left 2×2 would match stick, but slot 2 has an extra plank.
+    const grid = [null, null, 'oak_planks', null, 'oak_planks', null, null, 'oak_planks', null]
+    expect(matchRecipe3x3(grid)).toBeNull()
+  })
+
+  it('matches stick when only one 2×2 quadrant has 2 planks and rest of grid is empty', () => {
+    // Bottom-left quadrant [3,4,6,7]: planks at 3 and 6 (left column). All other cells empty.
+    const grid = [null, null, null, 'oak_planks', null, null, 'oak_planks', null, null]
+    const match = matchRecipe3x3(grid)
+    expect(match).not.toBeNull()
+    expect(match!.result.type).toBe('stick')
+    expect(match!.result.count).toBe(4)
+  })
+
   it('matches oak stairs (stair pattern -> 4 stairs)', () => {
     const grid = [
       'oak_planks',

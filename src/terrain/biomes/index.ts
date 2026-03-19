@@ -13,6 +13,7 @@ export {
   getLandBiomeByMultiNoise,
   getLandBiomeBlendByMultiNoise,
   getBiomeByMultiNoise,
+  getPeakBiomeByMultiNoise,
 } from './registry'
 export { getLandBiomeBlendByClimate } from './registry'
 
