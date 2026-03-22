@@ -19,7 +19,7 @@ const DEFAULT_WORLD_NAME_PREFIX = 'World'
  * Increment when save format changes; used to reject or migrate older saves.
  * Policy: add a roundtrip test in save.test.ts for new optional fields; keep OLD_SAVE_FIXTURE_* for previous version.
  */
-export const SAVE_VERSION = 8
+export const SAVE_VERSION = 9
 
 /** Play mode used when launching a world. */
 export type WorldMode = 'singleplayer' | 'multiplayer'
@@ -76,6 +76,8 @@ export interface SaveData {
   trackedQuestIds?: string[]
   /** Chunk keys (chunkKeyNumeric) the player has visited; used for map discovery. Omitted in older saves. */
   discoveredChunkKeys?: number[]
+  /** Version of serialized block-state representation (for migrations). */
+  blockStateVersion?: number
 }
 
 /** User-facing world slot shown in the start menu. */
@@ -856,6 +858,12 @@ function parseSavePayload(raw: string | null): SaveData | null {
     const data = JSON.parse(raw) as SaveData
     if (data.saveVersion > SAVE_VERSION || data.saveVersion < 1 || !data.player) {
       return null
+    }
+    if (Array.isArray(data.placedBlocks)) {
+      data.placedBlocks = data.placedBlocks.map((entry) => ({
+        ...entry,
+        type: entry.type === 'water' ? ('water_source' as BlockType) : entry.type,
+      }))
     }
     return data
   } catch {

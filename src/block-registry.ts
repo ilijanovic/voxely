@@ -3,10 +3,121 @@
  * Texture paths are relative to the block texture base path (see getBlockTexturePath() in constants.ts).
  */
 
-/** Single texture for all 6 faces, or 6 face textures: [right, left, top, bottom, front, back] (BoxGeometry order). */
+export type BlockFace = 'north' | 'south' | 'east' | 'west' | 'top' | 'bottom'
+
+export type BlockFaceTexture = string | readonly string[]
+
+export type BlockFaceTextures = Readonly<Record<BlockFace, BlockFaceTexture>>
+
+/** Single texture for all 6 faces, 6 face textures in BoxGeometry order, or explicit per-face textures (with optional variants). */
 export type BlockTextures =
   | { type: 'single'; texture: string }
   | { type: 'six'; textures: [string, string, string, string, string, string] }
+  | { type: 'faces'; textures: BlockFaceTextures }
+
+export type ResolvedFaceTextures = Readonly<Record<BlockFace, readonly string[]>>
+
+/** BoxGeometry material order: [right(+X), left(-X), top(+Y), bottom(-Y), front(+Z), back(-Z)]. */
+const BOX_GEOMETRY_FACE_ORDER = ['east', 'west', 'top', 'bottom', 'south', 'north'] as const satisfies readonly BlockFace[]
+
+/**
+ * Normalizes any BlockTextures descriptor into per-face variant arrays.
+ *
+ * @param textures - Texture descriptor
+ * @returns Per-face texture variants (each face has length >= 1)
+ * @throws When any face is missing or has an empty variant list
+ */
+export function normalizeBlockTexturesToFaces(textures: BlockTextures): ResolvedFaceTextures {
+  if (textures.type === 'single') {
+    const v = [textures.texture] as const
+    return { north: v, south: v, east: v, west: v, top: v, bottom: v }
+  }
+
+  if (textures.type === 'six') {
+    const [right, left, top, bottom, front, back] = textures.textures
+    return {
+      east: [right],
+      west: [left],
+      top: [top],
+      bottom: [bottom],
+      south: [front],
+      north: [back],
+    }
+  }
+
+  const getFace = (face: BlockFace): readonly string[] => {
+    const v = textures.textures[face]
+    const arr = typeof v === 'string' ? [v] : [...v]
+    if (arr.length === 0) {
+      throw new Error(`[block-registry] textures.faces.${face} must not be empty`)
+    }
+    return arr
+  }
+
+  return {
+    north: getFace('north'),
+    south: getFace('south'),
+    east: getFace('east'),
+    west: getFace('west'),
+    top: getFace('top'),
+    bottom: getFace('bottom'),
+  }
+}
+
+/**
+ * Returns base (first-variant) texture names in BoxGeometry material order.
+ *
+ * @param textures - Texture descriptor
+ * @returns 6 texture names in BoxGeometry order
+ */
+export function getBaseSixTextures(textures: BlockTextures): [string, string, string, string, string, string] {
+  if (textures.type === 'six') return textures.textures
+  if (textures.type === 'single') {
+    const t = textures.texture
+    return [t, t, t, t, t, t]
+  }
+  const faces = normalizeBlockTexturesToFaces(textures)
+  const out = BOX_GEOMETRY_FACE_ORDER.map((f) => faces[f][0]) as unknown as [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+  ]
+  return out
+}
+
+/**
+ * Flattens a texture descriptor into unique texture names (including variants).
+ *
+ * @param textures - Texture descriptor
+ * @returns Unique texture names (stable order)
+ */
+export function flattenTextureNames(textures: BlockTextures): string[] {
+  if (textures.type === 'single') return [textures.texture]
+  if (textures.type === 'six') return [...textures.textures]
+
+  const faces = normalizeBlockTexturesToFaces(textures)
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const face of BOX_GEOMETRY_FACE_ORDER) {
+    for (const name of faces[face]) {
+      if (seen.has(name)) continue
+      seen.add(name)
+      out.push(name)
+    }
+  }
+  // Include any variants that only exist on faces not covered by BOX_GEOMETRY_FACE_ORDER (should never happen).
+  for (const face of ['north', 'south', 'east', 'west', 'top', 'bottom'] as const) {
+    for (const name of faces[face]) {
+      if (seen.has(name)) continue
+      seen.add(name)
+      out.push(name)
+    }
+  }
+  return out
+}
 
 /** Default break time in seconds when not specified. */
 const DEFAULT_BREAK_TIME_SECONDS = 1.0
@@ -26,6 +137,17 @@ const DEFAULT_TOOL_SPEED = 2
 
 /** Fluid kind for flow/source logic; non-fluids omit this. */
 export type BlockFluidKind = 'water'
+export type BlockTag =
+  | 'mineable/pickaxe'
+  | 'mineable/axe'
+  | 'mineable/shovel'
+  | 'ores'
+  | 'logs'
+  | 'planks'
+  | 'leaves'
+  | 'needs_stone_tool'
+  | 'needs_iron_tool'
+  | 'needs_diamond_tool'
 
 export interface BlockDefinition {
   id: string
@@ -73,10 +195,24 @@ export interface BlockDefinition {
   weaponType?: 'sword'
   /** When set, this held item is a tool that breaks certain blocks faster (pickaxe/axe/shovel). */
   toolType?: 'pickaxe' | 'axe' | 'shovel'
+  /** Vanilla-like harvest tier for tools (0=none/gold, 1=wood, 2=stone, 3=iron, 4=diamond). */
+  toolTier?: 0 | 1 | 2 | 3 | 4
   /** Mining speed multiplier for this tool (vanilla: Wood=2, Stone=4, Iron=6, Diamond=8, Gold=12). Used with correct harvest category. */
   toolSpeed?: number
   /** When set, this block is broken faster by the matching tool (pickaxe→stone, axe→wood, shovel→dirt). */
   harvestCategory?: 'stone' | 'wood' | 'dirt'
+  /** Minimum required tier for block drops (when requiresCorrectTool=true). */
+  requiredToolTier?: 1 | 2 | 3 | 4
+  /** Vanilla-like blast resistance used for explosion simulation (future systems). */
+  blastResistance?: number
+  /** If true, drops require the correct harvest tool instead of dropping when hand-broken. */
+  requiresCorrectTool?: boolean
+  /** Light emission level (0..15). */
+  lightEmission?: number
+  /** Block sound family used by interaction/audio systems. */
+  soundType?: 'stone' | 'wood' | 'grass' | 'gravel' | 'glass' | 'metal' | 'wool'
+  /** Vanilla-style semantic tags for mining, loot, and interactions. */
+  tags?: readonly BlockTag[]
 }
 
 /** Default: solid true, transparent false, unbreakable false, placeable/occludes derived from solid. */
@@ -103,7 +239,14 @@ const D = (
         | 'skipSpecularMap'
         | 'fluidHeight'
         | 'harvestCategory'
+        | 'requiredToolTier'
+        | 'toolTier'
         | 'fence'
+        | 'blastResistance'
+        | 'requiresCorrectTool'
+        | 'lightEmission'
+        | 'soundType'
+        | 'tags'
       >
     >,
 ): BlockDefinition => {
@@ -127,8 +270,34 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     id: 'grass',
     displayName: 'Grass Block',
     textures: {
-      type: 'six',
-      textures: ['grass_side', 'grass_side', 'grass_top', 'dirt', 'grass_side', 'grass_side'],
+      type: 'faces',
+      textures: {
+        north: 'grass_block_side',
+        south: 'grass_block_side',
+        east: 'grass_block_side',
+        west: 'grass_block_side',
+        // Drive top variants from block definition; runtime filters to existing textures in the selected pack.
+        top: [
+          'grass_block_top',
+          'grass_block_top_1',
+          'grass_block_top_2',
+          'grass_block_top_3',
+          'grass_block_top_4',
+          'grass_block_top_5',
+          'grass_block_top_6',
+          'grass_block_top_7',
+          'grass_block_top_8',
+          'grass_block_top_9',
+          'grass_block_top_10',
+          'grass_block_top_11',
+          'grass_block_top_12',
+          'grass_block_top_13',
+          'grass_block_top_14',
+          'grass_block_top_15',
+          'grass_block_top_16',
+        ],
+        bottom: 'dirt',
+      },
     },
     breakTimeSeconds: 0.5,
     skipNormalMap: true,
@@ -138,15 +307,15 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     id: 'grass_snow',
     displayName: 'Snowy Grass',
     textures: {
-      type: 'six',
-      textures: [
-        'grass_side_snowed',
-        'grass_side_snowed',
-        'snow',
-        'dirt',
-        'grass_side_snowed',
-        'grass_side_snowed',
-      ],
+      type: 'faces',
+      textures: {
+        north: 'grass_block_side',
+        south: 'grass_block_side',
+        east: 'grass_block_side',
+        west: 'grass_block_side',
+        top: 'snow',
+        bottom: 'dirt',
+      },
     },
     breakTimeSeconds: 0.5,
     skipNormalMap: true,
@@ -155,8 +324,15 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     id: 'grass_savanna',
     displayName: 'Savanna Grass',
     textures: {
-      type: 'six',
-      textures: ['grass_side', 'grass_side', 'grass_top', 'dirt', 'grass_side', 'grass_side'],
+      type: 'faces',
+      textures: {
+        north: 'grass_block_side',
+        south: 'grass_block_side',
+        east: 'grass_block_side',
+        west: 'grass_block_side',
+        top: 'grass_block_top',
+        bottom: 'dirt',
+      },
     },
     breakTimeSeconds: 0.5,
     skipNormalMap: true,
@@ -166,15 +342,15 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     id: 'grass_path',
     displayName: 'Grass Path',
     textures: {
-      type: 'six',
-      textures: [
-        'grass_path_side',
-        'grass_path_side',
-        'grass_path_top',
-        'dirt',
-        'grass_path_side',
-        'grass_path_side',
-      ],
+      type: 'faces',
+      textures: {
+        north: 'grass_path_side',
+        south: 'grass_path_side',
+        east: 'grass_path_side',
+        west: 'grass_path_side',
+        top: 'grass_path_top',
+        bottom: 'dirt',
+      },
     },
     breakTimeSeconds: 0.5,
   }),
@@ -185,6 +361,8 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     breakTimeSeconds: 0.5,
     skipNormalMap: true,
     harvestCategory: 'dirt',
+    soundType: 'gravel',
+    tags: ['mineable/shovel'],
   }),
   D({
     id: 'stone',
@@ -193,6 +371,11 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     breakTimeSeconds: 1.5,
     skipNormalMap: true,
     harvestCategory: 'stone',
+    requiresCorrectTool: true,
+    requiredToolTier: 1,
+    blastResistance: 6,
+    soundType: 'stone',
+    tags: ['mineable/pickaxe'],
   }),
   D({
     id: 'coal_ore',
@@ -200,6 +383,12 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     textures: { type: 'single', texture: 'coal_ore' },
     breakTimeSeconds: 1.5,
     skipNormalMap: true,
+    harvestCategory: 'stone',
+    requiresCorrectTool: true,
+    requiredToolTier: 1,
+    blastResistance: 3,
+    soundType: 'stone',
+    tags: ['mineable/pickaxe', 'ores'],
   }),
   D({
     id: 'iron_ore',
@@ -207,6 +396,12 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     textures: { type: 'single', texture: 'iron_ore' },
     breakTimeSeconds: 1.5,
     skipNormalMap: true,
+    harvestCategory: 'stone',
+    requiresCorrectTool: true,
+    blastResistance: 3,
+    soundType: 'stone',
+    requiredToolTier: 1,
+    tags: ['mineable/pickaxe', 'ores', 'needs_stone_tool'],
   }),
   D({
     id: 'gold_ore',
@@ -214,6 +409,12 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     textures: { type: 'single', texture: 'gold_ore' },
     breakTimeSeconds: 1.5,
     skipNormalMap: true,
+    harvestCategory: 'stone',
+    requiresCorrectTool: true,
+    blastResistance: 3,
+    soundType: 'stone',
+    requiredToolTier: 3,
+    tags: ['mineable/pickaxe', 'ores', 'needs_iron_tool'],
   }),
   D({
     id: 'diamond_ore',
@@ -221,6 +422,51 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     textures: { type: 'single', texture: 'diamond_ore' },
     breakTimeSeconds: 1.5,
     skipNormalMap: true,
+    harvestCategory: 'stone',
+    requiresCorrectTool: true,
+    blastResistance: 3,
+    soundType: 'stone',
+    requiredToolTier: 3,
+    tags: ['mineable/pickaxe', 'ores', 'needs_iron_tool'],
+  }),
+  D({
+    id: 'redstone_ore',
+    displayName: 'Redstone Ore',
+    textures: { type: 'single', texture: 'redstone_ore' },
+    breakTimeSeconds: 1.5,
+    skipNormalMap: true,
+    harvestCategory: 'stone',
+    requiresCorrectTool: true,
+    requiredToolTier: 3,
+    blastResistance: 3,
+    soundType: 'stone',
+    tags: ['mineable/pickaxe', 'ores', 'needs_iron_tool'],
+  }),
+  D({
+    id: 'lapis_ore',
+    displayName: 'Lapis Ore',
+    textures: { type: 'single', texture: 'lapis_ore' },
+    breakTimeSeconds: 1.5,
+    skipNormalMap: true,
+    harvestCategory: 'stone',
+    requiresCorrectTool: true,
+    requiredToolTier: 2,
+    blastResistance: 3,
+    soundType: 'stone',
+    tags: ['mineable/pickaxe', 'ores', 'needs_stone_tool'],
+  }),
+  D({
+    id: 'emerald_ore',
+    displayName: 'Emerald Ore',
+    textures: { type: 'single', texture: 'emerald_ore' },
+    breakTimeSeconds: 1.5,
+    skipNormalMap: true,
+    harvestCategory: 'stone',
+    requiresCorrectTool: true,
+    requiredToolTier: 3,
+    blastResistance: 3,
+    soundType: 'stone',
+    tags: ['mineable/pickaxe', 'ores', 'needs_iron_tool'],
   }),
   D({
     id: 'sand',
@@ -281,7 +527,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     displayName: 'Oak Log',
     textures: {
       type: 'six',
-      textures: ['log_oak', 'log_oak', 'log_oak_top', 'log_oak_top', 'log_oak', 'log_oak'],
+      textures: ['oak_log', 'oak_log', 'oak_log_top', 'oak_log_top', 'oak_log', 'oak_log'],
     },
     harvestCategory: 'wood',
     breakTimeSeconds: 1.5,
@@ -289,7 +535,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
   D({
     id: 'leaves',
     displayName: 'Leaves',
-    textures: { type: 'single', texture: 'leaves_oak' },
+    textures: { type: 'single', texture: 'oak_leaves' },
     transparent: true,
     occludes: false,
     breakTimeSeconds: 0.5,
@@ -299,7 +545,7 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     displayName: 'Bee Nest',
     textures: {
       type: 'six',
-      textures: ['log_oak', 'log_oak', 'planks_oak', 'planks_oak', 'log_oak', 'log_oak'],
+      textures: ['oak_log', 'oak_log', 'planks_oak', 'planks_oak', 'oak_log', 'oak_log'],
     },
     placeable: false,
     harvestCategory: 'wood',
@@ -312,6 +558,8 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     solid: false,
     placeable: true,
     occludes: false,
+    lightEmission: 14,
+    soundType: 'wood',
   }),
   D({
     id: 'wall_torch_east',
@@ -320,6 +568,8 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     solid: false,
     placeable: false,
     occludes: false,
+    lightEmission: 14,
+    soundType: 'wood',
   }),
   D({
     id: 'wall_torch_west',
@@ -328,6 +578,8 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     solid: false,
     placeable: false,
     occludes: false,
+    lightEmission: 14,
+    soundType: 'wood',
   }),
   D({
     id: 'wall_torch_south',
@@ -336,6 +588,8 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     solid: false,
     placeable: false,
     occludes: false,
+    lightEmission: 14,
+    soundType: 'wood',
   }),
   D({
     id: 'wall_torch_north',
@@ -344,6 +598,8 @@ const LEGACY_BLOCKS: BlockDefinition[] = [
     solid: false,
     placeable: false,
     occludes: false,
+    lightEmission: 14,
+    soundType: 'wood',
   }),
   D({
     id: 'bedrock',
@@ -520,7 +776,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'dead_bush',
     displayName: 'Dead Bush',
-    textures: { type: 'single', texture: 'deadbush' },
+    textures: { type: 'single', texture: 'dead_bush' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -544,7 +800,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'cactus_flower',
     displayName: 'Cactus Flower',
-    textures: { type: 'single', texture: 'flower_rose' },
+    textures: { type: 'single', texture: 'cactus_flower' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -680,7 +936,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'large_fern',
     displayName: 'Large Fern',
-    textures: { type: 'single', texture: 'fern' },
+    textures: { type: 'single', texture: 'large_fern_bottom' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -716,7 +972,7 @@ const CURATED_BLOCKS: BlockDefinition[] = [
   D({
     id: 'sugar_cane',
     displayName: 'Sugar Cane',
-    textures: { type: 'single', texture: 'reeds' },
+    textures: { type: 'single', texture: 'sugar_cane' },
     solid: false,
     transparent: true,
     breakTimeSeconds: 0,
@@ -1309,6 +1565,7 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
     occludes: false,
     itemTexture: 'wood_shovel',
     toolType: 'shovel',
+    toolTier: 1,
     toolSpeed: 2,
   },
   {
@@ -1320,6 +1577,7 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
     occludes: false,
     itemTexture: 'wood_pickaxe',
     toolType: 'pickaxe',
+    toolTier: 1,
     toolSpeed: 2,
   },
   {
@@ -1331,6 +1589,7 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
     occludes: false,
     itemTexture: 'wood_axe',
     toolType: 'axe',
+    toolTier: 1,
     toolSpeed: 2,
   },
   {
@@ -1342,6 +1601,7 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
     occludes: false,
     itemTexture: 'stone_pickaxe',
     toolType: 'pickaxe',
+    toolTier: 2,
     toolSpeed: 4,
   },
   {
@@ -1353,7 +1613,32 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
     occludes: false,
     itemTexture: 'stone_axe',
     toolType: 'axe',
+    toolTier: 2,
     toolSpeed: 4,
+  },
+  {
+    id: 'iron_pickaxe',
+    displayName: 'Iron Pickaxe',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'iron_pickaxe',
+    toolType: 'pickaxe',
+    toolTier: 3,
+    toolSpeed: 6,
+  },
+  {
+    id: 'diamond_pickaxe',
+    displayName: 'Diamond Pickaxe',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'diamond_pickaxe',
+    toolType: 'pickaxe',
+    toolTier: 4,
+    toolSpeed: 8,
   },
   {
     id: 'coal',
@@ -1363,6 +1648,60 @@ const NON_PLACEABLE_ITEMS: BlockDefinition[] = [
     placeable: false,
     occludes: false,
     itemTexture: 'coal',
+  },
+  {
+    id: 'raw_iron',
+    displayName: 'Raw Iron',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'raw_iron',
+  },
+  {
+    id: 'raw_gold',
+    displayName: 'Raw Gold',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'raw_gold',
+  },
+  {
+    id: 'diamond',
+    displayName: 'Diamond',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'diamond',
+  },
+  {
+    id: 'redstone',
+    displayName: 'Redstone Dust',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'redstone_dust',
+  },
+  {
+    id: 'lapis_lazuli',
+    displayName: 'Lapis Lazuli',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'lapis_lazuli',
+  },
+  {
+    id: 'emerald',
+    displayName: 'Emerald',
+    textures: { type: 'single', texture: 'stone' },
+    solid: false,
+    placeable: false,
+    occludes: false,
+    itemTexture: 'emerald',
   },
   {
     id: 'raw_porkchop',
@@ -1773,19 +2112,148 @@ export function getBlockBreakTimeWithTool(blockId: string, heldItemId?: string):
   return (base * VANILLA_HARVEST_FACTOR) / speed
 }
 
+/**
+ * Returns vanilla-like tool tier for a held item.
+ *
+ * @param itemId - Item id
+ * @returns Tier number (0 when unknown/non-tool)
+ */
+export function getToolTier(itemId?: string): number {
+  if (!itemId) return 0
+  const def = REGISTRY.get(itemId)
+  return def?.toolTier ?? 0
+}
+
+/**
+ * Returns whether the held tool can harvest this block for drops.
+ *
+ * @param blockId - Block id
+ * @param heldItemId - Currently held item id
+ * @returns True when drop conditions are satisfied
+ */
+export function canHarvestBlockForDrops(blockId: string, heldItemId?: string): boolean {
+  const blockDef = REGISTRY.get(blockId)
+  if (!blockDef) return false
+  if (!requiresCorrectToolForDrops(blockId)) return true
+
+  const toolDef = heldItemId ? REGISTRY.get(heldItemId) : undefined
+  const toolType = toolDef?.toolType
+  const category = blockDef.harvestCategory
+  if (!toolType || !category || TOOL_CATEGORY_MATCH[toolType] !== category) return false
+
+  const requiredTier = blockDef.requiredToolTier ?? 1
+  const heldTier = toolDef?.toolTier ?? 0
+  return heldTier >= requiredTier
+}
+
+/**
+ * Returns true when a block should only drop loot with a matching harvest tool.
+ *
+ * @param blockId - Block id
+ * @returns Whether drop requires correct tool
+ */
+export function requiresCorrectToolForDrops(blockId: string): boolean {
+  const def = REGISTRY.get(blockId)
+  if (!def) return false
+  if (def.requiresCorrectTool === true) return true
+  return def.harvestCategory === 'stone'
+}
+
+/**
+ * Checks whether a block has the given semantic tag.
+ *
+ * @param blockId - Block id
+ * @param tag - Tag to check
+ * @returns True when tag is present
+ */
+export function hasBlockTag(blockId: string, tag: BlockTag): boolean {
+  const def = REGISTRY.get(blockId)
+  if (!def?.tags) return false
+  return def.tags.includes(tag)
+}
+
+/**
+ * Returns light emission level for a block.
+ *
+ * @param blockId - Block id
+ * @returns Emission level 0..15
+ */
+export function getBlockLightEmission(blockId: string): number {
+  return REGISTRY.get(blockId)?.lightEmission ?? 0
+}
+
+/**
+ * Returns blast resistance for a block (used by explosion systems).
+ *
+ * @param blockId - Block id
+ * @returns Blast resistance value
+ */
+export function getBlockBlastResistance(blockId: string): number {
+  const def = REGISTRY.get(blockId)
+  if (!def) return 0
+  if (typeof def.blastResistance === 'number') return def.blastResistance
+  const breakTime = def.breakTimeSeconds ?? DEFAULT_BREAK_TIME_SECONDS
+  return Math.max(0.5, breakTime * 2)
+}
+
 /** Display name for UI (tooltips, inventory). Falls back to id if not registered. */
 export function getBlockDisplayName(id: string): string {
   const def = REGISTRY.get(id)
   return def ? def.displayName : id
 }
 
-/** Texture file names (without .png) for loading. Single block returns 1; six-face returns 6. For items with itemTexture, returns [itemTexture] for icon/held display. */
+/**
+ * Texture file names (without .png) for the *base* look of a block.
+ * For items with itemTexture, returns [itemTexture] for icon/held display.
+ * For blocks, returns either 1 (single) or 6 (six/faces) names in BoxGeometry order, using first variants.
+ *
+ * Note: Use getBlockAllTextureNames() when you need to pre-load all variants referenced by a block definition.
+ */
 export function getBlockTextureNames(id: string): string[] {
   const def = REGISTRY.get(id)
   if (!def) return []
   if (def.itemTexture) return [def.itemTexture]
   if (def.textures.type === 'single') return [def.textures.texture]
-  return [...def.textures.textures]
+  return [...getBaseSixTextures(def.textures)]
+}
+
+/**
+ * Returns all unique texture file names referenced by the block definition (including variants).
+ *
+ * @param id - Block id
+ * @returns Unique texture names (stable order), or [] when unknown
+ */
+export function getBlockAllTextureNames(id: string): string[] {
+  const def = REGISTRY.get(id)
+  if (!def) return []
+  if (def.itemTexture) return [def.itemTexture]
+  return flattenTextureNames(def.textures)
+}
+
+/**
+ * Returns base (first-variant) six-face textures for a block in BoxGeometry material order.
+ *
+ * @param id - Block id
+ * @returns 6 texture names in BoxGeometry order, or null when block is unknown
+ */
+export function getBlockBaseSixTextureNames(
+  id: string,
+): [string, string, string, string, string, string] | null {
+  const def = REGISTRY.get(id)
+  if (!def || def.itemTexture) return null
+  return getBaseSixTextures(def.textures)
+}
+
+/**
+ * Returns per-face texture variants for a block.
+ *
+ * @param id - Block id
+ * @returns Per-face variants, or null when block is unknown or is an itemTexture-only definition
+ */
+export function getBlockFaceTextureVariants(id: string): ResolvedFaceTextures | null {
+  const def = REGISTRY.get(id)
+  if (!def || def.itemTexture) return null
+  return normalizeBlockTexturesToFaces(def.textures)
 }
 
 /** Item texture name for held items/weapons (e.g. wood_sword). Undefined for blocks. */

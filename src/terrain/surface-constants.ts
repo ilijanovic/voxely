@@ -101,3 +101,26 @@ export const LAND_BLEND_DITHER_MAX_T = 0.98
 export const LAND_BLEND_DITHER_DESERT_MIN_T = 0.22
 /** Upper blend.t bound for desert-involved land boundary dither (keeps edges readable). */
 export const LAND_BLEND_DITHER_DESERT_MAX_T = 0.78
+
+/** Old growth taiga variation: low noise creates occasional grassy clearings. */
+export const OLD_GROWTH_TAIGA_GRASS_NOISE_MAX = 0.14
+/** Old growth taiga variation: mid noise becomes coarse_dirt, high noise stays podzol. */
+export const OLD_GROWTH_TAIGA_COARSE_DIRT_NOISE_MAX = 0.52
+
+/** Beach patchiness: gentle beach columns at/above this slope can show rare gravel pockets. */
+export const BEACH_GRAVEL_PATCH_SLOPE_MIN = 2
+/** Beach patchiness: low dither noise value becomes gravel on steeper beaches. */
+export const BEACH_GRAVEL_PATCH_NOISE_MAX = 0.12
+/** Stony shore: above this dither value prefer exposed stone, else gravel. */
+export const STONY_SHORE_STONE_NOISE_MIN = 0.58
+/** Snowy beach patchiness: steep columns can expose gravel with very low noise. */
+export const SNOWY_BEACH_GRAVEL_NOISE_MAX = 0.08
+
+/** Coastal depth pass: apply subsurface variation only this many blocks below top. */
+export const COASTAL_SUBSURFACE_MAX_DEPTH = 5
+/** Coastal depth pass: upper layers (near top) where gravel/stone pockets are allowed. */
+export const COASTAL_SUBSURFACE_SHALLOW_DEPTH = 2
+/** Coastal depth pass: low noise in shallow bands becomes gravel in sandy coastal biomes. */
+export const COASTAL_SUBSURFACE_GRAVEL_NOISE_MAX = 0.34
+/** Coastal depth pass: high noise in stony_shore shallow bands becomes exposed stone. */
+export const COASTAL_SUBSURFACE_STONY_STONE_NOISE_MIN = 0.62

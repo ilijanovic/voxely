@@ -187,6 +187,43 @@ export function consumeFromSlot(index: number, amount: number): number {
 }
 
 /**
+ * Consumes up to `amount` items of `type` across persistent inventory slots (hotbar first, then main inventory).
+ *
+ * @param type - Item/block type to consume
+ * @param amount - Requested amount
+ * @returns Actual consumed amount
+ */
+export function consumeByType(type: BlockType, amount: number): number {
+  if (amount <= 0) return 0
+  let remaining = amount
+  let consumed = 0
+  for (let i = HOTBAR_START; i < HOTBAR_START + HOTBAR_SLOTS && remaining > 0; i++) {
+    const slot = slots[i]
+    if (slot.type !== type || slot.count <= 0) continue
+    const take = Math.min(slot.count, remaining)
+    slot.count -= take
+    if (slot.count <= 0) slots[i] = emptySlot()
+    consumed += take
+    remaining -= take
+  }
+  for (
+    let i = MAIN_INVENTORY_START;
+    i < MAIN_INVENTORY_START + MAIN_INVENTORY_SLOTS && remaining > 0;
+    i++
+  ) {
+    const slot = slots[i]
+    if (slot.type !== type || slot.count <= 0) continue
+    const take = Math.min(slot.count, remaining)
+    slot.count -= take
+    if (slot.count <= 0) slots[i] = emptySlot()
+    consumed += take
+    remaining -= take
+  }
+  if (consumed > 0) notify()
+  return consumed
+}
+
+/**
  * Moves items between slots: swap if different type; merge stacks if same type (up to MAX_STACK_SIZE).
  * If amount is given, moves at most that many (for split); otherwise moves full stack.
  * Returns true if any change occurred.

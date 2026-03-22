@@ -9,7 +9,6 @@ import { WATER_LEVEL } from './constants'
 import {
   BASE_HEIGHT,
   BEACH_MAX_HEIGHT,
-  COAST_BLEND_BAND,
   COAST_EDGE_MIN_COAST_BLEND_T,
   COLD_HIGHLAND_TEMP_MAX,
   COLD_UPLAND_TEMP_MAX,
@@ -43,7 +42,6 @@ import {
   MOUNTAIN_THRESHOLD,
   MOUNTAIN_TRANSITION_WIDTH,
   NOISE_COORD_WRAP,
-  OCEAN_CONTINENTALNESS_THRESHOLD,
   JAGGED_PEAKS_EDGE_CHECK_RADIUS,
   PEAK_JAGGED_BAND_MIN,
   PEAK_JAGGED_EROSION_MAX,
@@ -68,11 +66,14 @@ import {
   WINDSWEPT_FOREST_HUMIDITY_MIN,
 } from './terrain/constants'
 import {
-  getLandBiomeBlendByClimate,
-  getLandBiomeBlendByMultiNoise,
   getPeakBiomeByMultiNoise,
 } from './terrain/biomes'
+import {
+  applySpawnOriginForestBias as applySpawnOriginBiomeBias,
+  resolveBaseBiomeBlend,
+} from './terrain/biome-source'
 import { BIOME_LAYERS, BIOME_TERRAIN, BIOME_VALUE } from './terrain/biomes'
+import { BIOME_REGISTRY } from './terrain/biomes/registry'
 import { getSurfaceBlockFromRules } from './terrain/surface-rules'
 import { makeSeededRandom, wrapNoiseCoord } from './terrain/utils'
 import { createClimateSampler } from './terrain/climate-sampler'
@@ -84,7 +85,9 @@ import {
   getMacroTerrainOffset,
   getPeakBandFactor,
   getRidgeTerm,
+  sampleFbm2D,
   lerp,
+  smoothHeightKernel3x3,
   softenExtremeCliffHeight,
   smoothstep01,
   clamp01,
@@ -231,28 +234,6 @@ export function createTerrainSampling(seed: number) {
     )
   }
 
-  /**
-   * Blends (c, temp, humidity) toward forest at world origin so first POI/spawn is in forest.
-   * Must match terrain/index.ts spawn-origin bias.
-   */
-  function applySpawnOriginForestBias(
-    x: number,
-    z: number,
-    c: number,
-    temp: number,
-    humidity: number,
-  ): { c: number; temp: number; humidity: number } {
-    const distSq = x * x + z * z
-    if (distSq >= SPAWN_ORIGIN_FOREST_RADIUS_SQ) return { c, temp, humidity }
-    const t = 1 - distSq / SPAWN_ORIGIN_FOREST_RADIUS_SQ
-    const blendT = t * t * (3 - 2 * t)
-    return {
-      c: lerp(c, SPAWN_ORIGIN_FOREST_CONTINENTALNESS, blendT),
-      temp: lerp(temp, SPAWN_ORIGIN_FOREST_TEMP, blendT),
-      humidity: lerp(humidity, SPAWN_ORIGIN_FOREST_HUMIDITY, blendT),
-    }
-  }
-
   const _blendOut: { primary: Biome; secondary: Biome; t: number } = {
     primary: 'plains',
     secondary: 'plains',
@@ -260,43 +241,34 @@ export function createTerrainSampling(seed: number) {
   }
 
   function getBiomeBlend(x: number, z: number): { primary: Biome; secondary: Biome; t: number } {
-    let c = getContinentalnessSmoothed(x, z)
-    let temp = getTemperatureSmoothed(x, z)
-    let humidity = getHumiditySmoothed(x, z)
-    const biased = applySpawnOriginForestBias(x, z, c, temp, humidity)
-    c = biased.c
-    const USE_MULTI_NOISE_BASE_SELECTION = true
-    const land = USE_MULTI_NOISE_BASE_SELECTION
-      ? getLandBiomeBlendByMultiNoise({
-          continentalness: c,
-          erosion: getErosionSignedSmoothed(x, z),
-          temperature: getTemperatureSignedSmoothed(x, z),
-          humidity: getHumiditySignedSmoothed(x, z),
-          weirdness: getWeirdnessSmoothed(x, z),
-          y: 0.25,
-        })
-      : getLandBiomeBlendByClimate(biased.temp, biased.humidity)
-
-    // Blend ocean <-> land across a coastal band to avoid a hard cutoff.
-    if (c < OCEAN_CONTINENTALNESS_THRESHOLD - COAST_BLEND_BAND) {
-      _blendOut.primary = 'ocean'
-      _blendOut.secondary = 'ocean'
-      _blendOut.t = 0
-      return _blendOut
-    }
-    if (c > OCEAN_CONTINENTALNESS_THRESHOLD + COAST_BLEND_BAND) {
-      _blendOut.primary = land.primary
-      _blendOut.secondary = land.secondary
-      _blendOut.t = land.t
-      return _blendOut
-    }
-
-    const tLand = smoothstep01(
-      (c - (OCEAN_CONTINENTALNESS_THRESHOLD - COAST_BLEND_BAND)) / (2 * COAST_BLEND_BAND),
+    const biased = applySpawnOriginBiomeBias(
+      x,
+      z,
+      getContinentalnessSmoothed(x, z),
+      getTemperatureSmoothed(x, z),
+      getHumiditySmoothed(x, z),
+      SPAWN_ORIGIN_FOREST_RADIUS_SQ,
+      {
+        continentalness: SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
+        temperature01: SPAWN_ORIGIN_FOREST_TEMP,
+        humidity01: SPAWN_ORIGIN_FOREST_HUMIDITY,
+      },
     )
-    _blendOut.primary = 'ocean'
-    _blendOut.secondary = land.primary
-    _blendOut.t = tLand
+    const resolved = resolveBaseBiomeBlend(
+      {
+        continentalness: biased.continentalness,
+        temperature01: biased.temperature01,
+        humidity01: biased.humidity01,
+        erosionSigned: getErosionSignedSmoothed(x, z),
+        temperatureSigned: getTemperatureSignedSmoothed(x, z),
+        humiditySigned: getHumiditySignedSmoothed(x, z),
+        weirdnessSigned: getWeirdnessSmoothed(x, z),
+      },
+      true,
+    )
+    _blendOut.primary = resolved.primary
+    _blendOut.secondary = resolved.secondary
+    _blendOut.t = resolved.t
     return _blendOut
   }
 
@@ -407,15 +379,16 @@ export function createTerrainSampling(seed: number) {
 
   function getLocalTerrain(x: number, z: number, biome: Biome): number {
     const params = BIOME_TERRAIN[biome]
-    let fbmSum = 0
-    let freq = params.detailFreq
-    let amp = 1
-    for (let i = 0; i < HEIGHT_DETAIL_OCTAVES; i++) {
-      fbmSum += detailNoise2D(x * freq, z * freq) * amp
-      freq *= HEIGHT_DETAIL_LACUNARITY
-      amp *= HEIGHT_DETAIL_PERSISTENCE
-    }
-    const n = fbmSum / HEIGHT_DETAIL_FBM_NORMALIZE
+    const n = sampleFbm2D({
+      x,
+      z,
+      baseFrequency: params.detailFreq,
+      octaves: HEIGHT_DETAIL_OCTAVES,
+      lacunarity: HEIGHT_DETAIL_LACUNARITY,
+      persistence: HEIGHT_DETAIL_PERSISTENCE,
+      normalize: HEIGHT_DETAIL_FBM_NORMALIZE,
+      noise2D: detailNoise2D,
+    })
     const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = params.detailAmp * (params.flatness + (1 - params.flatness) * smooth)
@@ -521,15 +494,16 @@ export function createTerrainSampling(seed: number) {
     const mountainAllowedFactor =
       (pA.mountainAllowed ? 1 : 0) * (1 - t) + (pB.mountainAllowed ? 1 : 0) * t
     const macro = getMacroTerrain(x, z)
-    let fbmSum = 0
-    let freq = detailFreq
-    let amp = 1
-    for (let i = 0; i < HEIGHT_DETAIL_OCTAVES; i++) {
-      fbmSum += detailNoise2D(x * freq, z * freq) * amp
-      freq *= HEIGHT_DETAIL_LACUNARITY
-      amp *= HEIGHT_DETAIL_PERSISTENCE
-    }
-    const n = fbmSum / HEIGHT_DETAIL_FBM_NORMALIZE
+    const n = sampleFbm2D({
+      x,
+      z,
+      baseFrequency: detailFreq,
+      octaves: HEIGHT_DETAIL_OCTAVES,
+      lacunarity: HEIGHT_DETAIL_LACUNARITY,
+      persistence: HEIGHT_DETAIL_PERSISTENCE,
+      normalize: HEIGHT_DETAIL_FBM_NORMALIZE,
+      noise2D: detailNoise2D,
+    })
     const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = detailAmp * (flatness + (1 - flatness) * smooth)
@@ -629,8 +603,17 @@ export function createTerrainSampling(seed: number) {
     const h20 = getRawTerrainHeight(x + 1, z - 1)
     const h21 = getRawTerrainHeight(x + 1, z)
     const h22 = getRawTerrainHeight(x + 1, z + 1)
-    const smoothed =
-      h11 * 0.25 + (h01 + h21 + h10 + h12) * 0.125 + (h00 + h02 + h20 + h22) * 0.0625
+    const smoothed = smoothHeightKernel3x3({
+      center: h11,
+      north: h10,
+      south: h12,
+      east: h21,
+      west: h01,
+      northWest: h00,
+      northEast: h20,
+      southWest: h02,
+      southEast: h22,
+    })
     return softenExtremeCliffHeight({
       center: h11,
       north: h10,
@@ -796,12 +779,12 @@ export function createTerrainSampling(seed: number) {
       if (y <= WATER_LEVEL && topY < WATER_LEVEL) return 'water'
       return 'stone'
     }
-    if (isShore(topY) && y === topY) return 'sand'
-    if (topY < WATER_LEVEL && y === topY) return 'sand'
     const layers = BIOME_LAYERS[biome]
+    const biomeBlocks = BIOME_REGISTRY[biome].blocks
+    if (isShore(topY) && y === topY) return biomeBlocks.shore
+    if (topY < WATER_LEVEL && y === topY) return biomeBlocks.underwater
     if (y === topY) {
       const surface = layers.surface
-      if (surface === 'snow' && topY <= WATER_LEVEL + 2) return 'sand'
       return getSurfaceBlockFromRules(biome, topY, surface)
     }
     if (y >= topY - layers.subsurfaceDepth) return layers.subsurface

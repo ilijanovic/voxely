@@ -8,7 +8,6 @@ import type { Biome, BlockType } from '../types'
 import {
   getPoiBiomeOverride,
   getPoiFlattenAt,
-  getFixedVillageOriginsInChunk,
   POI_DEFAULT_FLATTEN_RADIUS,
   POI_DEFAULT_FLATTEN_TRANSITION_BLOCKS,
 } from '../world-pois'
@@ -32,7 +31,6 @@ import {
   CHEESE_THRESHOLD,
   NOODLE_SCALE,
   NOODLE_THRESHOLD,
-  COAST_BLEND_BAND,
   COLD_HIGHLAND_TEMP_MAX,
   COLD_UPLAND_TEMP_MAX,
   EROSION_AMPLITUDE,
@@ -67,7 +65,6 @@ import {
   NOISE_COORD_WRAP,
   BEACH_MAX_HEIGHT,
   COAST_EDGE_MIN_COAST_BLEND_T,
-  OCEAN_CONTINENTALNESS_THRESHOLD,
   OVERHANG_MAX_DEPTH_BELOW_SURFACE,
   OVERHANG_DRAMATIC_MAX_DEPTH_BELOW_SURFACE,
   OVERHANG_DRAMATIC_MIN_DEPTH_BELOW_SURFACE,
@@ -105,6 +102,10 @@ import {
 } from './constants'
 import {
   BADLANDS_BAND_SUBSURFACE_DEPTH,
+  COASTAL_SUBSURFACE_GRAVEL_NOISE_MAX,
+  COASTAL_SUBSURFACE_MAX_DEPTH,
+  COASTAL_SUBSURFACE_SHALLOW_DEPTH,
+  COASTAL_SUBSURFACE_STONY_STONE_NOISE_MIN,
   SURFACE_RIVER_BANK_OFFSET_X,
   SURFACE_RIVER_BANK_OFFSET_Z,
   SURFACE_RIVER_BANK_SCALE,
@@ -131,10 +132,12 @@ import {
 import {
   BIOME_REGISTRY,
   BIOME_TERRAIN,
-  getLandBiomeBlendByClimate,
-  getLandBiomeBlendByMultiNoise,
   getPeakBiomeByMultiNoise,
 } from './biomes'
+import {
+  applySpawnOriginForestBias as applySpawnOriginBiomeBias,
+  resolveBaseBiomeBlend,
+} from './biome-source'
 import { createClimateSampler } from './climate-sampler'
 import { makeSeededRandom, clamp, wrapNoiseCoord } from './utils'
 import {
@@ -145,6 +148,8 @@ import {
   getMacroTerrainOffset,
   getPeakBandFactor,
   getRidgeTerm,
+  sampleFbm2D,
+  smoothHeightKernel3x3,
   softenExtremeCliffHeight,
 } from './height-shaping'
 import {
@@ -283,6 +288,10 @@ export interface ChunkGeneratorOptions {
   snowAccumulationHeight?: number
   /** Overhang carving profile: 'vanilla' (subtle) or 'dramatic' (stronger cliff cavities). */
   overhangProfile?: OverhangProfile
+  /** Enables optional worm caves; default false for vanilla-first cave profile. */
+  enableWormCarver?: boolean
+  /** Enables optional overhang carving; default false for vanilla-first cave profile. */
+  enableOverhangCarver?: boolean
   /** Pre-defined POIs for biome override and fixed village/NPC/mob placement. */
   pois?: WorldPoi[]
   /** Optional hook called before/after each pipeline stage; defaults to terrain/override.ts. */
@@ -299,15 +308,29 @@ const RIVER_WARP_OFFSET_Z = -89.1
 const RIVER_SECONDARY_OFFSET_X = 907.3
 /** Secondary river signal offset so confluence widening samples a different channel family. */
 const RIVER_SECONDARY_OFFSET_Z = -611.9
+/** Default: keep custom worm caves disabled for a vanilla-first profile. */
+const ENABLE_WORM_CARVER_DEFAULT = false
+/** Default: keep custom overhang carver disabled for a vanilla-first profile. */
+const ENABLE_OVERHANG_CARVER_DEFAULT = false
+/** Aquifer fill: water pockets can appear below this Y threshold. */
+const AQUIFER_WATER_LEVEL = WATER_LEVEL - 2
+/** Aquifer lower bound to avoid flooding the deepest layers. */
+const AQUIFER_MIN_Y = WATER_LEVEL - 40
+/** Noise scale used by the lightweight aquifer approximation. */
+const AQUIFER_NOISE_SCALE = 0.035
+/** Threshold for carved cells that should be water-filled. */
+const AQUIFER_WATER_THRESHOLD = 0.18
+/** Disable recursive village flattening by default for stable generation. */
+const ENABLE_PROCEDURAL_VILLAGE_FLATTEN = false
 
 export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptions) {
   const snowAccumulationHeight = clamp(options?.snowAccumulationHeight ?? 1, 0, 8)
   const overhangProfile: OverhangProfile = options?.overhangProfile ?? 'vanilla'
+  const enableWormCarver = options?.enableWormCarver ?? ENABLE_WORM_CARVER_DEFAULT
+  const enableOverhangCarver = options?.enableOverhangCarver ?? ENABLE_OVERHANG_CARVER_DEFAULT
   const pois = options?.pois ?? []
   const overrideFn = options?.override ?? defaultOverride
   const getPoiOverride = (x: number, z: number): Biome | null => getPoiBiomeOverride(pois, x, z)
-  /** Cache of structure origins per chunk so we don't place trees inside village/temple footprints. */
-  const structureOriginsCache = new Map<string, import('./structures/origins').StructureOrigin[]>()
   /** Set during chunk generation so getHeight can apply procedural village flatten for the current chunk. */
   let currentChunkContext: { chunkX: number; chunkZ: number } | null = null
   /** Cache of procedural village (ox, oz) centers per chunk for flatten lookup. */
@@ -364,6 +387,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   const noodleNoiseA3D = createWrappedNoise3D(402)
   const noodleNoiseB3D = createWrappedNoise3D(403)
   const overhangNoise3D = createWrappedNoise3D(404)
+  const aquiferNoise3D = createWrappedNoise3D(405)
   const oreDensityNoise3DRaw = createWrappedNoise3D(5000)
   /** Ore density in [0, 1]. Used by ore feature for vein placement (Vanilla-style). */
   const oreDensityNoise3D = (x: number, y: number, z: number) =>
@@ -503,51 +527,32 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     )
   }
 
-  /** Blends (c, temp, humidity) toward forest at world origin; must match terrain-sampling. */
-  function applySpawnOriginForestBias(
-    x: number,
-    z: number,
-    c: number,
-    temp: number,
-    humidity: number,
-  ): { c: number; temp: number; humidity: number } {
-    const distSq = x * x + z * z
-    if (distSq >= SPAWN_ORIGIN_FOREST_RADIUS_SQ) return { c, temp, humidity }
-    const t = 1 - distSq / SPAWN_ORIGIN_FOREST_RADIUS_SQ
-    const blendT = t * t * (3 - 2 * t)
-    return {
-      c: lerp(c, SPAWN_ORIGIN_FOREST_CONTINENTALNESS, blendT),
-      temp: lerp(temp, SPAWN_ORIGIN_FOREST_TEMP, blendT),
-      humidity: lerp(humidity, SPAWN_ORIGIN_FOREST_HUMIDITY, blendT),
-    }
-  }
-
   function getBiomeBlendAt(x: number, z: number): { primary: Biome; secondary: Biome; t: number } {
-    let c = getContinentalnessSmoothed(x, z)
-    let temp = getTemperatureSmoothed(x, z)
-    let humidity = getHumiditySmoothed(x, z)
-    const biased = applySpawnOriginForestBias(x, z, c, temp, humidity)
-    c = biased.c
-    const land = USE_MULTI_NOISE_BASE_SELECTION
-      ? getLandBiomeBlendByMultiNoise({
-          continentalness: c,
-          erosion: getErosionSignedSmoothed(x, z),
-          temperature: getTemperatureSignedSmoothed(x, z),
-          humidity: getHumiditySignedSmoothed(x, z),
-          weirdness: getWeirdnessSmoothed(x, z),
-          y: 0.25,
-        })
-      : getLandBiomeBlendByClimate(biased.temp, biased.humidity)
-    if (c < OCEAN_CONTINENTALNESS_THRESHOLD - COAST_BLEND_BAND) {
-      return { primary: 'ocean', secondary: 'ocean', t: 0 }
-    }
-    if (c > OCEAN_CONTINENTALNESS_THRESHOLD + COAST_BLEND_BAND) {
-      return land
-    }
-    const tLand = smoothstep01(
-      (c - (OCEAN_CONTINENTALNESS_THRESHOLD - COAST_BLEND_BAND)) / (2 * COAST_BLEND_BAND),
+    const biased = applySpawnOriginBiomeBias(
+      x,
+      z,
+      getContinentalnessSmoothed(x, z),
+      getTemperatureSmoothed(x, z),
+      getHumiditySmoothed(x, z),
+      SPAWN_ORIGIN_FOREST_RADIUS_SQ,
+      {
+        continentalness: SPAWN_ORIGIN_FOREST_CONTINENTALNESS,
+        temperature01: SPAWN_ORIGIN_FOREST_TEMP,
+        humidity01: SPAWN_ORIGIN_FOREST_HUMIDITY,
+      },
     )
-    return { primary: 'ocean', secondary: land.primary, t: tLand }
+    return resolveBaseBiomeBlend(
+      {
+        continentalness: biased.continentalness,
+        temperature01: biased.temperature01,
+        humidity01: biased.humidity01,
+        erosionSigned: getErosionSignedSmoothed(x, z),
+        temperatureSigned: getTemperatureSignedSmoothed(x, z),
+        humiditySigned: getHumiditySignedSmoothed(x, z),
+        weirdnessSigned: getWeirdnessSmoothed(x, z),
+      },
+      USE_MULTI_NOISE_BASE_SELECTION,
+    )
   }
 
   /**
@@ -729,16 +734,16 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
 
     const macro = getMacroTerrain(x, z)
 
-    /** Multi-octave detail (fBm): macro + micro structure; each octave higher freq, lower amplitude. */
-    let fbmSum = 0
-    let freq = detailFreq
-    let amp = 1
-    for (let i = 0; i < HEIGHT_DETAIL_OCTAVES; i++) {
-      fbmSum += detailNoise2D(x * freq, z * freq) * amp
-      freq *= HEIGHT_DETAIL_LACUNARITY
-      amp *= HEIGHT_DETAIL_PERSISTENCE
-    }
-    const n = fbmSum / HEIGHT_DETAIL_FBM_NORMALIZE
+    const n = sampleFbm2D({
+      x,
+      z,
+      baseFrequency: detailFreq,
+      octaves: HEIGHT_DETAIL_OCTAVES,
+      lacunarity: HEIGHT_DETAIL_LACUNARITY,
+      persistence: HEIGHT_DETAIL_PERSISTENCE,
+      normalize: HEIGHT_DETAIL_FBM_NORMALIZE,
+      noise2D: detailNoise2D,
+    })
     const flat = flatNoise2D(x * FLAT_NOISE_SCALE, z * FLAT_NOISE_SCALE)
     const smooth = (flat + 1) * 0.5
     let effectiveAmp = detailAmp * (flatness + (1 - flatness) * smooth)
@@ -976,8 +981,17 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const h20 = getHeightForBase(x + 1, z - 1)
     const h21 = getHeightForBase(x + 1, z)
     const h22 = getHeightForBase(x + 1, z + 1)
-    const smoothedH =
-      h11 * 0.25 + (h01 + h21 + h10 + h12) * 0.125 + (h00 + h02 + h20 + h22) * 0.0625
+    const smoothedH = smoothHeightKernel3x3({
+      center: h11,
+      north: h10,
+      south: h12,
+      east: h21,
+      west: h01,
+      northWest: h00,
+      northEast: h20,
+      southWest: h02,
+      southEast: h22,
+    })
     const softenedH = softenExtremeCliffHeight({
       center: h11,
       north: h10,
@@ -1087,7 +1101,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   function getFlattenAt(x: number, z: number): PoiFlattenAt | null {
     const poiFlatten = getPoiFlattenAt(pois, x, z)
     const procFlatten =
-      currentChunkContext !== null
+      ENABLE_PROCEDURAL_VILLAGE_FLATTEN && currentChunkContext !== null
         ? getProceduralFlattenAt(x, z, currentChunkContext.chunkX, currentChunkContext.chunkZ)
         : null
     if (poiFlatten !== null && procFlatten !== null) {
@@ -1152,12 +1166,24 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     const placement = getTreePlacementCached(wx, wz, treeCache)
     const registryDensity = getFeatureDensityForBiome('trees', biome)
     if (registryDensity !== undefined) {
+      const calibratedDensity = clamp01(
+        registryDensity *
+          (biome === 'forest'
+            ? 0.85
+            : biome === 'jungle'
+              ? 0.88
+              : biome === 'meadow'
+                ? 1.2
+                : biome === 'savanna'
+                  ? 1.1
+                  : 1),
+      )
       if (
         (biome === 'forest' || biome === 'jungle' || biome === 'windswept_forest') &&
         getForestDensityCached(wx, wz, forestCache) <= FOREST_DENSITY_THRESHOLD
       )
         return false
-      return placement > 1 - registryDensity
+      return placement > 1 - calibratedDensity
     }
     if (biome === 'forest') {
       if (getForestDensityCached(wx, wz, forestCache) <= FOREST_DENSITY_THRESHOLD) return false
@@ -1231,32 +1257,7 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     wx: number,
     wz: number,
   ): boolean {
-    let origins = ctx.structureOrigins
-    if (origins === undefined) {
-      const key = `${ctx.chunkX},${ctx.chunkZ}`
-      origins = structureOriginsCache.get(key)
-      if (origins === undefined) {
-        const procedural = getStructureOriginsInChunk(
-          seed,
-          ctx.chunkX,
-          ctx.chunkZ,
-          getHeight,
-          getResolvedBiome,
-        )
-        const fixed =
-          pois.length > 0
-            ? getFixedVillageOriginsInChunk(
-                pois,
-                ctx.chunkX,
-                ctx.chunkZ,
-                getHeight,
-                getResolvedBiome,
-              )
-            : []
-        origins = [...procedural, ...fixed]
-        structureOriginsCache.set(key, origins)
-      }
-    }
+    const origins = ctx.structureOrigins ?? []
     for (const origin of origins) {
       if (origin.type === 'village') {
         const houseSize =
@@ -1563,26 +1564,30 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
       minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
       getHeightAt: getHeight,
     },
-    worm: {
-      seed,
-      startRate: 0.08,
-      cellSize: 24,
-      steps: 40,
-      radius: 2.5,
-      maxY: WATER_LEVEL + 48,
-      minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
-      getHeightAt: getHeight,
-    },
-    overhang: {
-      overhangNoise3D,
-      scaleXZ: overhangSettings.scaleXZ,
-      scaleY: overhangSettings.scaleY,
-      threshold: overhangSettings.threshold,
-      minSlope: overhangSettings.minSlope,
-      minDepthBelowSurface: overhangSettings.minDepthBelowSurface,
-      maxDepthBelowSurface: overhangSettings.maxDepthBelowSurface,
-      getHeightAt: getHeight,
-    },
+    worm: enableWormCarver
+      ? {
+          seed,
+          startRate: 0.08,
+          cellSize: 24,
+          steps: 40,
+          radius: 2.5,
+          maxY: WATER_LEVEL + 48,
+          minDepthBelowSurface: MIN_CAVE_DEPTH_BELOW_SURFACE,
+          getHeightAt: getHeight,
+        }
+      : undefined,
+    overhang: enableOverhangCarver
+      ? {
+          overhangNoise3D,
+          scaleXZ: overhangSettings.scaleXZ,
+          scaleY: overhangSettings.scaleY,
+          threshold: overhangSettings.threshold,
+          minSlope: overhangSettings.minSlope,
+          minDepthBelowSurface: overhangSettings.minDepthBelowSurface,
+          maxDepthBelowSurface: overhangSettings.maxDepthBelowSurface,
+          getHeightAt: getHeight,
+        }
+      : undefined,
   })
 
   /** Max cardinal height delta for slope (cliff) detection. */
@@ -1688,7 +1693,10 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
     })
   }
 
-  /** For badlands, deep subsurface keeps terracotta bands (Minecraft-like mesa cliffs). */
+  /**
+   * Returns subsurface override blocks for biome-specific depth passes.
+   * Badlands keep deep terracotta bands; coastal/river biomes get shallow sand/gravel/stone variation.
+   */
   function getSubsurfaceBlock(
     ctx: ChunkContext,
     lx: number,
@@ -1697,17 +1705,74 @@ export function createChunkGenerator(seed: number, options?: ChunkGeneratorOptio
   ): BlockType | null {
     const topY = ctx.heightmap[lx][lz]
     const biome = ctx.biomeMap[lx][lz]
-    if (biome !== 'badlands') return null
     const depthFromSurface = topY - ly
-    if (depthFromSurface <= 0 || depthFromSurface > BADLANDS_BAND_SUBSURFACE_DEPTH) return null
+    if (depthFromSurface <= 0) return null
     const wx = ctx.worldX + lx
     const wz = ctx.worldZ + lz
-    const worldY = WORLD_MIN_Y + ly
-    const noise = getBadlandsBandNoise(wx, wz, worldY, detailNoise2D)
-    return getBadlandsBlockFromNoise(noise)
+
+    if (biome === 'badlands') {
+      if (depthFromSurface > BADLANDS_BAND_SUBSURFACE_DEPTH) return null
+      const worldY = WORLD_MIN_Y + ly
+      const noise = getBadlandsBandNoise(wx, wz, worldY, detailNoise2D)
+      return getBadlandsBlockFromNoise(noise)
+    }
+
+    if (
+      (biome === 'beach' || biome === 'snowy_beach' || biome === 'river' || biome === 'stony_shore') &&
+      topY < WATER_LEVEL &&
+      depthFromSurface <= COASTAL_SUBSURFACE_MAX_DEPTH
+    ) {
+      const coastalNoise01 =
+        (detailNoise2D(
+          wx * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_X,
+          wz * SURFACE_DITHER_LAND_SCALE + SURFACE_DITHER_LAND_OFFSET_Z,
+        ) +
+          1) *
+        0.5
+      if (biome === 'stony_shore') {
+        if (
+          depthFromSurface <= COASTAL_SUBSURFACE_SHALLOW_DEPTH &&
+          coastalNoise01 >= COASTAL_SUBSURFACE_STONY_STONE_NOISE_MIN
+        )
+          return 'stone'
+        return 'gravel'
+      }
+      if (
+        depthFromSurface <= COASTAL_SUBSURFACE_SHALLOW_DEPTH &&
+        coastalNoise01 < COASTAL_SUBSURFACE_GRAVEL_NOISE_MAX
+      )
+        return 'gravel'
+      return 'sand'
+    }
+
+    return null
   }
 
-  const stageSurface = createStageSurface({ getSurfaceBlock, getSubsurfaceBlock })
+  /**
+   * Returns aquifer fill block for carved cells.
+   * This is a lightweight vanilla-inspired approximation (water pockets in deep cave space).
+   */
+  function getAquiferBlock(
+    ctx: ChunkContext,
+    lx: number,
+    lz: number,
+    _ly: number,
+    worldY: number,
+  ): BlockType | null {
+    if (worldY > AQUIFER_WATER_LEVEL || worldY < AQUIFER_MIN_Y) return null
+    const topY = ctx.heightmap[lx][lz]
+    if (worldY >= topY - 2) return null
+    const wx = ctx.worldX + lx
+    const wz = ctx.worldZ + lz
+    const aquifer = aquiferNoise3D(
+      wx * AQUIFER_NOISE_SCALE,
+      worldY * AQUIFER_NOISE_SCALE,
+      wz * AQUIFER_NOISE_SCALE,
+    )
+    return aquifer >= AQUIFER_WATER_THRESHOLD ? 'water_source' : null
+  }
+
+  const stageSurface = createStageSurface({ getSurfaceBlock, getSubsurfaceBlock, getAquiferBlock })
 
   const treeFeature = createTreeFeature({ shouldPlaceTree, getTreeBlocks })
   const fernFeature = createFernFeature()

@@ -67,13 +67,23 @@ function normalizeTextureName(textureName: string): string {
  * We keep the first requested name, then try aliases in order.
  */
 const TEXTURE_NAME_ALIASES: Record<string, string[]> = {
+  // Legacy flower names
+  dandelion: ['yellow_flower'],
+  yellow_flower: ['dandelion'],
+  poppy: ['rose'],
+  rose: ['poppy'],
   // Legacy -> modern
-  grass_side: ['grass_block_side'],
+  grass_side: ['grass_block_side', 'dirt'],
   grass_top: ['grass_block_top'],
   grass_side_snowed: ['grass_block_snow'],
   tallgrass: ['short_grass', 'grass'],
-  log_oak: ['oak_log'],
-  log_oak_top: ['oak_log_top'],
+  wood: ['oak_log', 'log_oak', 'tree_side', 'tree'],
+  wood_top: ['oak_log_top', 'log_oak_top', 'tree_top'],
+  log_oak: ['oak_log', 'tree_side', 'tree'],
+  log_oak_top: ['oak_log_top', 'tree_top'],
+  tree: ['oak_log', 'log_oak', 'tree_side'],
+  tree_side: ['oak_log', 'log_oak', 'tree'],
+  tree_top: ['oak_log_top', 'log_oak_top'],
   log_birch: ['birch_log'],
   log_birch_top: ['birch_log_top'],
   log_spruce: ['spruce_log'],
@@ -85,18 +95,19 @@ const TEXTURE_NAME_ALIASES: Record<string, string[]> = {
   log_big_oak: ['dark_oak_log'],
   log_big_oak_top: ['dark_oak_log_top'],
   leaves_oak: ['oak_leaves'],
+  leaves: ['oak_leaves', 'leaves_oak'],
   leaves_birch: ['birch_leaves'],
   leaves_spruce: ['spruce_leaves'],
   leaves_jungle: ['jungle_leaves'],
   leaves_acacia: ['acacia_leaves'],
   leaves_big_oak: ['dark_oak_leaves'],
   // Modern -> legacy
-  grass_block_side: ['grass_side'],
+  grass_block_side: ['grass_side', 'dirt'],
   grass_block_top: ['grass_top'],
   grass_block_snow: ['grass_side_snowed'],
   short_grass: ['tallgrass', 'grass'],
-  oak_log: ['log_oak'],
-  oak_log_top: ['log_oak_top'],
+  oak_log: ['log_oak', 'tree_side', 'tree', 'wood'],
+  oak_log_top: ['log_oak_top', 'tree_top', 'wood_top'],
   birch_log: ['log_birch'],
   birch_log_top: ['log_birch_top'],
   spruce_log: ['log_spruce'],
@@ -107,12 +118,25 @@ const TEXTURE_NAME_ALIASES: Record<string, string[]> = {
   acacia_log_top: ['log_acacia_top'],
   dark_oak_log: ['log_big_oak'],
   dark_oak_log_top: ['log_big_oak_top'],
-  oak_leaves: ['leaves_oak'],
+  oak_leaves: ['leaves_oak', 'leaves'],
   birch_leaves: ['leaves_birch'],
   spruce_leaves: ['leaves_spruce'],
   jungle_leaves: ['leaves_jungle'],
   acacia_leaves: ['leaves_acacia'],
   dark_oak_leaves: ['leaves_big_oak'],
+  // Legacy/modern plank naming
+  planks_oak: ['oak_planks'],
+  planks_spruce: ['spruce_planks'],
+  planks_birch: ['birch_planks'],
+  planks_jungle: ['jungle_planks'],
+  planks_acacia: ['acacia_planks'],
+  planks_big_oak: ['dark_oak_planks'],
+  oak_planks: ['planks_oak'],
+  spruce_planks: ['planks_spruce'],
+  birch_planks: ['planks_birch'],
+  jungle_planks: ['planks_jungle'],
+  acacia_planks: ['planks_acacia'],
+  dark_oak_planks: ['planks_big_oak'],
 }
 
 function getTextureNameCandidates(textureName: string): string[] {
@@ -154,7 +178,9 @@ function getItemTextureUrls(textureName: string): { primaryUrl: string; fallback
   const normalized = normalizeTextureName(textureName)
   const base = resolveItemTextureBase()
   const defaultBase =
-    typeof window === 'undefined' ? DEFAULT_ITEM_TEXTURE_PATH : window.location.origin + DEFAULT_ITEM_TEXTURE_PATH
+    typeof window === 'undefined'
+      ? DEFAULT_ITEM_TEXTURE_PATH
+      : window.location.origin + DEFAULT_ITEM_TEXTURE_PATH
   return {
     primaryUrl: `${base}/${normalized}.png`,
     fallbackUrl: `${defaultBase}/${normalized}.png`,
@@ -246,15 +272,23 @@ export async function createPBRMaterial(
       : loadTextureOptional(`${normalized}_s`),
   ])
 
-  const material = new THREE.MeshStandardMaterial({
+  const materialParameters: THREE.MeshStandardMaterialParameters = {
     map,
     roughness: 1,
     metalness: 0,
     transparent: options.transparent === true,
-    alphaTest: options.alphaTest,
-    color: options.color,
     vertexColors: options.vertexColors === true,
-  })
+  }
+
+  if (options.alphaTest !== undefined) {
+    materialParameters.alphaTest = options.alphaTest
+  }
+
+  if (options.color !== undefined) {
+    materialParameters.color = options.color
+  }
+
+  const material = new THREE.MeshStandardMaterial(materialParameters)
 
   if (normalMap) {
     normalMap.colorSpace = THREE.NoColorSpace
@@ -590,9 +624,25 @@ export function setFoliageInstanceColors(
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
 }
 
+/**
+ * Attaches per-vertex white RGB so `MeshStandardMaterial` with `vertexColors: true` does not multiply
+ * albedo by undefined (typically black) when no `color` buffer exists. Instanced biome tint still uses `instanceColor`.
+ *
+ * @param geometry - Buffer geometry that already has `position`
+ */
+function attachWhiteVertexColors(geometry: THREE.BufferGeometry): void {
+  const pos = geometry.attributes.position
+  const count = pos?.count ?? 0
+  if (count <= 0) return
+  const colors = new Float32Array(count * 3)
+  colors.fill(1)
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+}
+
 // Project convention: block at (x,y,z) occupies [x..x+1] in world space (corner-based). Matches worker geometry and collision.
 export const sharedBlockGeometry = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
 sharedBlockGeometry.translate(0.5 * BLOCK_SIZE, 0.5 * BLOCK_SIZE, 0.5 * BLOCK_SIZE)
+attachWhiteVertexColors(sharedBlockGeometry)
 
 const _snowLayerGeometryCache: THREE.BufferGeometry[] = []
 /** Shared geometry for snow_layer_k (height k/8). Use for sync-path instancing.
@@ -635,7 +685,10 @@ const _stairsGeometryCache: THREE.BufferGeometry[] = []
  * Geometry is corner-based: spans X,Z in [0..1], two boxes (slab + step).
  * @param half When 'top', stairs are upside-down (slab at y 0.5–1, step at y 0–0.5). Default 'bottom'.
  */
-export function getStairsGeometry(facing: StairFacing, half: StairsHalf = 'bottom'): THREE.BufferGeometry {
+export function getStairsGeometry(
+  facing: StairFacing,
+  half: StairsHalf = 'bottom',
+): THREE.BufferGeometry {
   const facingIdx = STAIRS_FACING_INDEX[facing]
   const halfIdx = half === 'top' ? 4 : 0
   const idx = halfIdx + facingIdx
@@ -659,7 +712,8 @@ export function getStairsGeometry(facing: StairFacing, half: StairsHalf = 'botto
             ? createBox(0.5, 0.5, 1, 0.5, 0, 0)
             : createBox(0.5, 0.5, 1, 0, 0, 0)
     const merged = mergeGeometries([step, slab], true)
-    if (!merged) throw new Error(`Failed to build stairs geometry for facing: ${facing}, half: ${half}`)
+    if (!merged)
+      throw new Error(`Failed to build stairs geometry for facing: ${facing}, half: ${half}`)
     _stairsGeometryCache[idx] = merged
     return merged
   }
@@ -720,20 +774,50 @@ export function getFenceGeometry(mask: number): THREE.BufferGeometry {
 
   const railHalf = FENCE_RAIL_HEIGHT / 2
   if (mask & FENCE_MASK_NORTH) {
-    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_LOW - railHalf, 0))
-    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_HIGH - railHalf, 0))
+    parts.push(
+      createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_LOW - railHalf, 0),
+    )
+    parts.push(
+      createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_HIGH - railHalf, 0),
+    )
   }
   if (mask & FENCE_MASK_SOUTH) {
-    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_LOW - railHalf, 0.5))
-    parts.push(createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_HIGH - railHalf, 0.5))
+    parts.push(
+      createBox(FENCE_POST_SIZE, FENCE_RAIL_HEIGHT, 0.5, postMin, FENCE_RAIL_Y_LOW - railHalf, 0.5),
+    )
+    parts.push(
+      createBox(
+        FENCE_POST_SIZE,
+        FENCE_RAIL_HEIGHT,
+        0.5,
+        postMin,
+        FENCE_RAIL_Y_HIGH - railHalf,
+        0.5,
+      ),
+    )
   }
   if (mask & FENCE_MASK_EAST) {
-    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0.5, FENCE_RAIL_Y_LOW - railHalf, postMin))
-    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0.5, FENCE_RAIL_Y_HIGH - railHalf, postMin))
+    parts.push(
+      createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0.5, FENCE_RAIL_Y_LOW - railHalf, postMin),
+    )
+    parts.push(
+      createBox(
+        0.5,
+        FENCE_RAIL_HEIGHT,
+        FENCE_POST_SIZE,
+        0.5,
+        FENCE_RAIL_Y_HIGH - railHalf,
+        postMin,
+      ),
+    )
   }
   if (mask & FENCE_MASK_WEST) {
-    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0, FENCE_RAIL_Y_LOW - railHalf, postMin))
-    parts.push(createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0, FENCE_RAIL_Y_HIGH - railHalf, postMin))
+    parts.push(
+      createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0, FENCE_RAIL_Y_LOW - railHalf, postMin),
+    )
+    parts.push(
+      createBox(0.5, FENCE_RAIL_HEIGHT, FENCE_POST_SIZE, 0, FENCE_RAIL_Y_HIGH - railHalf, postMin),
+    )
   }
 
   const merged = mergeGeometries(parts, true)
@@ -785,6 +869,7 @@ export const sharedTallGrassGeometry = (() => {
   geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
   geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
   geo.setIndex(indices)
+  attachWhiteVertexColors(geo)
   return geo
 })()
 

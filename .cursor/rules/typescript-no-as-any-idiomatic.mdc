@@ -1,0 +1,35 @@
+---
+description: Forbid 'as any' and enforce idiomatic TypeScript typing
+globs: **/*.{ts,tsx}
+alwaysApply: false
+---
+
+# TypeScript: No `as any`, idiomatic typing
+
+- Never use `as any` in production code.
+- Prefer precise types, discriminated unions, and generics over type erasure.
+- For unknown input, use `unknown` and narrow with type guards.
+- Prefer `satisfies` to validate object shapes without widening.
+- Avoid non-null assertions (`!`) unless there is a proven invariant and a short comment.
+
+## Preferred patterns
+
+```ts
+// ❌ BAD
+const payload = data as any;
+process(payload.value);
+
+// ✅ GOOD
+type Payload = { value: string };
+const payload = data as Payload;
+process(payload.value);
+```
+
+```ts
+// ✅ BETTER FOR UNTRUSTED DATA
+function isPayload(input: unknown): input is { value: string } {
+  return typeof input === "object" && input !== null && "value" in input;
+}
+```
+
+If a cast is unavoidable, cast to the narrowest valid type and document why.

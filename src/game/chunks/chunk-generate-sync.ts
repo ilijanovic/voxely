@@ -36,6 +36,11 @@ import {
   setBlockModification,
 } from '../../chunk-runtime'
 import { filterVisibleBlocks as filterVisibleBlocksPure } from './visible-blocks'
+import { typeToId, idToType } from '../../terrain/block-ids'
+import {
+  buildWorkerGeometryFromVoxelBuffer,
+  type GeometryLayer,
+} from '../../terrain/worker-geometry'
 import {
   isSolidBlock as isBlockTypeSolid,
   isOccludingBlock as isBlockTypeOccluding,
@@ -67,6 +72,8 @@ import {
 import { breakBlock as breakBlockSystem } from '../world-interactions/mining'
 import { RaycastMeshCache } from './raycast-cache'
 import { CROSS_GEOMETRY_BLOCK_TYPES } from './cross-geometry-block-types'
+import { getGrassTopVariantMaterialKeys, partitionPositionsByVariantMaterialKey } from './grass-material-variants'
+import { addWorkerGeometryLayerMesh } from './worker-layer-mesh'
 
 // Scratch buffers (reused every frame to avoid allocations)
 const _matrix = new THREE.Matrix4()
@@ -428,6 +435,10 @@ export function getLayerPositions(data: ChunkData, blockType: BlockType): BlockP
   return data.blockPositionsByType.get(blockType) ?? null
 }
 
+/**
+ * Maps global instance index into the chunk positions list for a block type.
+ * Invalid when one block type is split across multiple InstancedMeshes (e.g. grass top variants); raycast/mining uses `getBlockPosFromInstancedMesh` in `instanced-block-pos.ts` instead.
+ */
 export function getBlockWorldPosition(
   chunkKeyNum: number,
   blockType: BlockType,
@@ -481,10 +492,55 @@ export function placeTorch(
   })
 }
 
+/**
+ * Returns true when a block type should keep the sync specialized rendering path.
+ */
+function usesSpecializedSyncLayerPath(blockType: BlockType): boolean {
+  if (blockType === 'tall_grass') return true
+  if (blockType === 'grass' || blockType === 'grass_savanna') return true
+  if (FOLIAGE_BLOCK_TYPES.includes(blockType)) return true
+  if (CROSS_GEOMETRY_BLOCK_TYPES.includes(blockType)) return true
+  if (isFenceBlock(blockType)) return true
+  if (blockType === 'water_source' || blockType.startsWith('water_flowing_')) return true
+  if (blockType === 'torch' || isWallTorchBlockType(blockType)) return true
+  return /^snow_layer_([1-8])$/.test(blockType)
+}
+
+/**
+ * Builds a chunk-local voxel id buffer from the current voxel map.
+ */
+function buildVoxelIdBufferFromChunkData(data: ChunkData): Uint8Array {
+  const buffer = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE)
+  for (const [localVoxelKey, blockType] of data.voxelMap) {
+    buffer[localVoxelKey] = typeToId(blockType)
+  }
+  return buffer
+}
+
+/**
+ * Builds a lookup from block type to worker geometry layer for the current chunk state.
+ */
+function buildWorkerLayerByBlockType(
+  data: ChunkData,
+): Map<BlockType, GeometryLayer> {
+  const worldX = data.cx * CHUNK_SIZE
+  const worldZ = data.cz * CHUNK_SIZE
+  const buffer = buildVoxelIdBufferFromChunkData(data)
+  const geometry = buildWorkerGeometryFromVoxelBuffer({ buffer, worldX, worldZ })
+  const workerLayerByBlockType = new Map<BlockType, GeometryLayer>()
+  for (const layer of geometry.geometryLayers) {
+    const blockType = idToType(layer.blockTypeId)
+    if (blockType === 'air') continue
+    workerLayerByBlockType.set(blockType as BlockType, layer)
+  }
+  return workerLayerByBlockType
+}
+
 export function rebuildChunkLayer(
   ctx: ChunkSyncContext,
   data: ChunkData,
   blockType: BlockType,
+  workerLayer?: GeometryLayer,
 ): void {
   const keyNum = chunkKeyNumeric(data.cx, data.cz)
   const positions = getLayerPositions(data, blockType)
@@ -507,6 +563,17 @@ export function rebuildChunkLayer(
   }
 
   if (positions.length === 0) return
+
+  if (
+    workerLayer &&
+    !usesSpecializedSyncLayerPath(blockType)
+  ) {
+    addWorkerGeometryLayerMesh(data.group, workerLayer, getMaterialForBlockType(blockType), {
+      chunkKeyNum: keyNum,
+      blockType,
+    })
+    return
+  }
 
   // tall_grass: only the cross layer (addTallGrassLayer), no box.
   if (blockType === 'tall_grass') {
@@ -581,7 +648,30 @@ export function rebuildChunkLayer(
     },
     geometry,
   )
-  if (mesh && (blockType === 'grass' || blockType === 'grass_savanna') && ctx.grassColormapData) {
+  if (!mesh) return
+
+  // Grass top texture variants: split into multiple instanced layers with different materials.
+  if ((blockType === 'grass' || blockType === 'grass_savanna') && ctx.grassColormapData) {
+    const variantKeys = getGrassTopVariantMaterialKeys()
+    if (variantKeys.length > 0) {
+      // Remove the single-layer mesh we just created and rebuild as buckets.
+      data.group.remove(mesh)
+      mesh.dispose()
+      const buckets = partitionPositionsByVariantMaterialKey(positions, variantKeys)
+      for (const [materialKey, bucketPositions] of buckets) {
+        const bucketMesh = addInstancedLayer(
+          data.group,
+          bucketPositions,
+          getMaterialForBlockType(materialKey as any),
+          { chunkKeyNum: keyNum, blockType },
+          geometry,
+        )
+        if (bucketMesh) {
+          setGrassInstanceColors(bucketMesh, bucketPositions, getResolvedBiome, ctx.grassColormapData)
+        }
+      }
+      return
+    }
     setGrassInstanceColors(mesh, positions, getResolvedBiome, ctx.grassColormapData)
   }
   if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && ctx.foliageColormapData) {
@@ -603,11 +693,18 @@ export function refreshChunkVisibleMeshes(
   )
 
   if (affectedBlockTypes !== undefined) {
+    const needsWorkerLayerLookup = Array.from(affectedBlockTypes).some(
+      (blockType) => !usesSpecializedSyncLayerPath(blockType),
+    )
+    const workerLayerByBlockType = needsWorkerLayerLookup
+      ? buildWorkerLayerByBlockType(data)
+      : new Map<BlockType, GeometryLayer>()
+
     for (const blockType of affectedBlockTypes) {
       const positions = positionsByType.get(blockType) ?? []
       const visible = filterVisibleBlocks(worldX, worldZ, data.voxelMap, positions)
       data.blockPositionsByType.set(blockType, visible)
-      rebuildChunkLayer(ctx, data, blockType)
+      rebuildChunkLayer(ctx, data, blockType, workerLayerByBlockType.get(blockType))
     }
   } else {
     const previousTypes = new Set<BlockType>(data.blockPositionsByType.keys())
@@ -640,7 +737,7 @@ export function breakBlock(
   worldX: number,
   worldY: number,
   worldZ: number,
-  options?: { skipRefresh?: boolean; time?: number; dropType?: BlockType },
+  options?: { skipRefresh?: boolean; time?: number; dropType?: BlockType | null; dropCount?: number },
 ): void {
   const time = options?.time ?? 0
   breakBlockSystem({
@@ -665,6 +762,7 @@ export function breakBlock(
     spawnDrop: (wx, wz, startY, restY, bt, t) => spawnDrop(ctx, wx, wz, startY, restY, bt, t),
     skipRefresh: options?.skipRefresh,
     dropType: options?.dropType,
+    dropCount: options?.dropCount,
   })
 }
 

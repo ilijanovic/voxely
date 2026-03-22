@@ -13,13 +13,15 @@ import {
 import { getSurfaceBlockFromRules } from './surface-rules'
 
 describe('getSurfaceBlockFromRules', () => {
+  const SOFT_GLOBAL_STONE_MIN_Y = WATER_LEVEL + 32
+
   it('returns grass for jungle at high Y (exempt from global_height_to_stone)', () => {
     const topY = SURFACE_STONE_HEIGHT + 7
     expect(getSurfaceBlockFromRules('jungle', topY, 'grass')).toBe('grass')
   })
 
-  it('returns stone for plains at Y >= SURFACE_STONE_HEIGHT', () => {
-    const topY = SURFACE_STONE_HEIGHT
+  it('returns stone for plains at softened global stone height', () => {
+    const topY = SOFT_GLOBAL_STONE_MIN_Y
     expect(getSurfaceBlockFromRules('plains', topY, 'grass')).toBe('stone')
   })
 
@@ -27,8 +29,8 @@ describe('getSurfaceBlockFromRules', () => {
     expect(getSurfaceBlockFromRules('forest', 97, 'grass')).toBe('stone')
   })
 
-  it('returns grass for plains below SURFACE_STONE_HEIGHT', () => {
-    const topY = SURFACE_STONE_HEIGHT - 1
+  it('returns grass for plains below softened global stone height', () => {
+    const topY = SOFT_GLOBAL_STONE_MIN_Y - 1
     expect(getSurfaceBlockFromRules('plains', topY, 'grass')).toBe('grass')
   })
 

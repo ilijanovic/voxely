@@ -11,6 +11,7 @@ import {
   getAllSlots,
   addItem,
   consumeFromSlot,
+  consumeByType,
   moveSlots,
   clearCraftingGrid,
   craftOne,
@@ -21,7 +22,13 @@ import {
   MAIN_INVENTORY_START,
   CRAFTING_START,
 } from './inventory'
-import { HOTBAR_SLOTS, MAIN_INVENTORY_SLOTS, CRAFTING_GRID_2X2, MAX_STACK_SIZE } from './constants'
+import {
+  HOTBAR_SLOTS,
+  MAIN_INVENTORY_SLOTS,
+  CRAFTING_GRID_2X2,
+  MAX_STACK_SIZE,
+  TOTAL_PERSISTENT_SLOTS,
+} from './constants'
 
 describe('inventory', () => {
   beforeEach(() => {
@@ -108,6 +115,28 @@ describe('inventory', () => {
       setSlot(0, 'dirt', 3)
       expect(consumeFromSlot(0, 3)).toBe(3)
       expect(getSlot(0)).toEqual({ type: null, count: 0 })
+    })
+  })
+
+  describe('consumeByType', () => {
+    it('consumes matching stacks from hotbar then main inventory', () => {
+      for (let i = 0; i < TOTAL_PERSISTENT_SLOTS; i++) setSlot(i, null, 0)
+      setSlot(0, 'dirt', 2)
+      setSlot(1, 'dirt', 3)
+      setSlot(MAIN_INVENTORY_START, 'dirt', 5)
+      expect(consumeByType('dirt', 6)).toBe(6)
+      expect(getSlot(0)).toEqual({ type: null, count: 0 })
+      expect(getSlot(1)).toEqual({ type: null, count: 0 })
+      expect(getSlot(MAIN_INVENTORY_START)).toEqual({ type: 'dirt', count: 4 })
+    })
+
+    it('returns consumed amount when inventory has fewer items than requested', () => {
+      for (let i = 0; i < TOTAL_PERSISTENT_SLOTS; i++) setSlot(i, null, 0)
+      setSlot(0, 'sand', 1)
+      setSlot(MAIN_INVENTORY_START, 'sand', 2)
+      expect(consumeByType('sand', 10)).toBe(3)
+      expect(getSlot(0)).toEqual({ type: null, count: 0 })
+      expect(getSlot(MAIN_INVENTORY_START)).toEqual({ type: null, count: 0 })
     })
   })
 

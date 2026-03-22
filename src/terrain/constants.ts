@@ -111,17 +111,17 @@ export const CLIMATE_WARP_AMP = 42
 /** Erosion noise and terrain jaggedness. */
 export const EROSION_SCALE = CLIMATE_PARAM_SCALE
 export const EROSION_AMPLITUDE = 7
-export const EROSION_DETAIL_BOOST_MAX = 1.5
+export const EROSION_DETAIL_BOOST_MAX = 1.75
 /** Erosion signed <= this starts boosting detail (jaggedness). */
-export const EROSION_JAGGEDNESS_START = 0.25
+export const EROSION_JAGGEDNESS_START = 0.18
 
 /** Mountain mask and height contribution. */
 export const MOUNTAIN_MASK_SCALE = 0.0022
 export const MOUNTAIN_HEIGHT_SCALE = 0.008
-export const MOUNTAIN_AMPLITUDE = 34
-export const MOUNTAIN_THRESHOLD = 0.34
+export const MOUNTAIN_AMPLITUDE = 37
+export const MOUNTAIN_THRESHOLD = 0.37
 /** Width of smooth transition from no mountain to full mountain contribution. */
-export const MOUNTAIN_TRANSITION_WIDTH = 0.22
+export const MOUNTAIN_TRANSITION_WIDTH = 0.2
 export const MOUNTAIN_BIOME_HEIGHT_BOOST = 2.2
 export const SNOW_BIOME_HEIGHT_BOOST = 3.8
 /** Extra mountain contribution for badlands to form mesa walls/plateaus. */
@@ -136,7 +136,7 @@ export const BADLANDS_VALLEY_DEPTH = 8.5
 /** Reduces local relief in badlands valley floors so basins look flatter. */
 export const BADLANDS_VALLEY_RELIEF_REDUCTION = 0.62
 /** Non-core mountain-enabled biomes (forest, jungle, taiga) get reduced mountain strength. */
-export const MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST = 0.9
+export const MOUNTAIN_NON_CORE_BIOME_HEIGHT_BOOST = 0.72
 /** Below this core-mountain blend share, mountain uplift is strongly attenuated at biome edges. */
 export const MOUNTAIN_CORE_BLEND_SOFTEN_START = 0.18
 /** At or above this core-mountain blend share, mountain uplift reaches full strength. */
@@ -144,11 +144,11 @@ export const MOUNTAIN_CORE_BLEND_SOFTEN_FULL = 0.68
 /** Minimum retained mountain uplift when core-mountain blend share is very low. */
 export const MOUNTAIN_CORE_BLEND_MIN_STRENGTH = 0.28
 /** Additional height gain when the weirdness signal is in a peak band. */
-export const MOUNTAIN_PEAK_BAND_BOOST = 0.7
+export const MOUNTAIN_PEAK_BAND_BOOST = 0.9
 /** Extra height gain for sharp negative-weirdness mountain ridges. */
-export const MOUNTAIN_JAGGED_BOOST = 0.55
+export const MOUNTAIN_JAGGED_BOOST = 0.78
 /** Extra local-relief gain for jagged mountain ridges. */
-export const MOUNTAIN_JAGGED_DETAIL_BOOST = 0.3
+export const MOUNTAIN_JAGGED_DETAIL_BOOST = 0.42
 
 /** Weirdness dimension for ridges. Vanilla uses [-2, 2]; we scale raw noise by this. */
 export const WEIRDNESS_SCALE = 0.0016
@@ -157,11 +157,16 @@ export const WEIRDNESS_RIDGE_AMP = 5.8
 /** Approximate center of the vanilla peaks-and-valleys ridge bands in normalized weirdness space. */
 export const WEIRDNESS_PEAK_BAND_CENTER = 0.58
 /** Half-width of the peak band around WEIRDNESS_PEAK_BAND_CENTER. */
-export const WEIRDNESS_PEAK_BAND_HALF_WIDTH = 0.42
+export const WEIRDNESS_PEAK_BAND_HALF_WIDTH = 0.32
 /** Normalized weirdness threshold where negative weirdness starts looking jagged. */
-export const WEIRDNESS_JAGGED_START = 0.08
+export const WEIRDNESS_JAGGED_START = 0.14
+/**
+ * Span in normalized weirdness space for ramping `getJaggedPeakFactor` from 0 to 1
+ * after {@link WEIRDNESS_JAGGED_START}.
+ */
+export const WEIRDNESS_JAGGED_PEAK_RAMP_SPAN = 0.48
 /** Extra ridge gain applied to the negative-weirdness jagged branch. */
-export const WEIRDNESS_JAGGED_RIDGE_BOOST = 0.65
+export const WEIRDNESS_JAGGED_RIDGE_BOOST = 0.8
 
 /** Highland band thresholds (height above water). */
 export const HIGHLAND_MEADOW_MAX = WATER_LEVEL + 10
@@ -185,7 +190,7 @@ export const WINDSWEPT_FOREST_HUMIDITY_MIN = 0.55
 
 /** Height transition noise (softens height cutoffs). */
 export const HEIGHT_TRANSITION_SCALE = 0.0016
-export const HEIGHT_TRANSITION_AMPLITUDE = 4.5
+export const HEIGHT_TRANSITION_AMPLITUDE = 4.2
 /** Start softening extreme local cliffs when max cardinal delta exceeds this many blocks. */
 export const HEIGHT_EXTREME_CLIFF_SOFTEN_START = 10
 /** Apply full extreme-cliff softening once max cardinal delta reaches this many blocks. */
@@ -195,18 +200,18 @@ export const HEIGHT_EXTREME_CLIFF_SOFTEN_MAX_BLEND = 0.45
 
 /** Peak biome selection (frozen/jagged/stony) height range. */
 export const PEAK_Y_MIN = WATER_LEVEL + 28
-export const PEAK_Y_RANGE = 18
+export const PEAK_Y_RANGE = 16
 /**
  * Cardinal radius (in blocks) used to enforce a snowy_slopes transition ring
  * before resolving to jagged_peaks.
  */
-export const JAGGED_PEAKS_EDGE_CHECK_RADIUS = 4
+export const JAGGED_PEAKS_EDGE_CHECK_RADIUS = 5
 /** Minimum peak-band factor before the sharp jagged branch can win peak selection. */
-export const PEAK_JAGGED_BAND_MIN = 0.5
+export const PEAK_JAGGED_BAND_MIN = 0.58
 /** Minimum jagged factor before a peak is classified as jagged. */
-export const PEAK_JAGGED_FACTOR_MIN = 0.55
+export const PEAK_JAGGED_FACTOR_MIN = 0.62
 /** Jagged peaks prefer low erosion (sharper terrain). */
-export const PEAK_JAGGED_EROSION_MAX = -0.35
+export const PEAK_JAGGED_EROSION_MAX = -0.4
 
 /** Flatness noise frequency for terrain smoothness; shared by height and local terrain. */
 export const FLAT_NOISE_SCALE = 0.01

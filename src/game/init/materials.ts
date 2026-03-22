@@ -1,5 +1,11 @@
 import * as THREE from 'three'
-import { getAllBlockIds, getBlockDefinition, getBlockTextureNames } from '../../block-registry'
+import {
+  getAllBlockIds,
+  getBlockAllTextureNames,
+  getBlockBaseSixTextureNames,
+  getBlockDefinition,
+  getBlockFaceTextureVariants,
+} from '../../block-registry'
 import {
   blockMaterialCache,
   createPBRMaterial,
@@ -11,6 +17,7 @@ import {
   setPixelFilter,
 } from '../../block-materials'
 import { patchMaterialWithTerrainFog } from '../../terrain-fog'
+import { setGrassTopVariantMaterialKeys } from '../chunks/grass-material-variants'
 
 export type MaterialsInitResult = {
   grassColormapData: ImageData | null
@@ -23,6 +30,17 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
     typeof window !== 'undefined' &&
     (window.location.search.includes('debug_grass=1') ||
       (window as unknown as { __DEBUG_GRASS_TINT?: boolean }).__DEBUG_GRASS_TINT)
+
+  if (DEBUG_GRASS_TINT) {
+    const grassDef = getBlockDefinition('grass')
+    console.log('[materials init] debug version: faces-textures-v1')
+    console.log('[materials init] grass BlockDefinition snapshot:', {
+      id: grassDef?.id,
+      textures: grassDef?.textures,
+      skipSpecularMap: grassDef?.skipSpecularMap,
+      skipNormalMap: grassDef?.skipNormalMap,
+    })
+  }
 
   let _debugGrassMaterialLogged = false
   const grassColormapData = await loadGrassColormapImageData()
@@ -63,22 +81,27 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
         blockMaterialCache.set(blockId, waterMaterial)
         return
       }
-      const names = getBlockTextureNames(blockId)
       const skipNormalMapForTerrain = def.skipNormalMap === true
       const skipSpecularMapForGrass = def.skipSpecularMap === true
 
-      const grassMaterialOpts: { color?: number; vertexColors?: boolean } = {}
+      const grassMaterialOpts: { color?: number; vertexColors?: boolean } = skipSpecularMapForGrass
+        ? { color: 0xffffff, vertexColors: true }
+        : {}
       if (DEBUG_GRASS_TINT && def.skipSpecularMap === true) {
         console.log('[grass tint] material opts', {
           blockId,
           grassMaterialOpts,
           skipNormalMapForTerrain,
-          textureNames: names,
+          textureNames: getBlockAllTextureNames(blockId),
         })
       }
 
       const leafMaterialOpts: { color?: number; vertexColors?: boolean } = {}
-      if (names.length === 1) {
+      const baseTextureNames =
+        def.itemTexture ? [def.itemTexture] : def.textures.type === 'single' ? [def.textures.texture] : null
+      const baseSix = def.textures.type === 'single' || def.itemTexture ? null : getBlockBaseSixTextureNames(blockId)
+
+      if (baseTextureNames) {
         let mat: THREE.MeshStandardMaterial
         if (def.itemTexture) {
           const tex = await loadItemTextureSafe(def.itemTexture)
@@ -92,7 +115,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
             ...leafMaterialOpts,
           })
         } else {
-          mat = await createPBRMaterial(names[0], {
+          mat = await createPBRMaterial(baseTextureNames[0], {
             transparent: def.transparent === true,
             alphaTest: def.transparent ? 0.1 : undefined,
             enableNormalMap: !skipNormalMapForTerrain,
@@ -115,6 +138,7 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
           _debugGrassMaterialLogged = true
         }
       } else {
+        const names = baseSix ?? []
         const mats = (await Promise.all(
           names.map((name) =>
             createPBRMaterial(name, {
@@ -145,6 +169,47 @@ export async function initMaterialsAndColormaps(): Promise<MaterialsInitResult> 
       }
     }),
   )
+
+  // Build grass-top variant materials (as defined on grass.top).
+  // We create separate cache keys so chunk rendering can split grass blocks into multiple instanced meshes.
+  const grassFaceVariants = getBlockFaceTextureVariants('grass')
+  const declaredGrassTopVariants = grassFaceVariants?.top ?? []
+  const grassTopVariantTextureNames: string[] = []
+  for (const name of declaredGrassTopVariants) {
+    // Only include variants that exist in the selected pack (or fallback pack).
+    // loadTextureOptional returns null when it cannot resolve the texture.
+    // We don't keep the texture instance; createPBRMaterial will load it again, but it will be cached by the browser.
+    // eslint-disable-next-line no-await-in-loop
+    const maybe = await loadTextureOptional(name)
+    if (!maybe) continue
+    maybe.dispose()
+    grassTopVariantTextureNames.push(name)
+  }
+
+  const baseGrass = blockMaterialCache.get('grass')
+  if (Array.isArray(baseGrass) && grassTopVariantTextureNames.length > 1) {
+    const keys: string[] = []
+    for (const topName of grassTopVariantTextureNames) {
+      const key = `grass@top:${topName}`
+      keys.push(key)
+      // eslint-disable-next-line no-await-in-loop
+      const topMat = await createPBRMaterial(topName, { enableNormalMap: false, enableSpecularMap: false })
+      patchMaterialWithTerrainFog(topMat)
+      const mats = [
+        baseGrass[0],
+        baseGrass[1],
+        topMat,
+        baseGrass[3],
+        baseGrass[4],
+        baseGrass[5],
+      ] as THREE.MeshStandardMaterial[]
+      patchMaterialWithTerrainFog(mats)
+      blockMaterialCache.set(key, mats)
+    }
+    setGrassTopVariantMaterialKeys(keys)
+  } else {
+    setGrassTopVariantMaterialKeys([])
+  }
 
   let tallGrassMaterial: THREE.MeshStandardMaterial | null = null
   const tallGrassTex = await loadTextureOptional('tall_grass')

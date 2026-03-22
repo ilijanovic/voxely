@@ -26,6 +26,7 @@ const defaults = {
   bloomStrength: 0.15,
   bloomRadius: 0.3,
   bloomThreshold: 0.9,
+  progressiveChunkApplyEnabled: true,
 }
 
 const state = {
@@ -46,6 +47,7 @@ const state = {
   bloomStrength: defaults.bloomStrength,
   bloomRadius: defaults.bloomRadius,
   bloomThreshold: defaults.bloomThreshold,
+  progressiveChunkApplyEnabled: defaults.progressiveChunkApplyEnabled,
 }
 
 function loadFromStorage(): void {
@@ -95,6 +97,9 @@ function loadFromStorage(): void {
     }
     if (typeof data.bloomThreshold === 'number') {
       state.bloomThreshold = Math.max(0, Math.min(1, data.bloomThreshold))
+    }
+    if (typeof data.progressiveChunkApplyEnabled === 'boolean') {
+      state.progressiveChunkApplyEnabled = data.progressiveChunkApplyEnabled
     }
   } catch {
     // invalid data → keep defaults
@@ -256,6 +261,13 @@ export function getBloomThreshold(): number {
   return state.bloomThreshold
 }
 
+/**
+ * Returns whether chunk payloads should be applied progressively across frames.
+ */
+export function getProgressiveChunkApplyEnabled(): boolean {
+  return state.progressiveChunkApplyEnabled
+}
+
 export function setBloomEnabled(value: boolean): void {
   state.bloomEnabled = value
   saveToStorage()
@@ -273,6 +285,16 @@ export function setBloomRadius(value: number): void {
 
 export function setBloomThreshold(value: number): void {
   state.bloomThreshold = Math.max(0, Math.min(1, value))
+  saveToStorage()
+}
+
+/**
+ * Enables or disables progressive chunk-apply scheduling and persists the setting.
+ *
+ * @param value - True to spread chunk apply over frames, false to apply immediately
+ */
+export function setProgressiveChunkApplyEnabled(value: boolean): void {
+  state.progressiveChunkApplyEnabled = value
   saveToStorage()
 }
 
@@ -295,5 +317,6 @@ export function getGraphicsState() {
     bloomStrength: state.bloomStrength,
     bloomRadius: state.bloomRadius,
     bloomThreshold: state.bloomThreshold,
+    progressiveChunkApplyEnabled: state.progressiveChunkApplyEnabled,
   }
 }

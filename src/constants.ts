@@ -7,7 +7,7 @@ export const CHUNK_SIZE = 16
 /** Default base path for block textures (built-in assets). Must match public folder: public/assets/minecraft/textures/block. */
 export const DEFAULT_BLOCK_TEXTURE_PATH = '/assets/minecraft/textures/block'
 /** Default base path for item textures (held items, hotbar icons for tools/weapons). */
-export const DEFAULT_ITEM_TEXTURE_PATH = '/assets/minecraft/textures/items'
+export const DEFAULT_ITEM_TEXTURE_PATH = '/assets/minecraft/textures/item'
 
 /**
  * Base path for block textures. Can be overridden by the selected resource pack
@@ -17,8 +17,8 @@ export function getBlockTexturePath(): string {
   if (typeof window === 'undefined') return DEFAULT_BLOCK_TEXTURE_PATH
   const pack = getSelectedResourcePack()
   if (!pack) return DEFAULT_BLOCK_TEXTURE_PATH
-  const normalized = pack.endsWith('/') ? pack.slice(0, -1) : pack
-  return `${normalized}/assets/minecraft/textures/block`
+  const packBase = pack.endsWith('/') ? pack.slice(0, -1) : pack
+  return `${packBase}/assets/minecraft/textures/block`
 }
 
 /**
@@ -28,8 +28,8 @@ export function getItemTexturePath(): string {
   if (typeof window === 'undefined') return DEFAULT_ITEM_TEXTURE_PATH
   const pack = getSelectedResourcePack()
   if (!pack) return DEFAULT_ITEM_TEXTURE_PATH
-  const normalized = pack.endsWith('/') ? pack.slice(0, -1) : pack
-  return `${normalized}/assets/minecraft/textures/items`
+  const packBase = pack.endsWith('/') ? pack.slice(0, -1) : pack
+  return `${packBase}/assets/minecraft/textures/item`
 }
 
 /** @deprecated Use getBlockTexturePath() for resource-pack support. */

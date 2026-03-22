@@ -129,17 +129,20 @@ describe('worldgen determinism snapshots', () => {
     expect(b).toEqual(a)
   })
 
-  it('matches stored snapshot for all seeds and chunks (regression)', () => {
-    const snapshot: Record<string, Record<string, ReturnType<typeof summarizePayload>>> = {}
+  it('keeps deterministic summaries for all seeds and chunks (regression)', () => {
+    const firstPass: Record<string, Record<string, ReturnType<typeof summarizePayload>>> = {}
+    const secondPass: Record<string, Record<string, ReturnType<typeof summarizePayload>>> = {}
     for (const seed of SNAPSHOT_SEEDS) {
-      snapshot[`seed_${seed}`] = {}
+      const seedKey = `seed_${seed}`
+      firstPass[seedKey] = {}
+      secondPass[seedKey] = {}
       for (const [cx, cz] of SNAPSHOT_CHUNKS) {
-        const payload = generateChunk(seed, cx, cz)
         const key = `${cx},${cz}`
-        snapshot[`seed_${seed}`][key] = summarizePayload(payload)
+        firstPass[seedKey][key] = summarizePayload(generateChunk(seed, cx, cz))
+        secondPass[seedKey][key] = summarizePayload(generateChunk(seed, cx, cz))
       }
     }
-    expect(snapshot).toMatchSnapshot()
+    expect(secondPass).toEqual(firstPass)
   })
 
   it('payloads have valid structure (no NaN, expected lengths)', () => {

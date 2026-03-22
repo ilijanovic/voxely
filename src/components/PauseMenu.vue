@@ -18,6 +18,7 @@ import {
   setBloomStrength,
   setBloomRadius,
   setBloomThreshold,
+  setProgressiveChunkApplyEnabled,
   type ShadowMapType,
 } from '../graphics-settings'
 import {
@@ -59,6 +60,7 @@ const bloomEnabled = ref(getGraphicsState().bloomEnabled)
 const bloomStrength = ref(getGraphicsState().bloomStrength)
 const bloomRadius = ref(getGraphicsState().bloomRadius)
 const bloomThreshold = ref(getGraphicsState().bloomThreshold)
+const progressiveChunkApplyEnabled = ref(getGraphicsState().progressiveChunkApplyEnabled)
 
 // Controls: current bindings (reactive for UI)
 const keyBindings = ref<Record<KeyAction, string>>(getKeyBindings())
@@ -83,6 +85,7 @@ watch(
     bloomStrength,
     bloomRadius,
     bloomThreshold,
+    progressiveChunkApplyEnabled,
   ],
   () => {
     setRenderDistance(renderDistance.value)
@@ -101,6 +104,7 @@ watch(
     setBloomStrength(bloomStrength.value)
     setBloomRadius(bloomRadius.value)
     setBloomThreshold(bloomThreshold.value)
+    setProgressiveChunkApplyEnabled(progressiveChunkApplyEnabled.value)
     applyGraphicsSettings()
   },
   { deep: true },
@@ -128,6 +132,7 @@ function openOptions() {
   bloomStrength.value = g.bloomStrength
   bloomRadius.value = g.bloomRadius
   bloomThreshold.value = g.bloomThreshold
+  progressiveChunkApplyEnabled.value = g.progressiveChunkApplyEnabled
   keyBindings.value = getKeyBindings()
   rebindingAction.value = null
 }
@@ -472,6 +477,25 @@ onUnmounted(() => {
               </label>
             </template>
             <p class="option-hint">Bloom may impact performance on low-end GPUs.</p>
+            <label class="option-row option-row-toggle">
+              <span class="option-label">Progressive chunk apply</span>
+              <span class="option-toggle-wrap">
+                <input
+                  v-model="progressiveChunkApplyEnabled"
+                  type="checkbox"
+                  class="option-toggle-input"
+                />
+                <span class="option-toggle-track">
+                  <span class="option-toggle-thumb"></span>
+                </span>
+                <span class="option-toggle-text">
+                  {{ progressiveChunkApplyEnabled ? 'On' : 'Off' }}
+                </span>
+              </span>
+            </label>
+            <p class="option-hint">
+              Spreads chunk mesh apply over frames to reduce stutter, but can increase visible pop-in.
+            </p>
           </section>
         </div>
 

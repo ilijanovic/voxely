@@ -95,7 +95,7 @@ describe('constants', () => {
     })
 
     it('DEFAULT_ITEM_TEXTURE_PATH is non-empty and points to item textures', () => {
-      expect(DEFAULT_ITEM_TEXTURE_PATH).toBe('/assets/minecraft/textures/items')
+      expect(DEFAULT_ITEM_TEXTURE_PATH).toBe('/assets/minecraft/textures/item')
     })
   })
 

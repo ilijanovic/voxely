@@ -19,13 +19,16 @@ vi.mock('../../game-terrain', () => ({
 
 vi.mock('../../block-materials', () => {
   const geo = new THREE.BoxGeometry(1, 1, 1)
+  const waterGeo = new THREE.PlaneGeometry(1, 1)
   const mat = new THREE.MeshBasicMaterial()
   return {
     sharedBlockGeometry: geo,
     sharedTallGrassGeometry: geo,
+    sharedWaterPlaneGeometry: waterGeo,
     FOLIAGE_BLOCK_TYPES: [],
     getMaterialForBlockType: () => mat,
     getSnowLayerGeometry: () => geo,
+    getFenceGeometry: () => geo,
     isSharedBlockOrSnowLayerGeometry: (g: THREE.BufferGeometry) => g === geo,
     setGrassInstanceColors: vi.fn(),
     setFoliageInstanceColors: vi.fn(),
@@ -37,6 +40,8 @@ vi.mock('../../block-registry', () => ({
   isOccludingBlock: () => true,
   isUnbreakableBlock: () => false,
   getBlockHeight: () => 1,
+  isFenceBlock: () => false,
+  getFenceConnectionMask: () => 0,
 }))
 
 vi.mock('../../entities/spawn', () => ({
@@ -49,6 +54,8 @@ vi.mock('../world-interactions/drops', () => ({
 
 vi.mock('../world-interactions/torches', () => ({
   placeTorch: vi.fn(),
+  removeTorchesInChunk: vi.fn(),
+  isWallTorchBlockType: () => false,
 }))
 
 vi.mock('../world-interactions/mining', () => ({
@@ -195,6 +202,39 @@ describe('rebuildChunkLayer', () => {
 })
 
 describe('refreshChunkVisibleMeshes', () => {
+  it('uses worker-geometry Mesh path for non-specialized block types', () => {
+    const ctx = makeCtx()
+    const data = makeChunkData(0, 0)
+
+    data.voxelMap.set(localKey(5, 10, 5), 'stone' as BlockType)
+    data.blockPositionsByType.set('stone' as BlockType, [{ x: 5, y: 10, z: 5 }])
+
+    refreshChunkVisibleMeshes(ctx, data, new Set(['stone' as BlockType]))
+
+    const stoneChildren = data.group.children.filter(
+      (c) => (c.userData as { blockType?: string }).blockType === 'stone',
+    )
+    expect(stoneChildren).toHaveLength(1)
+    expect(stoneChildren[0] instanceof THREE.Mesh).toBe(true)
+    expect(stoneChildren[0] instanceof THREE.InstancedMesh).toBe(false)
+  })
+
+  it('keeps specialized instanced path for water blocks', () => {
+    const ctx = makeCtx()
+    const data = makeChunkData(0, 0)
+
+    data.voxelMap.set(localKey(6, 10, 6), 'water_source' as BlockType)
+    data.blockPositionsByType.set('water_source' as BlockType, [{ x: 6, y: 10, z: 6 }])
+
+    refreshChunkVisibleMeshes(ctx, data, new Set(['water_source' as BlockType]))
+
+    const waterChildren = data.group.children.filter(
+      (c) => (c.userData as { blockType?: string }).blockType === 'water_source',
+    )
+    expect(waterChildren).toHaveLength(1)
+    expect(waterChildren[0] instanceof THREE.InstancedMesh).toBe(true)
+  })
+
   it('removes worker Mesh when rebuilding after mining (full refresh, no affectedBlockTypes)', () => {
     const ctx = makeCtx()
     const data = makeChunkData(0, 0)

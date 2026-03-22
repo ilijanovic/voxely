@@ -35,7 +35,9 @@ export function breakBlock(params: {
   /** When true, do not refresh meshes (caller will re-request chunk from worker and replace). */
   skipRefresh?: boolean
   /** Override drop item type (e.g. door_open and door_closed both drop door_closed). */
-  dropType?: BlockType
+  dropType?: BlockType | null
+  /** Number of dropped items. Defaults to 1. */
+  dropCount?: number
 }): void {
   if (params.isUnbreakableBlock(params.blockType)) return
   const data = params.chunks.get(params.chunkKeyNum)
@@ -105,7 +107,12 @@ export function breakBlock(params: {
     }
   }
   const restY = groundY + dropSize * 0.5
-  const dropItemType = params.dropType ?? params.blockType
-  params.spawnDrop(cx, cz, startY, restY, dropItemType, params.time)
+  const dropItemType = params.dropType === undefined ? params.blockType : params.dropType
+  const dropCount = Math.max(0, Math.floor(params.dropCount ?? 1))
+  if (dropItemType !== null && dropCount > 0) {
+    for (let i = 0; i < dropCount; i++) {
+      params.spawnDrop(cx, cz, startY, restY, dropItemType, params.time)
+    }
+  }
   if (!params.skipRefresh) params.refreshChunkVisibleMeshes(data, affectedBlockTypes)
 }

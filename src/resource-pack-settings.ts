@@ -25,8 +25,10 @@ let cachedPackList: PackOption[] | null = null
 export async function getAvailablePacks(): Promise<PackOption[]> {
   if (cachedPackList) return cachedPackList
   try {
-    const res = await fetch('/packs/index.json')
-    if (res.ok) {
+    const candidates = ['/packs/index.json']
+    for (const url of candidates) {
+      const res = await fetch(url)
+      if (!res.ok) continue
       const data = (await res.json()) as { packs?: PackOption[] }
       const list = data.packs
       if (Array.isArray(list) && list.length > 0) {

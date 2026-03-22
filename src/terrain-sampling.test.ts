@@ -373,6 +373,72 @@ describe('pipeline vs terrain-sampling biome parity', () => {
   })
 })
 
+/**
+ * Guards vanilla-like tuning: forest stays in a playable mid-elevation band and
+ * jagged peaks still appear in large scans (shape pipeline + peak selection).
+ */
+describe('terrain shape regression (forest and jagged peaks)', () => {
+  const SCAN_SEED = 42
+  const SCAN_MIN = -768
+  const SCAN_MAX = 768
+  const SCAN_STEP = 32
+  /** Expected average surface Y for forest in the scan (rolling hills, not alpine). */
+  const FOREST_MEAN_Y_MIN = WATER_LEVEL + 3
+  const FOREST_MEAN_Y_MAX = WATER_LEVEL + 40
+
+  it('keeps forest mean elevation in a mid band and still finds jagged_peaks', () => {
+    const sampling = createTerrainSampling(SCAN_SEED)
+    const heightCache = new Map<string, number>()
+    const biomeCache = new Map<string, Biome>()
+
+    /**
+     * Cached integer column height (matches biome resolution elsewhere in this file).
+     */
+    function getHeightFloor(x: number, z: number): number {
+      const k = `${x},${z}`
+      const cached = heightCache.get(k)
+      if (cached !== undefined) return cached
+      const value = Math.floor(sampling.getSmoothedHeight(x, z))
+      heightCache.set(k, value)
+      return value
+    }
+
+    /**
+     * Cached resolved biome for the scan.
+     */
+    function getResolved(x: number, z: number): Biome {
+      const k = `${x},${z}`
+      const cached = biomeCache.get(k)
+      if (cached !== undefined) return cached
+      const value = sampling.getResolvedBiome(x, z, getHeightFloor)
+      biomeCache.set(k, value)
+      return value
+    }
+
+    let forestCount = 0
+    let forestHeightSum = 0
+    let jaggedCount = 0
+
+    for (let x = SCAN_MIN; x <= SCAN_MAX; x += SCAN_STEP) {
+      for (let z = SCAN_MIN; z <= SCAN_MAX; z += SCAN_STEP) {
+        const biome = getResolved(x, z)
+        if (biome === 'forest') {
+          forestCount++
+          forestHeightSum += getHeightFloor(x, z)
+        }
+        if (biome === 'jagged_peaks') jaggedCount++
+      }
+    }
+
+    expect(forestCount).toBeGreaterThan(0)
+    expect(jaggedCount).toBeGreaterThan(0)
+
+    const forestMean = forestHeightSum / forestCount
+    expect(forestMean).toBeGreaterThanOrEqual(FOREST_MEAN_Y_MIN)
+    expect(forestMean).toBeLessThanOrEqual(FOREST_MEAN_Y_MAX)
+  })
+})
+
 describe('river generation', () => {
   const SEED = 7331
 

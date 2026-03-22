@@ -4,9 +4,14 @@
  */
 import * as THREE from 'three'
 import {
+  type BlockBreakPayload,
+  type BlockPlacePayload,
   type ChatMessage,
   type ConnectionStatus,
+  type InventorySlotUpdatePayload,
+  type InventorySyncPayload,
   type MultiplayerTransport,
+  type PersistentInventorySlot,
   type PlayerState,
 } from './multiplayer/types'
 import { SocketMultiplayerTransport } from './multiplayer/transports/socket'
@@ -48,16 +53,27 @@ let lastSentRotationY = 0
 let lastSentLookPitch = 0
 let lastSendTime = 0
 let hasSentOnce = false
+let pendingInventorySnapshot: PersistentInventorySlot[] | null = null
 
 const chatCallbacks = new Set<(msg: ChatMessage) => void>()
 const connectionCallbacks = new Set<(status: ConnectionStatus) => void>()
+const blockPlaceCallbacks = new Set<(payload: BlockPlacePayload) => void>()
+const blockBreakCallbacks = new Set<(payload: BlockBreakPayload) => void>()
+const inventorySyncCallbacks = new Set<(payload: InventorySyncPayload) => void>()
+const inventorySlotUpdateCallbacks = new Set<(payload: InventorySlotUpdatePayload) => void>()
 
-/** Notifies all chat subscribers (join, leave, chat, system messages). */
+/**
+ * Notifies all chat subscribers (join, leave, chat, system messages).
+ *
+ * @param msg - Chat payload
+ */
 function notifyChat(msg: ChatMessage): void {
   chatCallbacks.forEach((cb) => cb(msg))
 }
 
-/** Notifies all connection subscribers with current connected state and player count. */
+/**
+ * Notifies all connection subscribers with current connected state and player count.
+ */
 function notifyConnection(): void {
   const status: ConnectionStatus = {
     connected: transport?.isConnected() ?? false,
@@ -67,8 +83,14 @@ function notifyConnection(): void {
 }
 
 /**
- * Spawns a remote player mesh in the scene and adds it to remotePlayers with target/display state for interpolation.
- * Mesh forward is +Z; network yaw is forward -Z, so we set group.rotation.y = rotationY - Math.PI. Head stores only pitch; head.rotation.y = 0.
+ * Spawns a remote player mesh in the scene and adds interpolation state.
+ *
+ * @param id - Remote player id
+ * @param x - Position X
+ * @param y - Position Y
+ * @param z - Position Z
+ * @param rotationY - Yaw
+ * @param lookPitch - Optional head pitch
  */
 function spawnRemotePlayer(
   id: string,
@@ -81,7 +103,7 @@ function spawnRemotePlayer(
   if (!scene || !createPlayerMesh) return
   const group = createPlayerMesh()
   group.position.set(x, y, z)
-  group.rotation.y = rotationY - Math.PI // mesh forward +Z, network yaw forward -Z
+  group.rotation.y = rotationY - Math.PI
   const head = group.children[0] as THREE.Object3D
   head.rotation.x = lookPitch
   head.rotation.y = 0
@@ -98,7 +120,9 @@ function spawnRemotePlayer(
 }
 
 /**
- * Removes a remote player from the scene and disposes geometries and materials to avoid leaks.
+ * Removes one remote player mesh and disposes resources.
+ *
+ * @param id - Remote player id
  */
 function removeRemotePlayer(id: string): void {
   const remote = remotePlayers.get(id)
@@ -115,7 +139,14 @@ function removeRemotePlayer(id: string): void {
 }
 
 /**
- * Updates the target position and rotation for a remote player; interpolation in updateMultiplayer will move display toward these values.
+ * Updates target interpolation state for one remote player.
+ *
+ * @param id - Remote player id
+ * @param x - Position X
+ * @param y - Position Y
+ * @param z - Position Z
+ * @param rotationY - Yaw
+ * @param lookPitch - Optional head pitch
  */
 function applyTargetToRemote(
   id: string,
@@ -133,7 +164,12 @@ function applyTargetToRemote(
 }
 
 /**
- * Shortest-path linear interpolation between two angles (radians), handling wrap-around so rotation always takes the smaller arc.
+ * Shortest-path interpolation for angles in radians.
+ *
+ * @param from - Start angle
+ * @param to - Target angle
+ * @param t - Interpolation factor
+ * @returns Interpolated angle
  */
 function lerpAngle(from: number, to: number, t: number): number {
   let diff = to - from
@@ -143,9 +179,11 @@ function lerpAngle(from: number, to: number, t: number): number {
 }
 
 /**
- * Initialize multiplayer: connect to server, send join, and set up init/playerMove/playerLeave.
- * Call once after the local player exists. getPlayerState() should return current position and rotationY.
- * createPlayerMesh must be provided (e.g. createPlayerMeshOnly from game.ts) to spawn remote player meshes.
+ * Initializes multiplayer transport and subscriptions.
+ *
+ * @param sceneRef - Scene reference
+ * @param getPlayerStateFn - Local player snapshot getter
+ * @param options - Optional username, mesh factory, transport kind
  */
 export function initMultiplayer(
   sceneRef: THREE.Scene,
@@ -161,21 +199,17 @@ export function initMultiplayer(
   createPlayerMesh = options?.createPlayerMesh ?? null
   const username = options?.username ?? 'Player'
   const transportKind = options?.transport ?? 'socket'
+  transport = transportKind === 'supabase' ? new SupabaseMultiplayerTransport() : new SocketMultiplayerTransport()
 
-  if (transportKind === 'supabase') transport = new SupabaseMultiplayerTransport()
-  else transport = new SocketMultiplayerTransport()
-
-  if (!createPlayerMesh)
+  if (!createPlayerMesh) {
     console.warn('multiplayer: createPlayerMesh not provided, remote players will not be visible.')
-
+  }
   if (!transport) return
 
   transport.connect({
     username,
     callbacks: {
-      onConnectChange: () => {
-        notifyConnection()
-      },
+      onConnectChange: () => notifyConnection(),
       onInit: (payload) => {
         myId = payload.yourId
         const state = getPlayerState!()
@@ -188,41 +222,21 @@ export function initMultiplayer(
         ready = true
         notifyChat({ type: 'system', text: 'You joined the game.', time: Date.now() })
         notifyConnection()
-
+        if (pendingInventorySnapshot) {
+          transport?.sendInventorySnapshot(pendingInventorySnapshot)
+        }
         for (const p of payload.players) {
-          if (p.id === myId) continue
-          spawnRemotePlayer(
-            p.id,
-            p.position.x,
-            p.position.y,
-            p.position.z,
-            p.rotation.y,
-            p.rotation.pitch ?? 0,
-          )
+          if (p.id !== myId) {
+            spawnRemotePlayer(p.id, p.position.x, p.position.y, p.position.z, p.rotation.y, p.rotation.pitch ?? 0)
+          }
         }
       },
       onPlayerMove: (payload) => {
         if (payload.id === myId) return
-        let remote = remotePlayers.get(payload.id)
-        if (!remote) {
-          spawnRemotePlayer(
-            payload.id,
-            payload.x,
-            payload.y,
-            payload.z,
-            payload.rotationY,
-            payload.lookPitch ?? 0,
-          )
-          remote = remotePlayers.get(payload.id)!
+        if (!remotePlayers.has(payload.id)) {
+          spawnRemotePlayer(payload.id, payload.x, payload.y, payload.z, payload.rotationY, payload.lookPitch ?? 0)
         }
-        applyTargetToRemote(
-          payload.id,
-          payload.x,
-          payload.y,
-          payload.z,
-          payload.rotationY,
-          payload.lookPitch,
-        )
+        applyTargetToRemote(payload.id, payload.x, payload.y, payload.z, payload.rotationY, payload.lookPitch)
       },
       onPlayerJoined: (payload) => {
         notifyConnection()
@@ -231,53 +245,99 @@ export function initMultiplayer(
       onPlayerLeave: (payload) => {
         removeRemotePlayer(payload.id)
         notifyConnection()
-        notifyChat({
-          type: 'leave',
-          id: payload.id,
-          username: payload.username ?? 'Player',
-          time: Date.now(),
-        })
+        notifyChat({ type: 'leave', id: payload.id, username: payload.username ?? 'Player', time: Date.now() })
       },
       onChat: (payload) => {
-        notifyChat({
-          type: 'chat',
-          id: payload.id,
-          username: payload.username,
-          text: payload.text,
-          time: Date.now(),
-        })
+        notifyChat({ type: 'chat', id: payload.id, username: payload.username, text: payload.text, time: Date.now() })
       },
       onState: (state) => {
         if (!myId) return
         for (const s of state) {
           if (s.id === myId) continue
-          if (!remotePlayers.has(s.id))
-            spawnRemotePlayer(s.id, s.x, s.y, s.z, s.rotationY, s.lookPitch ?? 0)
+          if (!remotePlayers.has(s.id)) spawnRemotePlayer(s.id, s.x, s.y, s.z, s.rotationY, s.lookPitch ?? 0)
           else applyTargetToRemote(s.id, s.x, s.y, s.z, s.rotationY, s.lookPitch)
         }
       },
+      onBlockPlace: (payload) => blockPlaceCallbacks.forEach((cb) => cb(payload)),
+      onBlockBreak: (payload) => blockBreakCallbacks.forEach((cb) => cb(payload)),
+      onInventorySync: (payload) => inventorySyncCallbacks.forEach((cb) => cb(payload)),
+      onInventorySlotUpdate: (payload) => inventorySlotUpdateCallbacks.forEach((cb) => cb(payload)),
     },
   })
 }
 
-/** Adds a system message to the chat log (visible when the player opens chat). Works in singleplayer and multiplayer. */
+/** Adds a system message to the local chat log. */
 export function addSystemMessage(text: string): void {
   notifyChat({ type: 'system', text, time: Date.now() })
 }
 
-/** Subscribe to chat messages (join, leave, chat). Returns unsubscribe function. */
+/** Subscribe to chat messages (join, leave, chat). */
 export function subscribeChat(callback: (msg: ChatMessage) => void): () => void {
   chatCallbacks.add(callback)
   return () => chatCallbacks.delete(callback)
 }
 
-/** Send a chat message. No-op if not connected. */
+/** Sends one chat message to backend. */
 export function sendChat(text: string): void {
   if (!transport?.isConnected()) return
   transport.sendChat(text)
 }
 
-/** Get current connection status. */
+/** Sends a block placement intent/event. */
+export function sendBlockPlace(
+  x: number,
+  y: number,
+  z: number,
+  type: string,
+  options?: { slotIndex?: number; consumeItem?: boolean },
+): void {
+  if (!transport?.isConnected()) return
+  transport.sendBlockPlace(x, y, z, type, options)
+}
+
+/** Sends a block break intent/event. */
+export function sendBlockBreak(x: number, y: number, z: number): void {
+  if (!transport?.isConnected()) return
+  transport.sendBlockBreak(x, y, z)
+}
+
+/** Subscribe to authoritative block placement events. */
+export function subscribeBlockPlace(callback: (payload: BlockPlacePayload) => void): () => void {
+  blockPlaceCallbacks.add(callback)
+  return () => blockPlaceCallbacks.delete(callback)
+}
+
+/** Subscribe to authoritative block break events. */
+export function subscribeBlockBreak(callback: (payload: BlockBreakPayload) => void): () => void {
+  blockBreakCallbacks.add(callback)
+  return () => blockBreakCallbacks.delete(callback)
+}
+
+/** Subscribe to inventory reconciliation events. */
+export function subscribeInventorySync(callback: (payload: InventorySyncPayload) => void): () => void {
+  inventorySyncCallbacks.add(callback)
+  return () => inventorySyncCallbacks.delete(callback)
+}
+
+/** Subscribe to authoritative inventory slot updates. */
+export function subscribeInventorySlotUpdate(
+  callback: (payload: InventorySlotUpdatePayload) => void,
+): () => void {
+  inventorySlotUpdateCallbacks.add(callback)
+  return () => inventorySlotUpdateCallbacks.delete(callback)
+}
+
+/** Sends a full snapshot of persistent inventory slots to server authority. */
+export function sendInventorySnapshot(slots: PersistentInventorySlot[]): void {
+  pendingInventorySnapshot = slots.map((slot) => ({
+    type: slot.type,
+    count: slot.count,
+  }))
+  if (!transport?.isConnected()) return
+  transport.sendInventorySnapshot(pendingInventorySnapshot)
+}
+
+/** Current multiplayer connection status. */
 export function getConnectionStatus(): ConnectionStatus {
   return {
     connected: transport?.isConnected() ?? false,
@@ -285,17 +345,14 @@ export function getConnectionStatus(): ConnectionStatus {
   }
 }
 
-/** Subscribe to connection status changes. Returns unsubscribe function. */
+/** Subscribe to connection status changes. */
 export function subscribeConnection(callback: (status: ConnectionStatus) => void): () => void {
   connectionCallbacks.add(callback)
   callback(getConnectionStatus())
   return () => connectionCallbacks.delete(callback)
 }
 
-/**
- * Call every frame from the game loop. Sends move when threshold exceeded (and rate-limited);
- * interpolates remote players toward their targets.
- */
+/** Frame update: sends local moves and interpolates remote players. */
 export function updateMultiplayer(dt: number): void {
   if (!transport?.isConnected() || !getPlayerState || !ready) return
 
@@ -334,7 +391,7 @@ export function updateMultiplayer(dt: number): void {
     remote.displayRotationY = lerpAngle(remote.displayRotationY, remote.targetRotationY, t)
     remote.displayLookPitch += (remote.targetLookPitch - remote.displayLookPitch) * t
     remote.group.position.copy(remote.displayPosition)
-    remote.group.rotation.y = remote.displayRotationY - Math.PI // mesh forward +Z, network yaw forward -Z
+    remote.group.rotation.y = remote.displayRotationY - Math.PI
     const head = remote.group.children[0] as THREE.Object3D
     head.rotation.x = THREE.MathUtils.lerp(head.rotation.x, remote.displayLookPitch, headPitchLerp)
     head.rotation.y = 0

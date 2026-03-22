@@ -40,6 +40,27 @@ export class SupabaseMultiplayerTransport implements MultiplayerTransport {
   }
 
   /** @inheritdoc */
+  sendBlockPlace(
+    _x: number,
+    _y: number,
+    _z: number,
+    _type: string,
+    _options?: { slotIndex?: number; consumeItem?: boolean },
+  ): void {
+    // Placeholder: no-op until Supabase Realtime is wired.
+  }
+
+  /** @inheritdoc */
+  sendBlockBreak(_x: number, _y: number, _z: number): void {
+    // Placeholder: no-op until Supabase Realtime is wired.
+  }
+
+  /** @inheritdoc */
+  sendInventorySnapshot(_slots: Array<{ type: string | null; count: number }>): void {
+    // Placeholder: no-op until Supabase Realtime is wired.
+  }
+
+  /** @inheritdoc */
   isConnected(): boolean {
     return this.connected
   }

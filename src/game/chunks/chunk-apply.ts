@@ -37,6 +37,8 @@ import { sharedWaterPlaneGeometry } from '../../block-materials'
 import { getBlockAt } from '../../chunk-runtime'
 import { placeTorch, removeTorchesInChunk, isWallTorchBlockType } from '../world-interactions/torches'
 import { CROSS_GEOMETRY_BLOCK_TYPES } from './cross-geometry-block-types'
+import { getGrassTopVariantMaterialKeys, partitionPositionsByVariantMaterialKey } from './grass-material-variants'
+import { addWorkerGeometryLayerMesh } from './worker-layer-mesh'
 
 export type ChunkApplyDeps = {
   chunks: Map<number, ChunkData>
@@ -167,38 +169,6 @@ export function buildPositionsByTypeFromVisibleKeys(
     out.set(blockType, positions)
   }
   return out
-}
-
-function addGeometryLayerMesh(
-  group: THREE.Group,
-  layer: NonNullable<ChunkDataPayload['geometryLayers']>[number],
-  material: THREE.Material | THREE.Material[],
-  userData?: { chunkKeyNum: number; blockType: BlockType },
-): THREE.Mesh | null {
-  const vertexCount = layer.position.length / 3
-  if (!Number.isFinite(vertexCount) || vertexCount <= 0) return null
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.BufferAttribute(layer.position, 3))
-  geo.setAttribute('normal', new THREE.BufferAttribute(layer.normal, 3))
-  geo.setAttribute('uv', new THREE.BufferAttribute(layer.uv, 2))
-  if (layer.index) {
-    geo.setIndex(new THREE.BufferAttribute(layer.index, 1))
-  }
-  // Group ranges are in vertices for non-indexed BufferGeometry, and in indices for indexed BufferGeometry.
-  // Worker face order [right, left, top, bottom, front, back] matches Three.js BoxGeometry
-  // material indices 0..5, so faceIndex is used directly as materialIndex.
-  let start = 0
-  for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-    const count = layer.faceVertexCounts[faceIndex] ?? 0
-    if (count > 0) geo.addGroup(start, count, faceIndex)
-    start += count
-  }
-  const mesh = new THREE.Mesh(geo, material as THREE.Material)
-  mesh.castShadow = true
-  mesh.receiveShadow = true
-  if (userData) mesh.userData = userData
-  group.add(mesh)
-  return mesh
 }
 
 const GRASS_BLOCK_TYPES_FOR_TALL_GRASS: BlockType[] = ['grass', 'grass_savanna']
@@ -474,7 +444,7 @@ export function applyChunkPayload(
       if (isPlacedStairsBlockType(blockType)) continue
       // Fences are rendered via instancing with connection-dependent geometry below.
       if (isFenceBlock(blockType)) continue
-      addGeometryLayerMesh(group, layer, getMaterialForBlockType(blockType), {
+      addWorkerGeometryLayerMesh(group, layer, getMaterialForBlockType(blockType), {
         chunkKeyNum: keyNum,
         blockType,
       })
@@ -602,15 +572,28 @@ export function applyChunkPayload(
         }
         continue
       }
+      if (blockType === 'grass' || blockType === 'grass_savanna') {
+        const variantKeys = getGrassTopVariantMaterialKeys()
+        if (variantKeys.length > 0) {
+          const buckets = partitionPositionsByVariantMaterialKey(visible, variantKeys)
+          for (const [materialKey, bucketPositions] of buckets) {
+            const mesh = addInstancedLayer(group, bucketPositions, getMaterialForBlockType(materialKey as any), {
+              chunkKeyNum: keyNum,
+              blockType,
+            })
+            if (mesh && deps.grassColormapData) {
+              setGrassInstanceColors(mesh, bucketPositions, deps.getResolvedBiome, deps.grassColormapData)
+            }
+          }
+          continue
+        }
+      }
+
       const mesh = addInstancedLayer(group, visible, getMaterialForBlockType(blockType), {
         chunkKeyNum: keyNum,
         blockType,
       })
-      if (
-        mesh &&
-        (blockType === 'grass' || blockType === 'grass_savanna') &&
-        deps.grassColormapData
-      ) {
+      if (mesh && (blockType === 'grass' || blockType === 'grass_savanna') && deps.grassColormapData) {
         setGrassInstanceColors(mesh, visible, deps.getResolvedBiome, deps.grassColormapData)
       }
       if (mesh && FOLIAGE_BLOCK_TYPES.includes(blockType) && deps.foliageColormapData) {

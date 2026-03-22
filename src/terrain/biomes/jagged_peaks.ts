@@ -2,7 +2,8 @@ import type { TerrainParams, LayerConfig, BiomeDefinition } from './types'
 
 export const jaggedPeaksTerrain: TerrainParams = {
   baseOffset: 10,
-  detailAmp: 16,
+  /** Slightly higher relief than before; global mountain/jagged boosts also add mass. */
+  detailAmp: 17,
   detailFreq: 0.027,
   flatness: 0.2,
   mountainAllowed: true,

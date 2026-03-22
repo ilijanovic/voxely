@@ -1,0 +1,11 @@
+---
+description: Block texture source path for Minecraft assets
+globs: "{public/assets/minecraft/textures/block/**,src/block-registry.ts,src/game/init/materials.ts}"
+alwaysApply: false
+---
+
+# Block texture location
+
+- When adding or updating Minecraft block textures, use files from `public/assets/minecraft/textures/block`.
+- Treat `public/assets/minecraft/textures/block` as the canonical location for block texture assets.
+- If code references block textures, prefer paths that resolve to assets under this directory.

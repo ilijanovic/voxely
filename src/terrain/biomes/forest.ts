@@ -4,7 +4,8 @@ export const forestTerrain: TerrainParams = {
   baseOffset: 3,
   detailAmp: 3.8,
   detailFreq: 0.022,
-  flatness: 0.8,
+  /** More rolling, less micro-noise than before (pairs with lower non-core mountain boost). */
+  flatness: 0.85,
   mountainAllowed: true,
 }
 

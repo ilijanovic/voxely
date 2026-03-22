@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js'
-import type { BlockType, ChunkData, BlockPos } from './types'
+import type { BlockType, ChunkData } from './types'
 export type { BlockType }
 import {
   CHUNK_SIZE,
@@ -77,13 +77,25 @@ import {
   getBloomRadius,
   getBloomThreshold,
   getFogNoiseEnabled,
+  getProgressiveChunkApplyEnabled,
 } from './graphics-settings'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { syncTerrainFogFromSceneFog, updateTerrainFogNoise } from './terrain-fog'
 import { getKeyBinding, type KeyAction } from './key-settings'
-import { initMultiplayer, updateMultiplayer, addSystemMessage } from './multiplayer'
+import {
+  initMultiplayer,
+  updateMultiplayer,
+  addSystemMessage,
+  sendBlockPlace,
+  sendBlockBreak,
+  subscribeBlockPlace,
+  subscribeBlockBreak,
+  subscribeInventorySync,
+  subscribeInventorySlotUpdate,
+  sendInventorySnapshot,
+} from './multiplayer.ts'
 import { setWorldApi } from './world-api'
 import { spawnEntitiesForChunk } from './entities/spawn'
 import { updateMovement } from './entities/movement'
@@ -103,7 +115,6 @@ import {
   type StairsHalf,
   getBlockCollisionBoxesLocal,
   isUnbreakableBlock,
-  getBlockBreakTimeWithTool,
   getBlockDefinition,
   getBlockTextureNames,
   getBlockHeight,
@@ -115,10 +126,12 @@ import {
 import { loadTextureSafe, loadItemTextureSafe, setPixelFilter } from './block-materials'
 import {
   getPersistentSlots,
+  setSlot,
   setPersistentSlots,
   initDefaultInventory,
   ensureSwordInHotbar,
   addItem,
+  consumeByType,
   getTotalCountForBlockType,
 } from './inventory'
 import {
@@ -207,11 +220,26 @@ import {
   computeFallingBlockMoves,
 } from './game/world-interactions/falling-blocks'
 import { isOccludingBlock as isBlockTypeOccluding } from './block-registry'
+import {
+  evaluatePlacementCell,
+  getBreakDurationForMode,
+  getBreakReach,
+  getPlaceReach,
+  type BlockGameplayMode,
+} from './game/world-interactions/block-rules'
+import { resolveBlockLoot } from './game/world-interactions/block-loot'
+import { dispatchUseOnBlock } from './game/world-interactions/block-use-dispatcher'
+import type {
+  BlockBreakPayload as MultiplayerBlockBreakPayload,
+  BlockPlacePayload as MultiplayerBlockPlacePayload,
+  InventorySlotUpdatePayload as MultiplayerInventorySlotUpdatePayload,
+  InventorySyncPayload as MultiplayerInventorySyncPayload,
+} from './multiplayer/types'
 import { isPendingSpawnReady } from './game/player/pending-spawn'
 import { applyBlockChangeToLoadedChunk as applyBlockChangeToLoadedChunkCore } from './game/world-interactions/apply-block-change'
 import { RaycastMeshCache } from './game/chunks/raycast-cache'
 import { initChunkWorkerClient, type ChunkWorkerClient } from './game/chunks/chunk-worker-client'
-import type { OverhangProfile } from './terrain-core'
+import type { ChunkDataPayload, OverhangProfile } from './terrain-core'
 import { createPoiRegistryForSpawn, getActivePois, setActivePois } from './world-pois'
 import { applyChunkPayload as applyChunkPayloadToScene } from './game/chunks/chunk-apply'
 import { updateChunks as updateChunksFromModule } from './game/chunks/chunk-manager'
@@ -219,13 +247,13 @@ import {
   generateChunk as generateChunkSync,
   breakBlock as breakBlockSync,
   unloadChunk as unloadChunkSync,
-  getBlockWorldPosition as getBlockWorldPositionSync,
   placeTorch as placeTorchSync,
   getRaycastMeshes as getRaycastMeshesSync,
   refreshChunkVisibleMeshes,
   tryUpdateSnowAccumulation,
   type ChunkSyncContext,
 } from './game/chunks/chunk-generate-sync'
+import { getBlockPosFromInstancedMesh } from './game/chunks/instanced-block-pos'
 import {
   updateDropsAndPickup as updateDropsAndPickupSystem,
   spawnDrop as spawnDropItem,
@@ -557,6 +585,7 @@ function saveGame(): void {
     completedQuestIds: questState.completedQuestIds,
     trackedQuestIds: questState.trackedQuestIds,
     discoveredChunkKeys: Array.from(discoveredChunkKeys),
+    blockStateVersion: 1,
   }
   saveToStorage(state)
 }
@@ -736,8 +765,159 @@ function loadGame(): boolean {
 let chunkWorker: ChunkWorkerClient | null = null
 /** Chunk key numbers we've requested from the worker but not yet received. */
 const pendingChunkKeys = new Set<number>()
+/** Pending worker chunk payloads waiting to be applied to scene/chunk runtime. */
+const pendingChunkPayloads: ChunkDataPayload[] = []
+/** Default frame budget used for progressive chunk apply. */
+const CHUNK_APPLY_FRAME_BUDGET_DEFAULT_MS = 4
+/** Lower clamp for adaptive progressive chunk apply budget. */
+const CHUNK_APPLY_FRAME_BUDGET_MIN_MS = 1
+/** Upper clamp for adaptive progressive chunk apply budget. */
+const CHUNK_APPLY_FRAME_BUDGET_MAX_MS = 8
+/** When frame delta is below this value, chunk apply budget may increase. */
+const CHUNK_APPLY_FRAME_DELTA_LOW_WATERMARK_MS = 15
+/** When frame delta is above this value, chunk apply budget may decrease. */
+const CHUNK_APPLY_FRAME_DELTA_HIGH_WATERMARK_MS = 22
+/** Budget adaptation step in milliseconds per frame. */
+const CHUNK_APPLY_FRAME_BUDGET_ADAPT_STEP_MS = 0.5
+/** Bonus weight for chunks that are in front of the camera. */
+const CHUNK_APPLY_VIEW_ALIGNMENT_BONUS = 6
+/** Current adaptive frame budget for progressive chunk apply. */
+let chunkApplyFrameBudgetMs = CHUNK_APPLY_FRAME_BUDGET_DEFAULT_MS
+const _chunkApplyCameraDirection = new THREE.Vector3()
+const _chunkApplyForwardXZ = new THREE.Vector2()
 /** Storage key for runtime overhang generation profile (vanilla | dramatic). */
 const OVERHANG_PROFILE_STORAGE_KEY = 'terrainOverhangProfile'
+
+/**
+ * Applies one chunk payload to scene/runtime and records chunkApply timing when profiling is enabled.
+ *
+ * @param payload - Worker chunk payload to apply
+ */
+function applyChunkPayloadFromQueue(payload: ChunkDataPayload): void {
+  withPerfTiming('chunkApply', () =>
+    applyChunkPayloadToScene(
+      scene,
+      payload,
+      {
+        chunks,
+        pendingChunkKeys,
+        grassColormapData,
+        foliageColormapData,
+        tallGrassMaterial,
+        getResolvedBiome,
+        torchContainer,
+        placedTorches,
+        onChunkAdded: (data) => {
+          spawnEntitiesForChunk(scene, chunkKey(data.cx, data.cz), data.cx, data.cz)
+          const keyNum = chunkKeyNumeric(data.cx, data.cz)
+          if (discoveredChunkKeys.has(keyNum) && data.heightmapBuffer) {
+            writeHeightmap(WORLD_SEED, keyNum, data.heightmapBuffer, data.biomeMapBuffer)
+          }
+        },
+        onChunkChanged: () => {
+          raycastMeshCache.markDirty()
+          _frustumDirty = true
+          applyPendingSpawnIfReady()
+          applyPendingLoadIfReady()
+        },
+      },
+      WORLD_SEED,
+    ),
+  )
+}
+
+/**
+ * Clears queued worker chunk payloads (used when terrain generation is reinitialized).
+ */
+function clearPendingChunkPayloads(): void {
+  pendingChunkPayloads.length = 0
+}
+
+/**
+ * Updates adaptive chunk-apply frame budget based on frame delta.
+ *
+ * @param frameDeltaMs - Last frame duration in milliseconds
+ */
+function updateChunkApplyFrameBudget(frameDeltaMs: number): void {
+  if (!getProgressiveChunkApplyEnabled()) {
+    chunkApplyFrameBudgetMs = CHUNK_APPLY_FRAME_BUDGET_DEFAULT_MS
+    return
+  }
+  if (frameDeltaMs >= CHUNK_APPLY_FRAME_DELTA_HIGH_WATERMARK_MS) {
+    chunkApplyFrameBudgetMs = Math.max(
+      CHUNK_APPLY_FRAME_BUDGET_MIN_MS,
+      chunkApplyFrameBudgetMs - CHUNK_APPLY_FRAME_BUDGET_ADAPT_STEP_MS,
+    )
+    return
+  }
+  if (frameDeltaMs <= CHUNK_APPLY_FRAME_DELTA_LOW_WATERMARK_MS) {
+    chunkApplyFrameBudgetMs = Math.min(
+      CHUNK_APPLY_FRAME_BUDGET_MAX_MS,
+      chunkApplyFrameBudgetMs + CHUNK_APPLY_FRAME_BUDGET_ADAPT_STEP_MS,
+    )
+  }
+}
+
+/**
+ * Returns the index of the highest-priority queued payload.
+ * Priority favors near chunks and chunks in front of the camera.
+ */
+function getHighestPriorityChunkPayloadIndex(): number {
+  if (pendingChunkPayloads.length <= 1) return 0
+  camera.getWorldDirection(_chunkApplyCameraDirection)
+  _chunkApplyForwardXZ.set(_chunkApplyCameraDirection.x, _chunkApplyCameraDirection.z)
+  if (_chunkApplyForwardXZ.lengthSq() > 0) _chunkApplyForwardXZ.normalize()
+
+  const playerChunkX = player.position.x / CHUNK_SIZE
+  const playerChunkZ = player.position.z / CHUNK_SIZE
+
+  let bestIndex = 0
+  let bestScore = Number.POSITIVE_INFINITY
+  for (let index = 0; index < pendingChunkPayloads.length; index++) {
+    const payload = pendingChunkPayloads[index]
+    const dx = payload.chunkX + 0.5 - playerChunkX
+    const dz = payload.chunkZ + 0.5 - playerChunkZ
+    const distanceScore = dx * dx + dz * dz
+    const viewAlignment = Math.max(0, dx * _chunkApplyForwardXZ.x + dz * _chunkApplyForwardXZ.y)
+    const score = distanceScore - viewAlignment * CHUNK_APPLY_VIEW_ALIGNMENT_BONUS
+    if (score < bestScore) {
+      bestScore = score
+      bestIndex = index
+    }
+  }
+  return bestIndex
+}
+
+/**
+ * Drains queued chunk payloads.
+ * - Progressive mode ON: apply only within per-frame time budget.
+ * - Progressive mode OFF: apply all queued payloads immediately.
+ *
+ * @param frameDeltaMs - Last frame duration in milliseconds
+ */
+function drainChunkApplyQueueFrameBudget(frameDeltaMs: number): void {
+  if (pendingChunkPayloads.length === 0) return
+  if (!getProgressiveChunkApplyEnabled()) {
+    chunkApplyFrameBudgetMs = CHUNK_APPLY_FRAME_BUDGET_DEFAULT_MS
+    while (pendingChunkPayloads.length > 0) {
+      const payload = pendingChunkPayloads.shift()
+      if (!payload) return
+      applyChunkPayloadFromQueue(payload)
+    }
+    return
+  }
+  updateChunkApplyFrameBudget(frameDeltaMs)
+  const startedAtMs = performance.now()
+  while (pendingChunkPayloads.length > 0) {
+    const priorityIndex = getHighestPriorityChunkPayloadIndex()
+    const payload = pendingChunkPayloads.splice(priorityIndex, 1)[0]
+    if (!payload) return
+    applyChunkPayloadFromQueue(payload)
+    if (performance.now() - startedAtMs >= chunkApplyFrameBudgetMs) {
+      break
+    }
+  }
+}
 
 /**
  * Parses a persisted overhang profile into a supported value.
@@ -796,7 +976,6 @@ let pendingLoad: {
 const raycaster = new THREE.Raycaster()
 const rayOrigin = new THREE.Vector3()
 const rayDirection = new THREE.Vector3()
-const BREAK_DISTANCE = 5 // maximale Reichweite zum Abbauen (in Blöcken)
 
 /** Aktuelles Ziel beim Halten: gleicher Block = Fortschritt, anderer Block = Reset (Weltkoordinaten, nicht Instanz-Index). */
 let breakTarget: {
@@ -839,7 +1018,6 @@ const MAGNET_SPEED = DEFAULT_MAGNET_SPEED
 
 /** Platziere Fackeln: Weltposition (Mitte der Fackel) + Group (Mesh + PointLight). */
 const placedTorches: PlacedTorch[] = []
-const PLACE_DISTANCE = 5
 
 /** When true, console.warn explains why F/right-click place failed. Enable via sessionStorage: setItem('debugPlace','1'). */
 function isPlaceDebug(): boolean {
@@ -1178,13 +1356,22 @@ function breakBlock(
 ): void {
   const ctx = getChunkSyncCtx()
   const useWorker = !!chunkWorker
-  const doorDrop =
-    blockType === 'door_closed' || blockType === 'door_open' ? 'door_closed' : undefined
+  const heldItem = getSelectedBlockType()
+  const doorDropType =
+    blockType === 'door_closed' || blockType === 'door_open' ? ('door_closed' as BlockType) : null
+  const loot = doorDropType
+    ? { dropType: doorDropType, count: 1 }
+    : resolveBlockLoot({
+        blockType,
+        heldItemId: heldItem,
+      })
   breakBlockSync(ctx, chunkKeyNum, blockType, worldX, worldY, worldZ, {
-    skipRefresh: useWorker,
+    skipRefresh: false,
     time,
-    dropType: doorDrop,
+    dropType: loot.dropType,
+    dropCount: loot.count,
   })
+  if (multiplayerEnabled) sendBlockBreak(worldX, worldY, worldZ)
   // Only fill with water when this column is under ocean/lake (surface below water level), not when digging on land.
   const surfaceUnderwater = getHeight(worldX, worldZ) < WATER_LEVEL
   if (shouldFillBrokenBlockWithWater(worldY) && surfaceUnderwater) {
@@ -1295,17 +1482,6 @@ function applyPendingLoadIfReady(): void {
   playerGrounded = true
   player.visible = true
   pendingLoad = null
-}
-
-/**
- * Resolves an instanced block (chunkKeyNum, blockType, instanceId) to world coordinates for raycast/mining.
- */
-function getBlockWorldPosition(
-  chunkKeyNum: number,
-  blockType: BlockType,
-  instanceId: number,
-): BlockPos | null {
-  return getBlockWorldPositionSync(chunkKeyNum, blockType, instanceId)
 }
 
 /**
@@ -1606,6 +1782,15 @@ let bloomPass: UnrealBloomPass | null = null
 let torchContainer: THREE.Group
 /** 3D crack overlay on the block face being mined; created in initSceneAndRenderer, shown when breakTarget is set. */
 let blockCrackOverlayMesh: THREE.Mesh | null = null
+let isBlockCrackOverlayTextureReady = false
+const BLOCK_CRACK_STAGE_COUNT = 10
+const BLOCK_CRACK_STAGE_UV_HEIGHT = 1 / BLOCK_CRACK_STAGE_COUNT
+const BLOCK_CRACK_TEXTURE_URL = '/crack_stages.svg'
+const BLOCK_CRACK_SURFACE_BIAS = 0.507
+const BLOCK_CRACK_MATERIAL_COLOR = 0xffffff
+const BLOCK_CRACK_MATERIAL_OPACITY = 1
+const BLOCK_CRACK_MATERIAL_ALPHA_TEST = 0.08
+const BLOCK_CRACK_QUAD_FORWARD = new THREE.Vector3(0, 0, 1)
 /** Wireframe outline around the block under the crosshair; created in initSceneAndRenderer, shown when aimedBlock is set. */
 let blockOutlineMesh: THREE.LineSegments | null = null
 let sunLight: THREE.DirectionalLight
@@ -1782,6 +1967,8 @@ const HEAD_PITCH_MAX = THREE.MathUtils.degToRad(65) // vertikale Kopfbegrenzung
 
 /** Ob Multiplayer aktiv ist (nur dann verbinden wir mit dem Server). */
 let multiplayerEnabled = false
+/** Active block gameplay mode (Java-like survival/creative interaction rules). */
+let blockGameplayMode: BlockGameplayMode = 'survival'
 
 /** Callback when the player uses (right-clicks) a crafting table block; used to open the crafting UI. */
 let onCraftingTableUse: (() => void) | null = null
@@ -1801,6 +1988,7 @@ export async function initGame(
   container?: HTMLElement,
   options?: {
     multiplayer?: boolean
+    gameplayMode?: BlockGameplayMode
     onHotbarChange?: (blocks: BlockType[], counts: number[]) => void
     onCraftingTableUse?: () => void
     onQuestNpcInteract?: (questGiver: {
@@ -1811,6 +1999,7 @@ export async function initGame(
 ): Promise<void> {
   initGameplayRng(WORLD_SEED)
   multiplayerEnabled = options?.multiplayer === true
+  blockGameplayMode = options?.gameplayMode ?? 'survival'
   setOnHotbarChange(options?.onHotbarChange ?? null)
   onCraftingTableUse = options?.onCraftingTableUse ?? null
   onQuestNpcInteract = options?.onQuestNpcInteract ?? null
@@ -1903,7 +2092,7 @@ function registerDebugCommands(): void {
       return 'Perf report printed to console.'
     }
     if (sub === 'status') {
-      return `Perf profiling: ${isPerfProfilingEnabled() ? 'on' : 'off'}`
+      return `Perf profiling: ${isPerfProfilingEnabled() ? 'on' : 'off'} | ${getChunkApplyPerfDebugLine()}`
     }
     return 'Usage: /perf on | off | status | report'
   })
@@ -1920,6 +2109,7 @@ function reinitializeTerrainGeneration(): void {
     chunkWorker = null
   }
   pendingChunkKeys.clear()
+  clearPendingChunkPayloads()
 
   // Unload all currently loaded chunks so they are regenerated under new profile settings.
   const loadedKeys = Array.from(chunks.keys())
@@ -1955,10 +2145,30 @@ function initSceneAndRenderer(container?: HTMLElement): void {
   createTerrainDebugOverlaySystem(terrainDebug)
 
   const crackGeom = new THREE.PlaneGeometry(1, 1)
+  const crackTex = new THREE.TextureLoader().load(
+    BLOCK_CRACK_TEXTURE_URL,
+    () => {
+      isBlockCrackOverlayTextureReady = true
+    },
+    undefined,
+    () => {
+      isBlockCrackOverlayTextureReady = false
+      console.warn('[block crack] Failed to load 3D crack texture; HUD crack overlay remains active.')
+    },
+  )
+  setPixelFilter(crackTex)
+  crackTex.wrapS = THREE.ClampToEdgeWrapping
+  crackTex.wrapT = THREE.ClampToEdgeWrapping
   const crackMat = new THREE.MeshBasicMaterial({
+    map: crackTex,
+    color: BLOCK_CRACK_MATERIAL_COLOR,
     transparent: true,
-    opacity: 0.85,
+    opacity: BLOCK_CRACK_MATERIAL_OPACITY,
+    alphaTest: BLOCK_CRACK_MATERIAL_ALPHA_TEST,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
     side: THREE.DoubleSide,
   })
   blockCrackOverlayMesh = new THREE.Mesh(crackGeom, crackMat)
@@ -2028,43 +2238,16 @@ function initChunkWorker(): void {
     chunkWorker = null
   }
   pendingChunkKeys.clear()
+  clearPendingChunkPayloads()
 
   const client = initChunkWorkerClient({
     seed: WORLD_SEED,
     overhangProfile: getStoredOverhangProfile(),
     pois: getActivePois(),
     maxWorkers: Infinity,
-    onPayload: (payload) =>
-      withPerfTiming('chunkApply', () =>
-        applyChunkPayloadToScene(
-          scene,
-          payload,
-          {
-            chunks,
-            pendingChunkKeys,
-            grassColormapData,
-            foliageColormapData,
-            tallGrassMaterial,
-            getResolvedBiome,
-            torchContainer,
-            placedTorches,
-            onChunkAdded: (data) => {
-              spawnEntitiesForChunk(scene, chunkKey(data.cx, data.cz), data.cx, data.cz)
-              const keyNum = chunkKeyNumeric(data.cx, data.cz)
-              if (discoveredChunkKeys.has(keyNum) && data.heightmapBuffer) {
-                writeHeightmap(WORLD_SEED, keyNum, data.heightmapBuffer, data.biomeMapBuffer)
-              }
-            },
-            onChunkChanged: () => {
-              raycastMeshCache.markDirty()
-              _frustumDirty = true
-              applyPendingSpawnIfReady()
-              applyPendingLoadIfReady()
-            },
-          },
-          WORLD_SEED,
-        ),
-      ),
+    onPayload: (payload) => {
+      pendingChunkPayloads.push(payload)
+    },
     onError: (message, error) => {
       console.error(
         '[terrain] chunk worker failed, falling back to main thread generation',
@@ -2193,6 +2376,37 @@ function initPlayerAndWorldApi(resolvedSpawn: { x: number; z: number }): void {
       }),
       { createPlayerMesh: createPlayerMeshOnly },
     )
+    sendInventorySnapshot(getPersistentSlots())
+    subscribeBlockPlace((payload: MultiplayerBlockPlacePayload) => {
+      const next = payload.type as BlockType
+      setBlockModification(payload.x, payload.y, payload.z, next)
+      applyBlockChangeToLoadedChunk({
+        bx: payload.x,
+        by: payload.y,
+        bz: payload.z,
+        next,
+      })
+    })
+    subscribeBlockBreak((payload: MultiplayerBlockBreakPayload) => {
+      setBlockModification(payload.x, payload.y, payload.z, 'air')
+      applyBlockChangeToLoadedChunk({
+        bx: payload.x,
+        by: payload.y,
+        bz: payload.z,
+        next: 'air',
+      })
+    })
+    subscribeInventorySync((payload: MultiplayerInventorySyncPayload) => {
+      if (payload.delta > 0) {
+        addItem(payload.itemType as BlockType, payload.delta)
+      } else if (payload.delta < 0) {
+        consumeByType(payload.itemType as BlockType, -payload.delta)
+      }
+    })
+    subscribeInventorySlotUpdate((payload: MultiplayerInventorySlotUpdatePayload) => {
+      if (payload.slotIndex < 0 || payload.slotIndex >= TOTAL_PERSISTENT_SLOTS) return
+      setSlot(payload.slotIndex, payload.type as BlockType | null, payload.count)
+    })
   }
 }
 
@@ -2631,6 +2845,17 @@ function withPerfTimingResult<T>(section: PerfSection, fn: () => T): T {
 }
 
 /**
+ * Returns a compact debug line for progressive chunk-apply state.
+ */
+function getChunkApplyPerfDebugLine(): string {
+  return [
+    `chunkApplyQueue: n=${pendingChunkPayloads.length}`,
+    `budget=${chunkApplyFrameBudgetMs.toFixed(2)}ms`,
+    `progressive=${getProgressiveChunkApplyEnabled() ? 'on' : 'off'}`,
+  ].join(' | ')
+}
+
+/**
  * Logs accumulated perf stats to the console and clears the current window.
  */
 function reportPerfStatsNow(): void {
@@ -2640,7 +2865,8 @@ function reportPerfStatsNow(): void {
     const avgMs = bucket.samples > 0 ? bucket.totalMs / bucket.samples : 0
     return `${section}: avg ${avgMs.toFixed(2)} ms | max ${bucket.maxMs.toFixed(2)} ms | n=${bucket.samples}`
   })
-  console.log(`[perf] ${new Date().toISOString()}\n${lines.join('\n')}`)
+  const extra = getChunkApplyPerfDebugLine()
+  console.log(`[perf] ${new Date().toISOString()}\n${lines.join('\n')}\n${extra}`)
   resetPerfBuckets()
   perfLastReportAtMs = performance.now()
 }
@@ -3561,7 +3787,7 @@ function resolveRaycastHitToBlock(
     const ud = hit.object.userData as { chunkKeyNum: number; blockType: BlockType }
     let chunkKeyNum = ud.chunkKeyNum
     let blockType = ud.blockType
-    let pos = getBlockWorldPosition(chunkKeyNum, blockType, hit.instanceId)
+    let pos = getBlockPosFromInstancedMesh(hit.object, hit.instanceId)
     const snowPrefer = pos
       ? preferSnowLayerIfAimingAbove(pos.x, pos.y, pos.z, hit.point.y)
       : null
@@ -3602,7 +3828,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     rayOrigin.copy(camera.position)
     camera.getWorldDirection(rayDirection)
     raycaster.set(rayOrigin, rayDirection)
-    raycaster.far = BREAK_DISTANCE
+    raycaster.far = getBreakReach(blockGameplayMode)
     const blockMeshesAimed = getRaycastMeshes()
     const hitsAimed = withPerfTimingResult('raycast', () => raycaster.intersectObjects(blockMeshesAimed))
     currentHit = hitsAimed[0]?.face ? hitsAimed[0] : null
@@ -3622,7 +3848,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     rayOrigin.copy(camera.position)
     camera.getWorldDirection(rayDirection)
     const entityHit = withPerfTimingResult('raycast', () =>
-      raycastEntities(rayOrigin, rayDirection, PLACE_DISTANCE),
+      raycastEntities(rayOrigin, rayDirection, getPlaceReach(blockGameplayMode)),
     )
     if (entityHit?.entity.questGiver && onQuestNpcInteract) {
       rightMouseJustPressed = false
@@ -3635,7 +3861,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
     rightMouseJustPressed = false
     fKeyJustPressed = false
     raycaster.set(rayOrigin, rayDirection)
-    raycaster.far = PLACE_DISTANCE
+    raycaster.far = getPlaceReach(blockGameplayMode)
     const blockMeshesPlace = getRaycastMeshes()
     const placeHits = withPerfTimingResult('raycast', () => raycaster.intersectObjects(blockMeshesPlace))
     const placeHit = placeHits[0]
@@ -3656,13 +3882,14 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
         (placeX - camera.position.x) ** 2 +
         (placeY - camera.position.y) ** 2 +
         (placeZ - camera.position.z) ** 2
-      if (distSq > PLACE_DISTANCE * PLACE_DISTANCE) {
+      const placeReach = getPlaceReach(blockGameplayMode)
+      if (distSq > placeReach * placeReach) {
         if (isPlaceDebug()) {
           console.warn(
             'Place (F): too far — distance',
             Math.sqrt(distSq).toFixed(2),
             '>',
-            PLACE_DISTANCE
+            placeReach
           )
         }
       } else {
@@ -3671,21 +3898,21 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
         const useBy = Math.floor(placeHit.point.y - 0.01 * _direction.y)
         const useBz = Math.floor(placeHit.point.z - 0.01 * _direction.z)
         const useBlock = getBlockAt(useBx, useBy, useBz)
-        if (useBlock === 'door_closed' || useBlock === 'door_open') {
-          const next = useBlock === 'door_closed' ? 'door_open' : 'door_closed'
-          const above = getBlockAt(useBx, useBy + 1, useBz)
-          const below = getBlockAt(useBx, useBy - 1, useBz)
-          const isDoor = (t: string | null) => t === 'door_closed' || t === 'door_open'
-          const otherBy = isDoor(above) ? useBy + 1 : isDoor(below) ? useBy - 1 : null
-          setBlockModification(useBx, useBy, useBz, next)
-          applyBlockChangeToLoadedChunk({ bx: useBx, by: useBy, bz: useBz, next })
-          if (otherBy !== null) {
-            setBlockModification(useBx, otherBy, useBz, next)
-            applyBlockChangeToLoadedChunk({ bx: useBx, by: otherBy, bz: useBz, next })
-          }
-        } else if (useBlock === 'crafting_table') {
-          onCraftingTableUse?.()
-        } else {
+        const handledUse =
+          useBlock && useBlock !== 'air'
+            ? dispatchUseOnBlock({
+                blockType: useBlock,
+                x: useBx,
+                y: useBy,
+                z: useBz,
+                getBlockAt,
+                setBlockModification,
+                applyBlockChangeToLoadedChunk: ({ bx, by, bz, next }) =>
+                  applyBlockChangeToLoadedChunk({ bx, by, bz, next }),
+                onCraftingTableUse: onCraftingTableUse ?? undefined,
+              }).handled
+            : false
+        if (!handledUse) {
           const sel = getSelectedBlockType()
           const count = getSelectedSlotCount()
           if (sel === 'torch' && count > 0) {
@@ -3714,7 +3941,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             }
           } else if (sel === 'torch') {
             if (isPlaceDebug() && count === 0) console.warn('Place (F): torch selected but slot empty.')
-          } else if (count === 0 || !isPlaceableBlock(sel)) {
+          } else if (!evaluatePlacementCell({ selectedType: sel, selectedCount: count, occupiedType: 'air' }).allowed) {
             if (isPlaceDebug()) {
               console.warn(
                 'Place (F): cannot place — slot empty or not placeable. Selected:',
@@ -3732,6 +3959,11 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
             const pz = player.position.z
             const at = getBlockAt(adjX, adjY, adjZ)
             const blockOverlapsEntity = blockCellOverlapsAnyEntity(adjX, adjY, adjZ)
+            const placementRule = evaluatePlacementCell({
+              selectedType: sel,
+              selectedCount: count,
+              occupiedType: at,
+            })
 
             /**
              * Quantizes a world direction vector (XZ) into one of the four cardinal facings.
@@ -3790,7 +4022,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
               const atUpper = getBlockAt(adjX, adjY + 1, adjZ)
               const upperOk =
                 atUpper === null || atUpper === 'air' || isReplaceableByPlacement(atUpper)
-              const lowerOk = at === null || at === 'air' || isReplaceableByPlacement(at)
+              const lowerOk = placementRule.allowed
               const doorOverlapsPlayer =
                 wouldPlacedBlockOverlapPlayer('door_closed', adjX, adjY, adjZ) ||
                 wouldPlacedBlockOverlapPlayer('door_closed', adjX, adjY + 1, adjZ)
@@ -3833,6 +4065,15 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                   next: 'door_closed',
                 })
                 consumeOneFromSelectedSlot()
+                if (multiplayerEnabled) {
+                  sendBlockPlace(adjX, adjY, adjZ, 'door_closed', {
+                    slotIndex: getSelectedHotbarIndex(),
+                    consumeItem: true,
+                  })
+                  sendBlockPlace(adjX, adjY + 1, adjZ, 'door_closed', {
+                    consumeItem: false,
+                  })
+                }
               } else if (isPlaceDebug()) {
                 console.warn(
                   'Place (F): door placement rejected (upper cell occupied, overlap, or not replaceable).'
@@ -3855,7 +4096,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                 lastPlaceRejectMessageTime = now
                 addSystemMessage("Can't place block here")
               }
-            } else if (at !== null && at !== 'air' && !isReplaceableByPlacement(at)) {
+            } else if (!placementRule.allowed) {
               if (isPlaceDebug()) console.warn('Place (F): target cell not empty. Block at', adjX, adjY, adjZ, ':', at)
               const now = Date.now()
               if (now - lastPlaceRejectMessageTime >= PLACE_REJECT_MESSAGE_THROTTLE_MS) {
@@ -3879,6 +4120,12 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
                 next: blockToPlace,
               })
               consumeOneFromSelectedSlot()
+              if (multiplayerEnabled) {
+                sendBlockPlace(adjX, adjY, adjZ, blockToPlace, {
+                  slotIndex: getSelectedHotbarIndex(),
+                  consumeItem: true,
+                })
+              }
             }
             }
           }
@@ -3912,7 +4159,9 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
         breakTarget.y === y &&
         breakTarget.z === z
       ) {
-        const required = getBlockBreakTimeWithTool(blockType, heldItem)
+        // Keep the crack quad aligned with the currently hit face of the same block.
+        breakTarget.faceNormal.copy(_direction)
+        const required = getBreakDurationForMode(blockType, heldItem, blockGameplayMode)
         breakProgress += dt
         if (breakProgress >= required) {
           breakBlock(chunkKeyNum, blockType, x, y, z, time)
@@ -3930,7 +4179,7 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
           faceNormal: _direction.clone(),
         }
         breakProgress = dt
-        const required = getBlockBreakTimeWithTool(blockType, heldItem)
+        const required = getBreakDurationForMode(blockType, heldItem, blockGameplayMode)
         if (required <= 0 || breakProgress >= required) {
           breakBlock(chunkKeyNum, blockType, x, y, z, time)
           breakTarget = null
@@ -3949,39 +4198,36 @@ function updateBlockBreakAndPlace(dt: number, time: number): void {
   let stage = 0
   if (visible && breakTarget) {
     const heldItem = getSelectedBlockType()
-    const breakTime = getBlockBreakTimeWithTool(breakTarget.blockType, heldItem)
+    const breakTime = getBreakDurationForMode(breakTarget.blockType, heldItem, blockGameplayMode)
     const progress = breakTime > 0 ? Math.min(1, breakProgress / breakTime) : 1
-    const rawStage = Math.floor(progress * 10)
-    stage = progress > 0 ? Math.min(9, Math.max(1, rawStage)) : 0
+    const rawStage = Math.floor(progress * BLOCK_CRACK_STAGE_COUNT)
+    stage = progress > 0 ? Math.min(BLOCK_CRACK_STAGE_COUNT - 1, Math.max(1, rawStage)) : 0
   }
   if (blockCrackElement) {
     blockCrackElement.style.visibility = visible ? 'visible' : 'hidden'
     if (visible) {
-      blockCrackElement.style.backgroundPosition = `0 ${-stage * 10}%`
+      const stagePercentStep = 100 / BLOCK_CRACK_STAGE_COUNT
+      blockCrackElement.style.backgroundPosition = `0 ${-stage * stagePercentStep}%`
       blockCrackElement.setAttribute('data-stage', String(stage))
     }
   }
   if (blockCrackOverlayMesh) {
-    blockCrackOverlayMesh.visible = visible
-    if (visible && breakTarget) {
+    blockCrackOverlayMesh.visible = visible && isBlockCrackOverlayTextureReady
+    if (visible && breakTarget && isBlockCrackOverlayTextureReady) {
       const n = breakTarget.faceNormal
       const cx = breakTarget.x + 0.5
       const cy = breakTarget.y + 0.5
       const cz = breakTarget.z + 0.5
-      const faceOffset = 0.501
       blockCrackOverlayMesh.position.set(
-        cx + n.x * faceOffset,
-        cy + n.y * faceOffset,
-        cz + n.z * faceOffset,
+        cx + n.x * BLOCK_CRACK_SURFACE_BIAS,
+        cy + n.y * BLOCK_CRACK_SURFACE_BIAS,
+        cz + n.z * BLOCK_CRACK_SURFACE_BIAS,
       )
-      blockCrackOverlayMesh.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 0, 1),
-        n,
-      )
+      blockCrackOverlayMesh.quaternion.setFromUnitVectors(BLOCK_CRACK_QUAD_FORWARD, n)
       const mat = blockCrackOverlayMesh.material as THREE.MeshBasicMaterial
       if (mat.map) {
-        mat.map.offset.set(0, 0.9 - stage * 0.1)
-        mat.map.repeat.set(1, 0.1)
+        mat.map.offset.set(0, 1 - BLOCK_CRACK_STAGE_UV_HEIGHT - stage * BLOCK_CRACK_STAGE_UV_HEIGHT)
+        mat.map.repeat.set(1, BLOCK_CRACK_STAGE_UV_HEIGHT)
       }
     }
   }
@@ -4045,6 +4291,7 @@ function animate(): void {
   const time = performance.now() * 0.001
   updateFPSAndSpawn(time)
   updateDayCycleAndAtmosphere(dt)
+  drainChunkApplyQueueFrameBudget(dt * 1000)
   withPerfTiming('chunkVisibility', () => updateChunkVisibility())
   withPerfTiming('movementCollision', () => updateMovementAndCollision(dt, time))
   updateCameraAndViewMode(time, dt)

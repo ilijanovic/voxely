@@ -66,6 +66,41 @@ export type StateEntry = {
   lookPitch?: number
 }
 
+export type BlockPlacePayload = {
+  id: string
+  x: number
+  y: number
+  z: number
+  type: string
+  slotIndex?: number
+  consumeItem?: boolean
+}
+
+export type BlockBreakPayload = {
+  id: string
+  x: number
+  y: number
+  z: number
+}
+
+export type InventorySyncPayload = {
+  id: string
+  itemType: string
+  delta: number
+}
+
+export type InventorySlotUpdatePayload = {
+  id: string
+  slotIndex: number
+  type: string | null
+  count: number
+}
+
+export type PersistentInventorySlot = {
+  type: string | null
+  count: number
+}
+
 export type TransportCallbacks = {
   onConnectChange: (connected: boolean) => void
   onInit: (payload: InitPayload) => void
@@ -74,6 +109,10 @@ export type TransportCallbacks = {
   onPlayerLeave: (payload: PlayerLeavePayload) => void
   onChat: (payload: ChatPayload) => void
   onState: (state: StateEntry[]) => void
+  onBlockPlace: (payload: BlockPlacePayload) => void
+  onBlockBreak: (payload: BlockBreakPayload) => void
+  onInventorySync: (payload: InventorySyncPayload) => void
+  onInventorySlotUpdate: (payload: InventorySlotUpdatePayload) => void
 }
 
 export type MultiplayerTransportConnectOptions = {
@@ -97,6 +136,21 @@ export interface MultiplayerTransport {
 
   /** Send a chat message to the backend. */
   sendChat(text: string): void
+
+  /** Sends an optimistic block placement request/event. */
+  sendBlockPlace(
+    x: number,
+    y: number,
+    z: number,
+    type: string,
+    options?: { slotIndex?: number; consumeItem?: boolean },
+  ): void
+
+  /** Sends an optimistic block break request/event. */
+  sendBlockBreak(x: number, y: number, z: number): void
+
+  /** Sends current persistent inventory snapshot (hotbar + main inventory). */
+  sendInventorySnapshot(slots: PersistentInventorySlot[]): void
 
   /** Whether the underlying connection is currently active. */
   isConnected(): boolean

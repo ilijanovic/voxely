@@ -48,6 +48,22 @@ export class SocketMultiplayerTransport implements MultiplayerTransport {
     this.socket.on('state', (state) => {
       callbacks.onState(state)
     })
+
+    this.socket.on('blockPlace', (payload) => {
+      callbacks.onBlockPlace(payload)
+    })
+
+    this.socket.on('blockBreak', (payload) => {
+      callbacks.onBlockBreak(payload)
+    })
+
+    this.socket.on('inventorySync', (payload) => {
+      callbacks.onInventorySync(payload)
+    })
+
+    this.socket.on('inventorySlotUpdate', (payload) => {
+      callbacks.onInventorySlotUpdate(payload)
+    })
   }
 
   /** @inheritdoc */
@@ -75,6 +91,39 @@ export class SocketMultiplayerTransport implements MultiplayerTransport {
     const trimmed = text.trim()
     if (!trimmed) return
     this.socket.emit('chat', { text: trimmed })
+  }
+
+  /** @inheritdoc */
+  sendBlockPlace(
+    x: number,
+    y: number,
+    z: number,
+    type: string,
+    options?: { slotIndex?: number; consumeItem?: boolean },
+  ): void {
+    if (!this.socket?.connected) return
+    this.socket.emit('blockPlace', {
+      x,
+      y,
+      z,
+      type,
+      slotIndex: options?.slotIndex,
+      consumeItem: options?.consumeItem,
+    })
+  }
+
+  /** @inheritdoc */
+  sendBlockBreak(x: number, y: number, z: number): void {
+    if (!this.socket?.connected) return
+    this.socket.emit('blockBreak', { x, y, z })
+  }
+
+  /** @inheritdoc */
+  sendInventorySnapshot(
+    slots: Array<{ type: string | null; count: number }>,
+  ): void {
+    if (!this.socket?.connected) return
+    this.socket.emit('inventorySnapshot', { slots })
   }
 
   /** @inheritdoc */
